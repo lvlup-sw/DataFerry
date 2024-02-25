@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CacheObject")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b4155b94b8bf2923d9154138509ce479e5189170")]
 [assembly: System.Reflection.AssemblyProductAttribute("CacheObject")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CacheObject")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

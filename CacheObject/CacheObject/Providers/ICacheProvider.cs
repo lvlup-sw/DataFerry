@@ -1,6 +1,4 @@
 ﻿using CacheObject.Caches;
-using System;
-using System.Threading.Tasks;
 
 namespace CacheObject.Providers
 {
@@ -15,11 +13,6 @@ namespace CacheObject.Providers
         Task<T> CacheObjectAsync(T obj, string key);
 
         /// <summary>
-        /// Get the cache object
-        /// </summary>
-        ICache<T> Cache { get; }
-
-        /// <summary>
         /// Get the service provider
         /// </summary>
         IServiceProvider ServiceProvider { get; }
@@ -28,5 +21,10 @@ namespace CacheObject.Providers
         /// Get the real provider
         /// </summary>
         IRealProvider<T> RealProvider { get; }
+
+        /// <summary>
+        /// Get the cache object
+        /// </summary>
+        ICache<T> Cache { get; }
     }
 }

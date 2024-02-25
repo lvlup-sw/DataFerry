@@ -1,8 +1,4 @@
-﻿using CacheObject.Caches;
-using System;
-using System.Threading.Tasks;
-
-namespace CacheObject.Providers
+﻿namespace CacheObject.Providers
 {
     public interface IRealProvider<T>
     {
@@ -10,10 +6,5 @@ namespace CacheObject.Providers
         /// Get object from data source
         /// </summary>
         Task<T> GetObjectAsync(T obj);
-
-        /// <summary>
-        /// Get the service provider
-        /// </summary>
-        IServiceProvider ServiceProvider { get; }
     }
 }
