@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "C:\\Users\\Reed\\Desktop\\gwu\\project-portfolio\\cache-object\\CacheObject\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{C9B7D322-DCD9-42FF-8A77-EE8470572934}|MockCachingOperation\\MockCachingOperation.csproj|c:\\users\\reed\\desktop\\gwu\\project-portfolio\\cache-object\\cacheobject\\mockcachingoperation\\mockcachingoperation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{C9B7D322-DCD9-42FF-8A77-EE8470572934}|MockCachingOperation\\MockCachingOperation.csproj|solutionrelative:mockcachingoperation\\mockcachingoperation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{C9B7D322-DCD9-42FF-8A77-EE8470572934}|MockCachingOperation\\MockCachingOperation.csproj|c:\\users\\reed\\desktop\\gwu\\project-portfolio\\cache-object\\cacheobject\\mockcachingoperation\\worker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
       "RelativeMoniker": "D:0:0:{C9B7D322-DCD9-42FF-8A77-EE8470572934}|MockCachingOperation\\MockCachingOperation.csproj|solutionrelative:mockcachingoperation\\worker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{C9B7D322-DCD9-42FF-8A77-EE8470572934}|MockCachingOperation\\MockCachingOperation.csproj|c:\\users\\reed\\desktop\\gwu\\project-portfolio\\cache-object\\cacheobject\\mockcachingoperation\\mockcachingoperation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{C9B7D322-DCD9-42FF-8A77-EE8470572934}|MockCachingOperation\\MockCachingOperation.csproj|solutionrelative:mockcachingoperation\\mockcachingoperation.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{C9B7D322-DCD9-42FF-8A77-EE8470572934}|MockCachingOperation\\MockCachingOperation.csproj|c:\\users\\reed\\desktop\\gwu\\project-portfolio\\cache-object\\cacheobject\\mockcachingoperation\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
@@ -22,7 +22,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 2,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Document",
@@ -39,26 +39,26 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "Worker.cs",
               "DocumentMoniker": "C:\\Users\\Reed\\Desktop\\gwu\\project-portfolio\\cache-object\\CacheObject\\MockCachingOperation\\Worker.cs",
               "RelativeDocumentMoniker": "MockCachingOperation\\Worker.cs",
               "ToolTip": "C:\\Users\\Reed\\Desktop\\gwu\\project-portfolio\\cache-object\\CacheObject\\MockCachingOperation\\Worker.cs",
               "RelativeToolTip": "MockCachingOperation\\Worker.cs",
-              "ViewState": "AQIAAAAAAAAAAAAAAAAAABEAAABmAAAA",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAABcAAAABAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2024-02-26T06:34:37.001Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "MockCachingOperation.cs",
               "DocumentMoniker": "C:\\Users\\Reed\\Desktop\\gwu\\project-portfolio\\cache-object\\CacheObject\\MockCachingOperation\\MockCachingOperation.cs",
               "RelativeDocumentMoniker": "MockCachingOperation\\MockCachingOperation.cs",
               "ToolTip": "C:\\Users\\Reed\\Desktop\\gwu\\project-portfolio\\cache-object\\CacheObject\\MockCachingOperation\\MockCachingOperation.cs",
               "RelativeToolTip": "MockCachingOperation\\MockCachingOperation.cs",
-              "ViewState": "AQIAAB8AAAAAAAAAAAAgwDIAAABTAAAA",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAIIAAAAAAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2024-02-26T06:21:02.316Z",
               "EditorCaption": ""
