@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace CacheObject.Caches
+﻿namespace CacheObject.Caches
 {
     public class TestCache<T> : ICache<T>
     {
@@ -35,5 +29,22 @@ namespace CacheObject.Caches
                 _data.Add(key, item);
             }
         }
+
+        public virtual List<Tuple<string, T>> GetItems()
+        {
+            lock (_data)
+            {
+                List<Tuple<string, T>> items = [];
+                foreach (var item in _data)
+                {
+                    items.Add(new Tuple<string, T>(item.Key, item.Value));
+                }
+                return items;
+            }
+        }
+
+        public virtual int GetItemCount() => _data.Count;
+
+        public virtual T GetData(string key) => _data[key];
     }
 }

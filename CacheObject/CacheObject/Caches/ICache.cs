@@ -7,5 +7,11 @@
         Task SetItemAsync(string key, T item);
 
         Task RemoveItemAsync(string key);
+
+        int GetItemCount();
+
+        T GetData(string key);
+
+        List<Tuple<string, T>> GetItems();
     }
 }
