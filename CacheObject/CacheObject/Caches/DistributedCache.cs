@@ -8,17 +8,18 @@ using System.Text.Json;
 namespace CacheObject.Caches
 {
     /// <summary>
-    /// An implementation of <see cref="IDistributedCache"/> which uses the <see cref="ICache"/> interface as a base.
+    /// An implementation of <see cref="IDistributedCache"/> which uses the <see cref="ICache{T}"/> interface as a base.
     /// </summary>
     /// <remarks>
     /// This can be used with numerous distributed cache providers such as Redis, AWS ElastiCache, or Azure Blob Storage.
+    /// </remarks>
     /// <typeparam name="T"></typeparam>
     public class DistributedCache<T> : ICache<T>
     {
         private readonly IDistributedCache _cache;
         private readonly ILogger _logger;
         private readonly CacheSettings _settings;
-        private readonly IAsyncPolicy<object> _policy;
+        private readonly AsyncPolicyWrap<object> _policy;
 
         public DistributedCache(IDistributedCache cache, ILogger logger, IOptions<CacheSettings> settings)
         {
