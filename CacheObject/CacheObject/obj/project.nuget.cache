@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "9vTkrKmHsYpOrSeifjNxlRN0iPQD7u5S0qc/xNUen+13Blddt1A3oF+TlkQAVKkquy45v7JwpLaUlgD6aCghOQ==",
+  "dgSpecHash": "xufmu2UTlTovsp2F27leCeb1bi4Z5STp6wj6in6DijZaraDnXaUKfKXU5l8XGNxHd9+AVXlAx/gZlVvuxvfCng==",
   "success": true,
   "projectFilePath": "C:\\Users\\Reed\\Desktop\\gwu\\project-portfolio\\cache-object\\CacheObject\\CacheObject\\CacheObject.csproj",
   "expectedPackageFiles": [
@@ -17,6 +17,8 @@
     "C:\\Users\\Reed\\.nuget\\packages\\microsoft.extensions.options\\8.0.2\\microsoft.extensions.options.8.0.2.nupkg.sha512",
     "C:\\Users\\Reed\\.nuget\\packages\\microsoft.extensions.primitives\\8.0.0\\microsoft.extensions.primitives.8.0.0.nupkg.sha512",
     "C:\\Users\\Reed\\.nuget\\packages\\pipelines.sockets.unofficial\\2.2.8\\pipelines.sockets.unofficial.2.2.8.nupkg.sha512",
+    "C:\\Users\\Reed\\.nuget\\packages\\polly\\8.3.0\\polly.8.3.0.nupkg.sha512",
+    "C:\\Users\\Reed\\.nuget\\packages\\polly.core\\8.3.0\\polly.core.8.3.0.nupkg.sha512",
     "C:\\Users\\Reed\\.nuget\\packages\\stackexchange.redis\\2.6.122\\stackexchange.redis.2.6.122.nupkg.sha512",
     "C:\\Users\\Reed\\.nuget\\packages\\system.io.pipelines\\5.0.1\\system.io.pipelines.5.0.1.nupkg.sha512"
   ],

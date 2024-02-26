@@ -2,7 +2,11 @@
 
 namespace CacheObject.Providers
 {
-    public interface ICacheProvider<T> : IDisposable where T : class
+    /// <summary>
+    /// An interface for a cache provider.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    public interface ICacheProvider<T>
     {
         /// <summary>
         /// Retrieve object from Cache

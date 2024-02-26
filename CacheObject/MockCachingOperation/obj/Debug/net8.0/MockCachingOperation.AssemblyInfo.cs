@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MockCachingOperation")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9fee7d1db9227ec94e1f06338896da330f9f7517")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+90cde5eac7e8cd27633b4466249c0e78846284e3")]
 [assembly: System.Reflection.AssemblyProductAttribute("MockCachingOperation")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MockCachingOperation")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

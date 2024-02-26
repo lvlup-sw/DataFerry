@@ -1,7 +1,7 @@
 ﻿namespace MockCachingOperation.Process
 {
     /// <summary>
-    /// Example payload object
+    /// Example arbitrary payload
     /// </summary>
     public class Payload
     {
@@ -11,7 +11,7 @@
         public required string Identifier { get; set; }
 
         /// <summary>
-        /// The payload: an arbitrary data object
+        /// Arbitrary data object: in this case, a list of strings
         /// </summary>
         public required List<string> Data { get; set; }
 

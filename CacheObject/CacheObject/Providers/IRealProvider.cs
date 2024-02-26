@@ -1,5 +1,9 @@
 ﻿namespace CacheObject.Providers
 {
+    /// <summary>
+    /// An interface for a real provider.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public interface IRealProvider<T>
     {
         /// <summary>

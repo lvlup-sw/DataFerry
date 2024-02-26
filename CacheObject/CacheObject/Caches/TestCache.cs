@@ -1,50 +1,60 @@
-﻿namespace CacheObject.Caches
+﻿using System.Collections.Concurrent;
+
+namespace CacheObject.Caches
 {
+    /// <summary>
+    /// TestCache is an example of a local cache with asynchronous operations which inherits the <see cref="ICache{T}"/> interface.
+    /// </summary>
+    /// <remarks>
+    /// This class inherits the ICache interface and makes use of a <see cref="ConcurrentDictionary{TKey, TValue}"/> object behind the scenes.
+    /// It is intended to be used for testing purposes only and should not be used in a production environment.
+    /// </remarks> 
     public class TestCache<T> : ICache<T>
     {
-        private readonly Dictionary<string, T> _data;
+        private readonly ConcurrentDictionary<string, T> _data;
 
-        public TestCache() => _data = [];
+        /// <summary>
+        /// Initializes a new instance of a <see cref="TestCache{T}"/>.
+        /// </summary>
+        public TestCache() => _data = new ConcurrentDictionary<string, T>();
 
-        public virtual async Task<T?> GetItemAsync(string key)
+        /// <summary>
+        /// Asynchronously retrieves an item from the cache using a key.
+        /// </summary>
+        public async virtual Task<T> GetItemAsync(string key)
         {
-            lock (_data)
-            {
-                return _data.TryGetValue(key, out T? value) ? value : default;
-            }
+            return await Task.FromResult(_data.TryGetValue(key, out T? value) ? value! : default!);
         }
 
-        public virtual async Task RemoveItemAsync(string key)
+        /// <summary>
+        /// Asynchronously removes an item from the cache using a key.
+        /// </summary>
+        public async virtual Task RemoveItemAsync(string key)
         {
-            lock (_data)
-            {
-                _data.Remove(key);
-            }
+            await Task.FromResult(_data.TryRemove(key, out T? removed));
         }
 
-        public virtual async Task SetItemAsync(string key, T item)
+        /// <summary>
+        /// Asynchronously adds an item to the cache with a specified key.
+        /// </summary>
+        public async virtual Task SetItemAsync(string key, T item)
         {
-            lock (_data)
-            {
-                _data.Add(key, item);
-            }
+            await Task.FromResult(_data[key] = item);
         }
 
-        public virtual List<Tuple<string, T>> GetItems()
-        {
-            lock (_data)
-            {
-                List<Tuple<string, T>> items = [];
-                foreach (var item in _data)
-                {
-                    items.Add(new Tuple<string, T>(item.Key, item.Value));
-                }
-                return items;
-            }
-        }
+        /// <summary>
+        /// Retrieves all items from the cache.
+        /// </summary>
+        public virtual object GetItems() => _data;
 
+        /// <summary>
+        /// Retrieves an item from the cache using a key.
+        /// </summary>
+        public virtual T GetItem(string key) => _data[key];
+
+        /// <summary>
+        /// Retrieves the count of items in the cache.
+        /// </summary>
         public virtual int GetItemCount() => _data.Count;
-
-        public virtual T GetData(string key) => _data[key];
     }
 }

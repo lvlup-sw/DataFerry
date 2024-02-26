@@ -1,10 +1,10 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using CacheObject.Caches;
 using CacheObject.Providers;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace MockCachingOperation
 {
@@ -19,26 +19,21 @@ namespace MockCachingOperation
             services.Configure<AppSettings>(options => appSettingsSection.Bind(options));
 
             // Inject services
+            //services.AddSingleton<ICache<Payload>, DistributedCache<Payload>>();
             services.AddSingleton<ICache<Payload>, TestCache<Payload>>();
             services.AddSingleton<IRealProvider<Payload>, RealProvider>();
-        }
 
-        public static void Main(string[] args)
-        {
-            var host = Host.CreateDefaultBuilder(args)
-                .ConfigureServices((hostContext, services) =>
-                {
-                    // Create an instance of Startup
-                    var startup = new Startup(hostContext.Configuration);
+            /* Uncomment to use Redis cache
+            services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = Configuration.GetConnectionString("Redis");
+                options.InstanceName = "MockCachingOperation";
+            });
+            */
 
-                    // Call ConfigureServices
-                    startup.ConfigureServices(services);
-                })
-                .Build();
-
-            // Execute the program
-            Program program = new(host.Services);
-            _ = program.ExecuteAsync();
+            // Inject application and worker to execute
+            services.AddScoped(provider => new MockCachingOperation(provider));
+            services.AddHostedService<Worker>();
         }
     }
 }
