@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Hosting;
 using MockCachingOperation.Process;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Security.Cryptography;
 
 namespace MockCachingOperation
@@ -36,16 +37,17 @@ namespace MockCachingOperation
 
                 var cachedPayloads = await Task.WhenAll(tasks);
                 List<Payload> results = [.. cachedPayloads];
-                var cacheItems = cacheProvider.Cache.GetItems();
+                var cache = cacheProvider.Cache as ConcurrentDictionary<string, Payload>;
+                var cacheItems = cache?.Values.ToList();
 
                 // Display the results
                 Console.WriteLine($"Sent {results.Count} payloads to the cache.");
-                Console.WriteLine($"Current cache count: {cacheProvider.Cache.GetItemCount()} items.");
+                Console.WriteLine($"Current cache count: {cache?.Count} items.");
                 bool areItemsDifferent = CompareItems(payloads, results);
                 Console.WriteLine(areItemsDifferent
                     ? "\nThe returned items are DIFFERENT from the original payloads."
                     : "\nThe returned items are IDENTICAL to the original payloads.");
-                bool areCachedItemsIdentical = CompareCachedItems(payloads, cacheItems);
+                bool areCachedItemsIdentical = CompareCachedItems(payloads, cacheItems!);
                 Console.WriteLine(areCachedItemsIdentical
                     ? "The cached items are IDENTICAL to the original payloads.\n"
                     : "The cached items are DIFFERENT from the original payloads.\n");
@@ -54,7 +56,7 @@ namespace MockCachingOperation
                 Console.WriteLine("Continue? y/n");
                 var input = Console.ReadKey();
                 if (input.Key is ConsoleKey.N)
-                    await StopAsync(new CancellationToken());
+                    await StopAsync(CancellationToken.None);
                 else Console.WriteLine("\n");
             }
             catch (Exception ex)
@@ -62,7 +64,7 @@ namespace MockCachingOperation
                 Console.WriteLine("An error occurred while executing the program.\n", ex.Message);
                 Console.WriteLine("Press any key to exit...");
                 Console.ReadKey();
-                await StopAsync(new CancellationToken());
+                await StopAsync(CancellationToken.None);
             }
         }
 
@@ -117,7 +119,7 @@ namespace MockCachingOperation
             return payloads.Zip(results, (payload, result) => payload.Data.SequenceEqual(result.Data)).All(equal => equal);
         }
 
-        private static bool CompareCachedItems(List<Payload> payloads, object cachedPayloads)
+        private static bool CompareCachedItems(List<Payload> payloads, List<Payload> cachedPayloads)
         {
             // Null checks
             if (payloads is null || cachedPayloads is null)
@@ -125,23 +127,12 @@ namespace MockCachingOperation
                 return false;
             }
 
-            // Convert the cached items to a dictionary
-            var cachedItems = cachedPayloads as ConcurrentDictionary<string, Payload>;
-            if (cachedItems is null) return false;
+            // Sort the lists by Identifier for comparison
+            var sortedPayloads = payloads.OrderBy(p => p.Identifier).ToList();
+            var sortedCachedPayloads = cachedPayloads.OrderBy(p => p.Identifier).ToList()[..100];
 
-            // Check if the cached items are identical to the payloads sent
-            foreach (var payload in payloads)
-            {
-                bool doesPayloadExistInCache = cachedItems.Values.Any(cachedPayload =>
-                {
-                    return cachedPayload.Identifier == payload.Identifier
-                        && cachedPayload.Data.SequenceEqual(payload.Data);
-                });
-
-                if (!doesPayloadExistInCache) return false;
-            }
-
-            return true;
+            // Check if the payloads in each list are the same
+            return sortedPayloads.SequenceEqual(sortedCachedPayloads);
         }
     }
 }

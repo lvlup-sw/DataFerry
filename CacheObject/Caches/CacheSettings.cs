@@ -19,5 +19,10 @@
         /// Retrieves or sets the expiration of the cache in minutes.
         /// </summary>
         public int AbsoluteExpiration { get; set; }
+
+        /// <summary>
+        /// Connection String used to connect to the Distributed Cache (ex Elasticache, Redis, etc).
+        /// </summary>
+        public string? ConnectionString { get; set; }
     }
 }

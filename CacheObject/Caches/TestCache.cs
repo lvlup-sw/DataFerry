@@ -21,7 +21,7 @@ namespace CacheObject.Caches
         /// <summary>
         /// Asynchronously retrieves an item from the cache using a key.
         /// </summary>
-        public async virtual Task<T> GetItemAsync(string key)
+        public async virtual Task<T?> GetItemAsync(string key)
         {
             return await Task.FromResult(_data.TryGetValue(key, out T? value) ? value! : default!);
         }
@@ -45,16 +45,11 @@ namespace CacheObject.Caches
         /// <summary>
         /// Retrieves all items from the cache.
         /// </summary>
-        public virtual object GetItems() => _data;
+        public virtual object GetCache() => _data;
 
         /// <summary>
         /// Retrieves an item from the cache using a key.
         /// </summary>
         public virtual T GetItem(string key) => _data[key];
-
-        /// <summary>
-        /// Retrieves the count of items in the cache.
-        /// </summary>
-        public virtual int GetItemCount() => _data.Count;
     }
 }

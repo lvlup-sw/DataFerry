@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Wrap;
+using StackExchange.Redis;
 using System.Text.Json;
 
 namespace CacheObject.Caches
@@ -20,52 +21,56 @@ namespace CacheObject.Caches
         private readonly ILogger _logger;
         private readonly CacheSettings _settings;
         private readonly AsyncPolicyWrap<object> _policy;
+        private readonly T _default;
 
-        public DistributedCache(IDistributedCache cache, ILogger logger, IOptions<CacheSettings> settings)
+        public DistributedCache(IDistributedCache cache, ILogger logger, IOptions<CacheSettings> settings, T @default)
         {
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _settings = settings.Value ?? throw new ArgumentNullException(nameof(settings));
             _policy = CreatePolicy(settings) ?? throw new ArgumentNullException(nameof(AsyncPolicyWrap));
+            _default = @default;
         }
 
         /// <summary>
         /// Retrieves an item from the cache using a key.
         /// </summary>
         /// <param name="key">The key of the item to retrieve.</param>
-        public T GetItem(string key)
+        public T? GetItem(string key)
         {
             var itemBytes = _cache.Get(key);
             if (itemBytes is null)
             {
                 _logger.LogWarning($"Record with key {key} not found in cache");
-                return default!;
+                return default;
             }
 
-            var item = JsonSerializer.Deserialize<T>(itemBytes);
-            return item!;
+            return JsonSerializer.Deserialize<T>(itemBytes);
         }
 
         /// <summary>
         /// Asynchronously retrieves an item from the cache using a key.
         /// </summary>
         /// <param name="key">The key of the item to retrieve.</param>
-        public async Task<T> GetItemAsync(string key)
+        public async Task<T?> GetItemAsync(string key)
         {
-            Context context = new($"DistributedCache.GetRecordAsync for {key}");
-            var itemBytes = await _policy.ExecuteAsync(ctx 
-                => _cache.GetAsync(key, CancellationToken.None).ContinueWith(t 
-                => (object)t.Result! 
-                ?? throw new InvalidOperationException("Cache returned null")), context);
-
-            if (itemBytes is null)
+            try
             {
-                _logger.LogWarning($"Record with key {key} not found in cache");
-                return default!;
-            }
+                var itemBytes = await _cache.GetAsync(key, CancellationToken.None);
 
-            var item = JsonSerializer.Deserialize<T>(itemBytes as byte[]);
-            return item!;
+                if (itemBytes is null)
+                {
+                    _logger.LogWarning($"Record with key {key} not found in cache");
+                    return default;
+                }
+
+                return JsonSerializer.Deserialize<T>(itemBytes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"An error occurred while getting the record with key {key}: {ex.Message}");
+                return default;
+            }
         }
 
         /// <summary>
@@ -73,11 +78,7 @@ namespace CacheObject.Caches
         /// </summary>
         /// <param name="key">The key to use for the item.</param>
         /// <param name="item">The item to add to the cache.</param>
-        public async Task SetItemAsync(string key, T item)
-        {
-            var itemBytes = JsonSerializer.SerializeToUtf8Bytes(item);
-            await _cache.SetAsync(key, itemBytes);
-        }
+        public async Task SetItemAsync(string key, T item) => await _cache.SetAsync(key, JsonSerializer.SerializeToUtf8Bytes(item));
 
         /// <summary>
         /// Asynchronously removes an item from the cache using a key.
@@ -86,27 +87,30 @@ namespace CacheObject.Caches
         public async Task RemoveItemAsync(string key) => await _cache.RemoveAsync(key);
 
         /// <summary>
-        /// Retrieves the count of items in the cache.
+        /// Retrieves an object representation of the cache.
         /// </summary>
-        [Obsolete("This method is not supported by IDistributedCache.")]
-        public int GetItemCount()
-        {
-            // Note: IDistributedCache doesn't support getting the count of items in the cache.
-            // This is a placeholder implementation and may not work as expected.
-            _logger.LogWarning("GetItemCount is not supported by IDistributedCache.");
-            return 0;
-        }
+        /// <remarks>
+        /// In this case, the cache object returned is a Redis <see cref="IDatabase"/>.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"></exception>"
+        public object GetCache() => ConnectToCache() ?? throw new NullReferenceException(nameof(IDatabase));
 
-        /// <summary>
-        /// Retrieves all items from the cache.
-        /// </summary>
-        [Obsolete("This method is not supported by IDistributedCache.")]
-        public object GetItems()
+        private IDatabase? ConnectToCache()
         {
-            // Note: IDistributedCache doesn't support getting all items in the cache.
-            // This is a placeholder implementation and may not work as expected.
-            _logger.LogWarning("GetItems is not supported by IDistributedCache.");
-            return new object();
+            ConnectionMultiplexer _connectionMultiplexer;
+            IDatabase _database;
+            try
+            {
+                _connectionMultiplexer = ConnectionMultiplexer.Connect(_settings.ConnectionString!) ?? throw new ArgumentNullException("Invalid ConnectionString", nameof(ConnectionMultiplexer));
+                _database = _connectionMultiplexer.GetDatabase() ?? throw new ArgumentNullException(nameof(IDatabase));
+                return _database;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"An error occurred while connecting to the cache: {ex.Message}");
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -137,10 +141,11 @@ namespace CacheObject.Caches
             var fallbackPolicy = Policy<object>
                 .Handle<Exception>()
                 .FallbackAsync(
-                    fallbackValue: new object(), // Replace this with your fallback value
-                    onFallbackAsync: async (exception, context) =>
+                    fallbackValue: _default!,
+                    onFallbackAsync: (exception, context) =>
                     {
                         _logger.LogError($"Fallback executed due to: {exception}");
+                        return Task.CompletedTask;
                     });
 
             return Policy.WrapAsync(retryPolicy, fallbackPolicy);

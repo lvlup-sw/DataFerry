@@ -29,6 +29,6 @@ namespace CacheObject.Providers
         /// <summary>
         /// Get the cache object
         /// </summary>
-        ICache<T> Cache { get; }
+        object Cache { get; }
     }
 }

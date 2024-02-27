@@ -56,9 +56,9 @@ namespace CacheObject.Providers
         public IRealProvider<T> RealProvider { get => _realProvider; }
 
         /// <summary>
-        /// Gets the cache.
+        /// Gets the cache object representation.
         /// </summary>
-        public ICache<T> Cache { get => _cache; }
+        public object Cache { get => _cache.GetCache(); }
 
         /// <summary>
         /// Asynchronously caches an object with a specified key. If the object is already in the cache, it returns the cached object.

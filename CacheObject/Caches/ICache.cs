@@ -1,4 +1,6 @@
-﻿namespace CacheObject.Caches
+﻿using StackExchange.Redis;
+
+namespace CacheObject.Caches
 {
     /// <summary>
     /// A cache interface for caching arbitrary objects.
@@ -9,7 +11,7 @@
         /// <summary>
         /// Asynchronously retrieves an item from the cache using a key.
         /// </summary>
-        Task<T> GetItemAsync(string key);
+        Task<T?> GetItemAsync(string key);
 
         /// <summary>
         /// Asynchronously adds an item to the cache with a specified key.
@@ -22,18 +24,17 @@
         Task RemoveItemAsync(string key);
 
         /// <summary>
-        /// Retrieves the count of items in the cache.
-        /// </summary>
-        int GetItemCount();
-
-        /// <summary>
         /// Retrieves an item from the cache using a key.
         /// </summary>
-        T GetItem(string key);
+        T? GetItem(string key);
 
         /// <summary>
-        /// Retrieves all items from the cache.
+        /// Retrieves an object representation of the cache.
         /// </summary>
-        object GetItems();
+        /// <remarks>
+        /// The cache may be a distributed cache, a local cache, or a mock cache.
+        /// In <see cref="DistributedCache{T}"/>, the cache object returned is a Redis <see cref="IDatabase"/>."/>
+        /// </remarks>
+        object GetCache();
     }
 }
