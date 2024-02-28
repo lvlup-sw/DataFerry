@@ -137,19 +137,37 @@ namespace MockCachingOperation
 
         private static bool CompareCachedItems(List<Payload> payloads, List<Payload> cachedPayloads)
         {
+            // Always returns false if payloads.length < cachedPayloads
+            // Investigate if this is due to identifier mismatch
+            // Or if the payloads we're passing in are incorrect
+
             // Null checks
             if (payloads is null || cachedPayloads is null)
             {
                 return false;
             }
 
+            // Take the last 100 items from cachedPayloads
+            var recentCachedPayloads = cachedPayloads.TakeLast(100).ToList();
+
             // Sort the lists by Identifier for comparison
             var sortedPayloads = payloads.OrderBy(p => p.Identifier).ToList();
-            var sortedCachedPayloads = cachedPayloads.OrderBy(p => p.Identifier).ToList();
+            recentCachedPayloads = recentCachedPayloads.OrderBy(p => p.Identifier).ToList();
 
             // Check if the payloads in each list are the same
-            // This is a shallow comparison
-            return sortedPayloads.SequenceEqual(sortedCachedPayloads[..100]);
+            // This is a deep comparison
+            for (int i = 0; i < sortedPayloads.Count; i++)
+            {
+                if (!sortedPayloads[i].Equals(recentCachedPayloads[i]))
+                {
+                    Console.WriteLine($"Difference found at index {i}:");
+                    Console.WriteLine($"Payload: {sortedPayloads[i].Identifier}");
+                    Console.WriteLine($"Cached Payload: {recentCachedPayloads[i].Identifier}");
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
 }

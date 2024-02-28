@@ -38,7 +38,7 @@ namespace CacheProvider.Providers
             _realProvider = provider;
             _cache = type switch
             {
-                CacheType.Local => new LocalCache(settings),
+                CacheType.Local => LocalCache.GetInstance(settings),
                 CacheType.Distributed => new DistributedCache(settings),
                 _ => throw new InvalidOperationException("The CacheType is invalid.")
             };
@@ -74,7 +74,7 @@ namespace CacheProvider.Providers
             }
 
             // If not, get the item from the real provider and set it in the cache
-            cachedItem = await _realProvider.GetItemAsync(item);
+            cachedItem = await _realProvider.GetItemAsync(key);
             await _cache.SetItemAsync(key, cachedItem);
             return cachedItem;
         }

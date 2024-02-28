@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using System.Reflection.Metadata.Ecma335;
 
 namespace CacheProvider.Caches
 {
@@ -14,19 +15,29 @@ namespace CacheProvider.Caches
     {
         private readonly CacheSettings _settings;
         private readonly ConcurrentDictionary<string, (object value, DateTime timeStamp)> _data;
+        private static LocalCache? _instance = null;
 
         /// <summary>
-        /// Initializes a new instance of a <see cref="LocalCache"/>.
+        /// Private constructor of <see cref="LocalCache"/>.
         /// </summary>
+        /// <remarks>
+        /// This prevents more than one instance being created per process.
+        /// </remarks>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>"
-        public LocalCache(IOptions<CacheSettings> settings)
+        private LocalCache(IOptions<CacheSettings> settings)
         {
             ArgumentNullException.ThrowIfNull(settings.Value);
 
             _settings = settings.Value;
             _data = new ConcurrentDictionary<string, (object value, DateTime timeStamp)>();
         }
+
+        /// <summary>
+        /// Initializes a new instance of a <see cref="LocalCache"/>.
+        /// </summary>
+        /// <param name="settings">The settings for the cache.</param>
+        public static LocalCache GetInstance(IOptions<CacheSettings> settings) => _instance ??= new LocalCache(settings);
 
         /// <summary>
         /// Asynchronously retrieves an item from the cache using a key.
@@ -37,18 +48,23 @@ namespace CacheProvider.Caches
         /// <param name="key">The key of the item to retrieve.</param>
         public async Task<T?> GetItemAsync<T>(string key)
         {
-            if (_data.TryGetValue(key, out var entry))
+            if (!_data.TryGetValue(key, out var item))
             {
-                if (DateTime.UtcNow - entry.timeStamp <= TimeSpan.FromMinutes(_settings.AbsoluteExpiration))
-                {
-                    return await Task.FromResult(entry.value is T item ? item : default);
-                }
-                else
-                {
-                    _data.TryRemove(key, out _);
-                }
+                return default!;
             }
-            return await Task.FromResult(default(T));
+
+            if (IsExpired(item, _settings.AbsoluteExpiration))
+            {
+                _data.TryRemove(key, out _);
+                return default!;
+            }
+
+            return await Task.FromResult((T) item.value)!;
+        }
+
+        private static bool IsExpired((object value, DateTime timeStamp) entry, int absoluteExpirationMinutes)
+        {
+            return DateTime.UtcNow - entry.timeStamp > TimeSpan.FromMinutes(absoluteExpirationMinutes);
         }
 
         /// <summary>
