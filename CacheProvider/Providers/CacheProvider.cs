@@ -10,6 +10,7 @@ namespace CacheProvider.Providers
     /// This class makes use of two types of caches: <see cref="LocalCache"/> and <see cref="DistributedCache"/>.
     /// It uses the <see cref="IRealProvider{T}>"/> interface to retrieve items from the real provider.
     /// </remarks>
+    /// <typeparam name="T">The type of object to cache.</typeparam>
     public class CacheProvider<T> : ICacheProvider<T> where T : class
     {
         private readonly IRealProvider<T> _realProvider;
@@ -39,7 +40,7 @@ namespace CacheProvider.Providers
             {
                 CacheType.Local => new LocalCache(settings),
                 CacheType.Distributed => new DistributedCache(settings),
-                _ => throw new InvalidOperationException("Invalid cache type.")
+                _ => throw new InvalidOperationException("The CacheType is invalid.")
             };
         }
 

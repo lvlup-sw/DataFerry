@@ -1,55 +1,90 @@
-﻿using System.Collections.Concurrent;
+﻿using Microsoft.Extensions.Options;
+using System.Collections.Concurrent;
 
 namespace CacheProvider.Caches
 {
     /// <summary>
-    /// TestCache is an example of a local cache with asynchronous operations which inherits the <see cref="ICache"/> interface.
+    /// LocalCache is an in-memory caching implementation with asynchronous operations.
     /// </summary>
     /// <remarks>
-    /// This class inherits the ICache interface and makes use of a <see cref="ConcurrentDictionary{TKey, TValue}"/> object behind the scenes.
-    /// It is intended to be used for testing purposes only and should not be used in a production environment.
+    /// This class inherits the <see cref="ICache"/> interface and makes use of a <see cref="ConcurrentDictionary{TKey, TValue}"/> object behind the scenes.
+    /// Cache invalidation is also implemented in this class using <see cref="TimeSpan"/>.
     /// </remarks> 
     public class LocalCache : ICache
     {
-        private readonly ConcurrentDictionary<string, T> _data;
+        private readonly CacheSettings _settings;
+        private readonly ConcurrentDictionary<string, (object value, DateTime timeStamp)> _data;
 
         /// <summary>
-        /// Initializes a new instance of a <see cref="TestCache{T}"/>.
+        /// Initializes a new instance of a <see cref="LocalCache"/>.
         /// </summary>
-        public TestCache() => _data = new ConcurrentDictionary<string, T>();
+        /// <param name="settings">The settings for the cache.</param>
+        /// <exception cref="ArgumentNullException"></exception>"
+        public LocalCache(IOptions<CacheSettings> settings)
+        {
+            ArgumentNullException.ThrowIfNull(settings.Value);
+
+            _settings = settings.Value;
+            _data = new ConcurrentDictionary<string, (object value, DateTime timeStamp)>();
+        }
 
         /// <summary>
         /// Asynchronously retrieves an item from the cache using a key.
         /// </summary>
-        public async virtual Task<T?> GetItemAsync(string key)
+        /// <remarks>
+        /// Returns the item if it exists in the cache, null otherwise.
+        /// </remarks>
+        /// <param name="key">The key of the item to retrieve.</param>
+        public async Task<T?> GetItemAsync<T>(string key)
         {
-            return await Task.FromResult(_data.TryGetValue(key, out T? value) ? value! : default!);
+            if (_data.TryGetValue(key, out var entry))
+            {
+                if (DateTime.UtcNow - entry.timeStamp <= TimeSpan.FromMinutes(_settings.AbsoluteExpiration))
+                {
+                    return await Task.FromResult(entry.value is T item ? item : default);
+                }
+                else
+                {
+                    _data.TryRemove(key, out _);
+                }
+            }
+            return await Task.FromResult(default(T));
         }
 
         /// <summary>
         /// Asynchronously removes an item from the cache using a key.
         /// </summary>
-        public async virtual Task RemoveItemAsync(string key)
+        /// <remarks>
+        /// Returns true if the item was added to the cache, false otherwise.
+        /// </remarks>
+        /// <param name="key">The key to use for the item.</param>
+        /// <param name="item">The item to add to the cache.</param>
+        public async Task<bool> SetItemAsync<T>(string key, T item)
         {
-            await Task.FromResult(_data.TryRemove(key, out T? removed));
+            _data[key] = (item!, DateTime.UtcNow);
+            return await Task.FromResult(true);
         }
 
         /// <summary>
         /// Asynchronously adds an item to the cache with a specified key.
         /// </summary>
-        public async virtual Task SetItemAsync(string key, T item)
+        /// <remarks>
+        /// Returns true if the item was remove from the cache, false otherwise.
+        /// </remarks>
+        /// <param name="key">The key of the item to remove.</param>
+        public async Task<bool> RemoveItemAsync(string key)
         {
-            await Task.FromResult(_data[key] = item);
+            var result = _data.TryRemove(key, out _);
+            return await Task.FromResult(result);
         }
 
         /// <summary>
-        /// Retrieves all items from the cache.
+        /// Retrieves an object representation of the cache.
         /// </summary>
-        public virtual object GetCache() => _data;
-
-        /// <summary>
-        /// Retrieves an item from the cache using a key.
-        /// </summary>
-        public virtual T GetItem(string key) => _data[key];
+        /// <remarks>
+        /// In this case, a <see cref="ConcurrentDictionary{TKey, TValue}"/> object is returned.
+        /// <see cref="{TValue}"/> is a tuple of <see cref="object"/> and <see cref="DateTime"/>.
+        /// </remarks>
+        public object GetCache() => _data;
     }
 }

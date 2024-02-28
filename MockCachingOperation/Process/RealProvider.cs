@@ -24,7 +24,9 @@ namespace MockCachingOperation.Process
             }
             payload.Data = newData;
             payload.Property = true;
-            await Task.Delay(50);
+
+            // Simulate a delay
+            await Task.Delay(30);
             return await Task.FromResult(payload);
         }
     }

@@ -1,12 +1,12 @@
 ﻿using CacheProvider.Caches;
 using CacheProvider.Providers;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
-using Microsoft.Extensions.Options;
 
 namespace MockCachingOperation
 {
@@ -20,15 +20,22 @@ namespace MockCachingOperation
             var provider = _serviceProvider.GetService<IRealProvider<Payload>>();
             var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
             var settings = _serviceProvider.GetService<IOptions<CacheSettings>>();
-            var cache = CacheType.Local;
 
             // Null check
             ArgumentNullException.ThrowIfNull(provider);
             ArgumentNullException.ThrowIfNull(appsettings);
             ArgumentNullException.ThrowIfNull(settings);
 
-            // Create the cache provider
+            // Setup the cache provider
             CacheProvider<Payload> cacheProvider;
+            CacheType cache = appsettings.Value.CacheType switch
+            {
+                "Local" => CacheType.Local,
+                "Distributed" => CacheType.Distributed,
+                _ => throw new ArgumentException("The CacheType is invalid."),
+            };
+
+            // Try to create the cache provider
             try
             {
                 cacheProvider = new(provider, cache, settings);
@@ -46,8 +53,8 @@ namespace MockCachingOperation
 
                 var cachedPayloads = await Task.WhenAll(tasks);
                 List<Payload> results = [.. cachedPayloads];
-                var cacheObj = cacheProvider.Cache as ConcurrentDictionary<string, Payload>;
-                var cacheItems = cacheObj?.Values.ToList();
+                var cacheObj = cacheProvider.Cache as ConcurrentDictionary<string, (object, DateTime)>;
+                var cacheItems = cacheObj?.Values.Select(item => item.Item1 as Payload).ToList();
 
                 // Display the results
                 Console.WriteLine($"Sent {results.Count} payloads to the cache.");
@@ -138,11 +145,11 @@ namespace MockCachingOperation
 
             // Sort the lists by Identifier for comparison
             var sortedPayloads = payloads.OrderBy(p => p.Identifier).ToList();
-            var sortedCachedPayloads = cachedPayloads.OrderBy(p => p.Identifier).ToList()[..100];
+            var sortedCachedPayloads = cachedPayloads.OrderBy(p => p.Identifier).ToList();
 
             // Check if the payloads in each list are the same
             // This is a shallow comparison
-            return sortedPayloads.SequenceEqual(sortedCachedPayloads);
+            return sortedPayloads.SequenceEqual(sortedCachedPayloads[..100]);
         }
     }
 }

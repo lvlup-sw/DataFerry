@@ -9,7 +9,7 @@ using System.Text.Json;
 namespace CacheProvider.Caches
 {
     /// <summary>
-    /// An implementation of <see cref="IDistributedCache"/> which uses the <see cref="ICache"/> interface as a base.
+    /// An implementation of <see cref="IDistributedCache"/> which uses the <see cref="ICache"/> interface as a base. Polly is overtop for handling exceptions and retries.
     /// </summary>
     /// <remarks>
     /// This can be used with numerous distributed cache providers such as Redis, AWS ElastiCache, or Azure Blob Storage.
@@ -20,6 +20,11 @@ namespace CacheProvider.Caches
         private readonly AsyncPolicyWrap<object> _policy;
         private readonly IDatabase _cache;
 
+        /// <summary>
+        /// The primary constructor for the <see cref="DistributedCache"/> class.
+        /// </summary>
+        /// <param name="settings">The settings for the cache.</param>
+        /// <exception cref="ArgumentNullException"></exception>""
         public DistributedCache(IOptions<CacheSettings> settings)
         {
             ArgumentNullException.ThrowIfNull(settings.Value.ConnectionString);
@@ -32,14 +37,22 @@ namespace CacheProvider.Caches
         /// <summary>
         /// Asynchronously retrieves an item from the cache using a key.
         /// </summary>
+        /// <remarks>
+        /// Returns the item if it exists in the cache, null otherwise.
+        /// </remarks>
         /// <param name="key">The key of the item to retrieve.</param>
         public async Task<T?> GetItemAsync<T>(string key)
         {
-            var value = await _cache.StringGetAsync(key);
-            if (value.IsNullOrEmpty)
-                return default;
+            object result = await _policy.ExecuteAsync(async () =>
+            {
+                var value = await _cache.StringGetAsync(key);
+                if (value.IsNullOrEmpty)
+                    return default!;
 
-            return JsonSerializer.Deserialize<T>(value!);
+                return JsonSerializer.Deserialize<T>(value.ToString())!;
+            });
+
+            return default;
         }
 
         /// <summary>
@@ -50,7 +63,15 @@ namespace CacheProvider.Caches
         /// </remarks>
         /// <param name="key">The key to use for the item.</param>
         /// <param name="item">The item to add to the cache.</param>
-        public async Task<bool> SetItemAsync<T>(string key, T item) => await _cache.StringSetAsync(key, JsonSerializer.SerializeToUtf8Bytes(item));
+        public async Task<bool> SetItemAsync<T>(string key, T item)
+        {
+            object result = await _policy.ExecuteAsync(async () =>
+            {
+                return await _cache.StringSetAsync(key, JsonSerializer.SerializeToUtf8Bytes(item));
+            });
+
+            return default;
+        }
 
         /// <summary>
         /// Asynchronously removes an item from the cache using a key.
@@ -59,7 +80,15 @@ namespace CacheProvider.Caches
         /// Returns true if the item was removed from the cache, false otherwise.
         /// </remarks>
         /// <param name="key">The key of the item to remove.</param>
-        public async Task<bool> RemoveItemAsync(string key) => await _cache.KeyDeleteAsync(key);
+        public async Task<bool> RemoveItemAsync(string key)
+        {
+            object result = await _policy.ExecuteAsync(async () =>
+            {
+                return await _cache.KeyDeleteAsync(key);
+            });
+
+            return default;
+        }
 
         /// <summary>
         /// Retrieves an object representation of the cache.
@@ -74,7 +103,7 @@ namespace CacheProvider.Caches
         /// Creates a policy for handling exceptions when accessing the cache.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
-        private AsyncPolicyWrap<object> CreatePolicy(IOptions<CacheSettings> settings)
+        private static AsyncPolicyWrap<object> CreatePolicy(IOptions<CacheSettings> settings)
         {
             // ToDo: Add logging using ILogger
 

@@ -4,7 +4,6 @@ using CacheProvider.Caches;
 using CacheProvider.Providers;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace MockCachingOperation
@@ -16,8 +15,9 @@ namespace MockCachingOperation
         public void ConfigureServices(IServiceCollection services)
         {
             // Add configuration
-            services.Configure<IOptions<AppSettings>>(Configuration.GetSection("AppSettings"));
-            services.Configure<IOptions<CacheSettings>>(Configuration.GetSection("CacheSettings"));
+            services.AddOptions();
+            services.Configure<AppSettings>(Configuration.GetSection("AppSettings"));
+            services.Configure<CacheSettings>(Configuration.GetSection("CacheSettings"));
 
             // Inject services
             services.AddSingleton<IRealProvider<Payload>, RealProvider>();

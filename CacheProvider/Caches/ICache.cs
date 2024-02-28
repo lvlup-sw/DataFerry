@@ -11,16 +11,20 @@ namespace CacheProvider.Caches
         /// <summary>
         /// Asynchronously retrieves an item from the cache using a key.
         /// </summary>
+        /// <param name="key">The key of the item to retrieve.</param>
         Task<T?> GetItemAsync<T>(string key);
 
         /// <summary>
         /// Asynchronously adds an item to the cache with a specified key.
         /// </summary>
+        /// <param name="key">The key to use for the item.</param>
+        /// <param name="item">The item to add to the cache.</param>
         Task<bool> SetItemAsync<T>(string key, T item);
 
         /// <summary>
         /// Asynchronously removes an item from the cache using a key.
         /// </summary>
+        /// <param name="key">The key of the item to remove.</param>
         Task<bool> RemoveItemAsync(string key);
 
         /// <summary>
