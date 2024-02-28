@@ -74,7 +74,7 @@ namespace CacheProvider.Providers
             }
 
             // If not, get the item from the real provider and set it in the cache
-            cachedItem = await _realProvider.GetItemAsync(key);
+            cachedItem = await _realProvider.GetItemAsync(item);
             await _cache.SetItemAsync(key, cachedItem);
             return cachedItem;
         }
