@@ -1,15 +1,15 @@
 ﻿using System.Collections.Concurrent;
 
-namespace CacheObject.Caches
+namespace CacheProvider.Caches
 {
     /// <summary>
-    /// TestCache is an example of a local cache with asynchronous operations which inherits the <see cref="ICache{T}"/> interface.
+    /// TestCache is an example of a local cache with asynchronous operations which inherits the <see cref="ICache"/> interface.
     /// </summary>
     /// <remarks>
     /// This class inherits the ICache interface and makes use of a <see cref="ConcurrentDictionary{TKey, TValue}"/> object behind the scenes.
     /// It is intended to be used for testing purposes only and should not be used in a production environment.
     /// </remarks> 
-    public class TestCache<T> : ICache<T>
+    public class LocalCache : ICache
     {
         private readonly ConcurrentDictionary<string, T> _data;
 

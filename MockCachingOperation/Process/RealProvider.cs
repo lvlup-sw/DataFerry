@@ -1,15 +1,12 @@
-﻿using CacheObject.Providers;
+﻿using CacheProvider.Providers;
 
 namespace MockCachingOperation.Process
 {
     /// <summary>
     /// This is an example RealProvider class that implements the <see cref="IRealProvider{T}"/> interface.
     /// </summary>
-    /// <param name="serviceProvider"></param>
-    public class RealProvider(IServiceProvider serviceProvider) : IRealProvider<Payload>
+    public class RealProvider() : IRealProvider<Payload>
     {
-        private readonly IServiceProvider _serviceProvider = serviceProvider;
-
         /// <summary>
         /// Get object from data source
         /// </summary>
@@ -18,7 +15,7 @@ namespace MockCachingOperation.Process
         /// </remarks>
         /// <param name="payload"></param>
         /// <returns><see cref="Task"/> of type <see cref="Payload"/></returns>
-        public Task<Payload> GetObjectAsync(Payload payload)
+        public async Task<Payload> GetItemAsync(Payload payload)
         {
             List<string> newData = [];
             foreach (var data in payload.Data!)
@@ -27,12 +24,8 @@ namespace MockCachingOperation.Process
             }
             payload.Data = newData;
             payload.Property = true;
-            return Task.FromResult(payload);
+            await Task.Delay(50);
+            return await Task.FromResult(payload);
         }
-
-        /// <summary>
-        /// Returns the service provider used to initialize the class.
-        /// </summary>
-        public IServiceProvider ServiceProvider { get => _serviceProvider; }
     }
 }

@@ -1,9 +1,12 @@
-﻿using CacheObject.Providers;
+﻿using CacheProvider.Caches;
+using CacheProvider.Providers;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MockCachingOperation.Process;
+using MockCachingOperation.Configuration;
 using System.Collections.Concurrent;
-using System.Linq;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Options;
 
 namespace MockCachingOperation
 {
@@ -13,16 +16,22 @@ namespace MockCachingOperation
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            // Get configuration
+            var provider = _serviceProvider.GetService<IRealProvider<Payload>>();
+            var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
+            var settings = _serviceProvider.GetService<IOptions<CacheSettings>>();
+            var cache = CacheType.Local;
+
+            // Null check
+            ArgumentNullException.ThrowIfNull(provider);
+            ArgumentNullException.ThrowIfNull(appsettings);
+            ArgumentNullException.ThrowIfNull(settings);
+
+            // Create the cache provider
+            CacheProvider<Payload> cacheProvider;
             try
             {
-                // Get configuration
-                /* This keeps throwing an error for some reason...
-                AppSettings appSettings = _serviceProvider.GetService<AppSettings>()
-                    ?? throw new InvalidOperationException($"Could not retrieve service of type {typeof(AppSettings)}");
-                */
-
-                // Create a cache provider
-                CacheProvider<Payload> cacheProvider = new(_serviceProvider);
+                cacheProvider = new(provider, cache, settings);
 
                 // Create some payloads
                 List<Payload> payloads = [];
@@ -32,17 +41,17 @@ namespace MockCachingOperation
                 // Run the cache operation
                 var tasks = payloads.Select(async payload =>
                 {
-                    return await cacheProvider.CacheObjectAsync(payload, payload.Identifier);
+                    return await cacheProvider.CheckCacheAsync(payload, payload.Identifier);
                 });
 
                 var cachedPayloads = await Task.WhenAll(tasks);
                 List<Payload> results = [.. cachedPayloads];
-                var cache = cacheProvider.Cache as ConcurrentDictionary<string, Payload>;
-                var cacheItems = cache?.Values.ToList();
+                var cacheObj = cacheProvider.Cache as ConcurrentDictionary<string, Payload>;
+                var cacheItems = cacheObj?.Values.ToList();
 
                 // Display the results
                 Console.WriteLine($"Sent {results.Count} payloads to the cache.");
-                Console.WriteLine($"Current cache count: {cache?.Count} items.");
+                Console.WriteLine($"Current cache count: {cacheObj?.Count} items.");
                 bool areItemsDifferent = CompareItems(payloads, results);
                 Console.WriteLine(areItemsDifferent
                     ? "\nThe returned items are DIFFERENT from the original payloads."
@@ -132,6 +141,7 @@ namespace MockCachingOperation
             var sortedCachedPayloads = cachedPayloads.OrderBy(p => p.Identifier).ToList()[..100];
 
             // Check if the payloads in each list are the same
+            // This is a shallow comparison
             return sortedPayloads.SequenceEqual(sortedCachedPayloads);
         }
     }

@@ -1,8 +1,13 @@
-﻿namespace CacheObject.Caches
+﻿using CacheProvider.Providers;
+
+namespace CacheProvider.Caches
 {
     /// <summary>
-    /// Cache settings for the <see cref="DistributedCache{T}"/> class.
+    /// Cache settings for <see cref="LocalCache"/> and <see cref="DistributedCache"/>.
     /// </summary>
+    /// <remarks>
+    /// You need to pass an instance of this class to the <see cref="CacheProvider{T}"/>.
+    /// </remarks>
     public class CacheSettings
     {
         /// <summary>

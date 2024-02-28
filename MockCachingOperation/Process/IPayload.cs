@@ -1,30 +1,29 @@
-﻿using CacheProvider.Providers;
-
-namespace MockCachingOperation.Process
+namespace CacheProvider.Providers
 {
     /// <summary>
-    /// Class of the arbitrary payload.
+    /// An interface for an arbitrary payload.
     /// </summary>
-    public class Payload : IPayload
+    public interface IPayload
     {
         /// <summary>
         /// Unique identifier of payload
         /// </summary>
-        public required string Identifier { get; set; }
+        string Identifier { get; set; }
 
         /// <summary>
         /// Arbitrary data object: in this case, a list of strings
         /// </summary>
-        public required List<string> Data { get; set; }
+        List<string> Data { get; set; }
 
         /// <summary>
         /// Arbitrary property of payload
         /// </summary>
-        public bool Property { get; set; }
+        bool Property { get; set; }
 
         /// <summary>
         /// Arbitrary version number of payload
         /// </summary>
-        public decimal Version { get; set; }
+        decimal Version { get; set; }
     }
 }
+

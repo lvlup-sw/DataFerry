@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
-using CacheObject.Caches;
+using CacheProvider.Caches;
 using Amazon.Extensions.Configuration.SystemsManager;
 using Microsoft.Extensions.Logging;
 
@@ -19,7 +19,8 @@ namespace MockCachingOperation
                 {
                     // Add AppSettings.json and AWS Systems Manager
                     config.SetBasePath(Directory.GetCurrentDirectory());
-                    config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+                    // ~/appsettings.json?
+                    config.AddJsonFile("../../../appsettings.json", optional: false, reloadOnChange: true);
                     /*config.AddSystemsManager("/MockCachingOperation", false);
                     config.AddSystemsManager(configureSource =>
                     {
@@ -43,7 +44,7 @@ namespace MockCachingOperation
                     logging.AddConsole();
                     logging.AddFilter("Microsoft", LogLevel.Warning);
                     logging.AddFilter("System", LogLevel.Warning);
-                    logging.AddFilter("YourAppNamespace", LogLevel.Warning);
+                    logging.AddFilter("MockCachingOperation", LogLevel.Warning);
                 });
     }
 }

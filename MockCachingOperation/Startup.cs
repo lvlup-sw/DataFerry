@@ -1,10 +1,11 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using CacheObject.Caches;
-using CacheObject.Providers;
+using CacheProvider.Caches;
+using CacheProvider.Providers;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace MockCachingOperation
 {
@@ -15,12 +16,10 @@ namespace MockCachingOperation
         public void ConfigureServices(IServiceCollection services)
         {
             // Add configuration
-            var appSettingsSection = Configuration.GetSection("AppSettings");
-            services.Configure<AppSettings>(options => appSettingsSection.Bind(options));
+            services.Configure<IOptions<AppSettings>>(Configuration.GetSection("AppSettings"));
+            services.Configure<IOptions<CacheSettings>>(Configuration.GetSection("CacheSettings"));
 
             // Inject services
-            //services.AddSingleton<ICache<Payload>, DistributedCache<Payload>>();
-            services.AddSingleton<ICache<Payload>, TestCache<Payload>>();
             services.AddSingleton<IRealProvider<Payload>, RealProvider>();
 
             /* Uncomment to use Redis cache
