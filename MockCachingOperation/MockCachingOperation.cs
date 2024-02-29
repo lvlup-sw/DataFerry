@@ -20,13 +20,14 @@ namespace MockCachingOperation
             // Get configuration
             var provider    = _serviceProvider.GetService<IRealProvider<Payload>>();
             var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-            var settings    = _serviceProvider.GetService<IOptions<CacheSettings>>();
+            var _settings    = _serviceProvider.GetService<IOptions<CacheSettings>>();
             var connection  = _serviceProvider.GetService<ConnectionMultiplexer>() ?? null;
 
             // Null check
             ArgumentNullException.ThrowIfNull(provider);
             ArgumentNullException.ThrowIfNull(appsettings);
-            ArgumentNullException.ThrowIfNull(settings);
+            ArgumentNullException.ThrowIfNull(_settings);
+            CacheSettings settings = _settings.Value;
 
             // Setup the cache provider
             CacheProvider<Payload> cacheProvider;
@@ -84,7 +85,7 @@ namespace MockCachingOperation
             }
             catch (Exception ex)
             {
-                Console.WriteLine("An error occurred while executing the program.\n", ex.Message);
+                Console.WriteLine("An error occurred while executing the program.\n" + ex.Message);
                 Console.WriteLine("Press any key to exit...");
                 Console.ReadKey();
                 await StopAsync(CancellationToken.None);

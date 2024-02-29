@@ -30,7 +30,7 @@ namespace CacheProvider.Providers
         /// <param name="settings"></param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IRealProvider<T> provider, CacheType type, IOptions<CacheSettings> settings, ConnectionMultiplexer? connection = null)
+        public CacheProvider(IRealProvider<T> provider, CacheType type, CacheSettings settings, ConnectionMultiplexer? connection = null)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(provider);
@@ -40,7 +40,7 @@ namespace CacheProvider.Providers
             // Initializations
             _realProvider = provider;
             _cacheType = type;
-            _settings = settings.Value;
+            _settings = settings;
             _cache = type is CacheType.Distributed
                 ? new DistributedCache(connection!, settings)
                 : default;
