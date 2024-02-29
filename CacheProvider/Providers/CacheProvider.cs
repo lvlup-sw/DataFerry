@@ -1,5 +1,6 @@
 ﻿using CacheProvider.Caches;
 using Microsoft.Extensions.Options;
+using StackExchange.Redis;
 
 namespace CacheProvider.Providers
 {
@@ -14,7 +15,9 @@ namespace CacheProvider.Providers
     public class CacheProvider<T> : ICacheProvider<T> where T : class
     {
         private readonly IRealProvider<T> _realProvider;
-        private readonly ICache _cache;
+        private readonly IDistributedCache? _cache;
+        private readonly ILocalCache? _localCache;
+        private readonly CacheType _cacheType;
 
         /// <summary>
         /// Primary constructor for the CacheProvider class.
@@ -27,7 +30,7 @@ namespace CacheProvider.Providers
         /// <param name="settings"></param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IRealProvider<T> provider, CacheType type, IOptions<CacheSettings> settings)
+        public CacheProvider(IRealProvider<T> provider, CacheType type, IOptions<CacheSettings> settings, ConnectionMultiplexer? connection)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(provider);
@@ -35,19 +38,30 @@ namespace CacheProvider.Providers
             ArgumentNullException.ThrowIfNull(settings);
 
             // Initializations
+            _cacheType = type;
             _realProvider = provider;
-            _cache = type switch
+
+            switch (type)
             {
-                CacheType.Local => LocalCache.GetInstance(settings),
-                CacheType.Distributed => new DistributedCache(settings),
-                _ => throw new InvalidOperationException("The CacheType is invalid.")
-            };
+                case CacheType.Local:
+                    _localCache = LocalCache.GetInstance(settings)
+                        ?? throw new InvalidOperationException("LocalCache instantiation failed.");
+                    _cache = null;
+                    break;
+                case CacheType.Distributed:
+                    _cache = new DistributedCache(connection 
+                        ?? throw new ArgumentNullException(nameof(connection), "ConnectionMultiplexer cannot be null for DistributedCache."), settings);
+                    _localCache = null;
+                    break;
+                default:
+                    throw new InvalidOperationException("The CacheType is invalid.");
+            }
         }
 
         /// <summary>
         /// Gets the cache object representation.
         /// </summary>
-        public object Cache { get => _cache.GetCache(); }
+        public object Cache { get => _cacheType is CacheType.Local ? _localCache!.GetCache() : _cache!.GetCache(); }
 
         /// <summary>
         /// Asynchronously checks the cache for an item with a specified key.
@@ -67,8 +81,8 @@ namespace CacheProvider.Providers
             ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
             // Check if the item is in the cache
-            var cachedItem = await _cache.GetItemAsync<T>(key);
-            if (cachedItem != null) 
+            var cachedItem = await _cache!.GetItemAsync<T>(key);
+            if (cachedItem != null)
             {
                 return cachedItem;
             }
@@ -76,6 +90,22 @@ namespace CacheProvider.Providers
             // If not, get the item from the real provider and set it in the cache
             cachedItem = await _realProvider.GetItemAsync(item);
             await _cache.SetItemAsync(key, cachedItem);
+            return cachedItem;
+        }
+
+        public T CheckCache(T item, string key)
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+            var cachedItem = _localCache!.GetItem<T>(key);
+            if (cachedItem != null)
+            {
+                return cachedItem;
+            }
+
+            cachedItem = _realProvider.GetItem(item);
+            _localCache!.SetItem(key, cachedItem);
             return cachedItem;
         }
     }

@@ -5,6 +5,8 @@ using CacheProvider.Providers;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
 using Microsoft.Extensions.Options;
+using StackExchange.Redis;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MockCachingOperation
 {
@@ -22,13 +24,10 @@ namespace MockCachingOperation
             // Inject services
             services.AddSingleton<IRealProvider<Payload>, RealProvider>();
 
-            /* Uncomment to use Redis cache
-            services.AddStackExchangeRedisCache(options =>
-            {
-                options.Configuration = Configuration.GetConnectionString("Redis");
-                options.InstanceName = "MockCachingOperation";
-            });
-            */
+            // Inject DB connection
+            string redisConnection = Configuration.GetConnectionString("Redis") ?? "";
+            if (!string.IsNullOrWhiteSpace(redisConnection))
+                services.AddSingleton(ConnectionMultiplexer.Connect(redisConnection));
 
             // Inject application and worker to execute
             services.AddScoped(provider => new MockCachingOperation(provider));

@@ -16,18 +16,18 @@ namespace MockCachingOperation
             Host.CreateDefaultBuilder(args)
                 .ConfigureAppConfiguration((hostContext, config) =>
                 {
-                    // Add AppSettings.json and AWS Systems Manager
+                    // Add Configurations
                     config.SetBasePath(Directory.GetCurrentDirectory());
-                    // ~/appsettings.json?
                     config.AddJsonFile("./appsettings.json", optional: false, reloadOnChange: true);
-                    /*config.AddSystemsManager("/MockCachingOperation", false);
+                    /* Uncomment to use Parameter Store
+                    config.AddSystemsManager("/MockCachingOperation", false);
                     config.AddSystemsManager(configureSource =>
                     {
                         configureSource.Path = "/MockCachingOperation";
                         configureSource.Optional = false;
                         configureSource.ParameterProcessor = new JsonParameterProcessor();
                         configureSource.ReloadAfter = TimeSpan.FromHours(1);
-                    });*/
+                    }); */
                     config.AddEnvironmentVariables();
                 })
                 .ConfigureServices((hostContext, services) =>
@@ -38,7 +38,7 @@ namespace MockCachingOperation
                     // Call ConfigureServices
                     startup.ConfigureServices(services);
                 }).ConfigureLogging(logging =>
-                {
+                {   // Set to whatever level you want
                     logging.ClearProviders();
                     logging.AddConsole();
                     logging.AddFilter("Microsoft", LogLevel.Warning);

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using StackExchange.Redis;
 
 namespace MockCachingOperation
 {
@@ -17,9 +18,10 @@ namespace MockCachingOperation
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             // Get configuration
-            var provider = _serviceProvider.GetService<IRealProvider<Payload>>();
+            var provider    = _serviceProvider.GetService<IRealProvider<Payload>>();
             var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-            var settings = _serviceProvider.GetService<IOptions<CacheSettings>>();
+            var settings    = _serviceProvider.GetService<IOptions<CacheSettings>>();
+            var connection  = _serviceProvider.GetService<ConnectionMultiplexer>() ?? null;
 
             // Null check
             ArgumentNullException.ThrowIfNull(provider);
@@ -38,7 +40,7 @@ namespace MockCachingOperation
             // Try to create the cache provider
             try
             {
-                cacheProvider = new(provider, cache, settings);
+                cacheProvider = new(provider, cache, settings, connection);
 
                 // Create some payloads
                 List<Payload> payloads = [];
@@ -48,7 +50,12 @@ namespace MockCachingOperation
                 // Run the cache operation
                 var tasks = payloads.Select(async payload =>
                 {
-                    return await cacheProvider.CheckCacheAsync(payload, payload.Identifier);
+                    return (cache) switch
+                    { 
+                        CacheType.Local => cacheProvider.CheckCache(payload, payload.Identifier),
+                        CacheType.Distributed => await cacheProvider.CheckCacheAsync(payload, payload.Identifier),
+                        _ => throw new InvalidOperationException("The CacheType is invalid.")
+                    };
                 });
 
                 var cachedPayloads = await Task.WhenAll(tasks);

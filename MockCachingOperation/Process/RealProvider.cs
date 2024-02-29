@@ -17,17 +17,27 @@ namespace MockCachingOperation.Process
         /// <returns><see cref="Task"/> of type <see cref="Payload"/></returns>
         public async Task<Payload> GetItemAsync(Payload payload)
         {
-            List<string> newData = [];
-            foreach (var data in payload.Data!)
-            {
-                newData.Add(new string(data.Reverse().ToArray()));
-            }
-            payload.Data = newData;
-            payload.Property = true;
+            List<string> newData = payload.Data?
+                .Select(data => new string(data.Reverse().ToArray()))
+                .ToList() ?? [];
 
             // Simulate a delay
             await Task.Delay(30);
-            return await Task.FromResult(payload);
+            payload.Data = newData;
+            return payload;
+        }
+
+        /// <summary>
+        /// Get object from data source
+        /// </summary>
+        public Payload GetItem(Payload payload)
+        {
+            List<string> newData = payload.Data?
+                .Select(data => new string(data.Reverse().ToArray()))
+                .ToList() ?? [];
+
+            payload.Data = newData;
+            return payload;
         }
     }
 }

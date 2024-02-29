@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Caching.Distributed;
-//using Microsoft.Extensions.Logging;
+﻿//using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Wrap;
@@ -9,29 +8,30 @@ using System.Text.Json;
 namespace CacheProvider.Caches
 {
     /// <summary>
-    /// An implementation of <see cref="IDistributedCache"/> which uses the <see cref="ICache"/> interface as a base. Polly is overtop for handling exceptions and retries.
+    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="ICache"/> interface as a base. Polly is overtop for handling exceptions and retries.
     /// </summary>
     /// <remarks>
-    /// This can be used with numerous distributed cache providers such as Redis, AWS ElastiCache, or Azure Blob Storage.
+    /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Blob Storage.
     /// </remarks>
-    public class DistributedCache : ICache
+    public class DistributedCache : IDistributedCache
     {
         private readonly CacheSettings _settings;
         private readonly AsyncPolicyWrap<object> _policy;
-        private readonly IDatabase _cache;
+        private readonly ConnectionMultiplexer _cache;
 
         /// <summary>
         /// The primary constructor for the <see cref="DistributedCache"/> class.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(IOptions<CacheSettings> settings)
+        public DistributedCache(ConnectionMultiplexer cache, IOptions<CacheSettings> settings)
         {
+            ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(settings.Value.ConnectionString);
 
+            _cache = cache;
             _settings = settings.Value;
-            _policy = CreatePolicy(settings);
-            _cache = ConnectionMultiplexer.Connect(_settings.ConnectionString).GetDatabase();
+            _policy = CreatePolicy(_settings);
         }
 
         /// <summary>
@@ -43,16 +43,17 @@ namespace CacheProvider.Caches
         /// <param name="key">The key of the item to retrieve.</param>
         public async Task<T?> GetItemAsync<T>(string key)
         {
+            IDatabase database = _cache.GetDatabase();
+
             object result = await _policy.ExecuteAsync(async () =>
             {
-                var value = await _cache.StringGetAsync(key);
-                if (value.IsNullOrEmpty)
-                    return default!;
-
-                return JsonSerializer.Deserialize<T>(value.ToString())!;
+                RedisValue data = await database.StringGetAsync(key);
+                return data.HasValue ? data : default;
             });
 
-            return default;
+            return result is RedisValue typeResult 
+                ? JsonSerializer.Deserialize<T>(typeResult.ToString()) 
+                : default;
         }
 
         /// <summary>
@@ -65,12 +66,16 @@ namespace CacheProvider.Caches
         /// <param name="item">The item to add to the cache.</param>
         public async Task<bool> SetItemAsync<T>(string key, T item)
         {
+            IDatabase database = _cache.GetDatabase();
+
             object result = await _policy.ExecuteAsync(async () =>
             {
-                return await _cache.StringSetAsync(key, JsonSerializer.SerializeToUtf8Bytes(item));
+                return await database.StringSetAsync(key, JsonSerializer.SerializeToUtf8Bytes(item));
             });
 
-            return default;
+            return result is bool success
+                ? success
+                : default;
         }
 
         /// <summary>
@@ -82,12 +87,16 @@ namespace CacheProvider.Caches
         /// <param name="key">The key of the item to remove.</param>
         public async Task<bool> RemoveItemAsync(string key)
         {
+            IDatabase database = _cache.GetDatabase();
+
             object result = await _policy.ExecuteAsync(async () =>
             {
-                return await _cache.KeyDeleteAsync(key);
+                return await database.KeyDeleteAsync(key);
             });
 
-            return default;
+            return result is bool success
+                ? success
+                : default;
         }
 
         /// <summary>
@@ -97,13 +106,13 @@ namespace CacheProvider.Caches
         /// In this case, the cache object returned is a Redis <see cref="IDatabase"/>.
         /// </remarks>
         /// <exception cref="ArgumentNullException"></exception>"
-        public object GetCache() => _cache ?? throw new NullReferenceException(nameof(_cache));
+        public object GetCache() => _cache.GetDatabase() ?? throw new NullReferenceException(nameof(_cache));
 
         /// <summary>
         /// Creates a policy for handling exceptions when accessing the cache.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
-        private static AsyncPolicyWrap<object> CreatePolicy(IOptions<CacheSettings> settings)
+        private static AsyncPolicyWrap<object> CreatePolicy(CacheSettings settings)
         {
             // ToDo: Add logging using ILogger
 
@@ -111,17 +120,17 @@ namespace CacheProvider.Caches
             var retryPolicy = Policy<object>
                 .Handle<Exception>()
                 .WaitAndRetryAsync(
-                    retryCount: settings.Value.RetryCount,
-                    sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(settings.Value.RetryInterval),
+                    retryCount: settings.RetryCount,
+                    sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(settings.RetryInterval),
                     onRetry: (exception, timeSpan, retryCount, context) =>
                     {
-                        if (retryCount == settings.Value.RetryCount)
+                        if (retryCount == settings.RetryCount)
                         {
-                            Console.WriteLine($"Retry limit of {settings.Value.RetryCount} reached. Exception: {exception}");
+                            Console.WriteLine($"Retry limit of {settings.RetryCount} reached. Exception: {exception}");
                         }
                         else
                         {
-                            Console.WriteLine($"Retry {retryCount} of {settings.Value.RetryCount} after {timeSpan.TotalSeconds} seconds delay due to: {exception}");
+                            Console.WriteLine($"Retry {retryCount} of {settings.RetryCount} after {timeSpan.TotalSeconds} seconds delay due to: {exception}");
                         }
                     });
 
