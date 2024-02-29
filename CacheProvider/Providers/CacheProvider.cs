@@ -15,9 +15,9 @@ namespace CacheProvider.Providers
     public class CacheProvider<T> : ICacheProvider<T> where T : class
     {
         private readonly IRealProvider<T> _realProvider;
-        private readonly IDistributedCache? _cache;
-        private readonly ILocalCache? _localCache;
         private readonly CacheType _cacheType;
+        private readonly DistributedCache? _cache;
+        private readonly CacheSettings _settings;
 
         /// <summary>
         /// Primary constructor for the CacheProvider class.
@@ -30,7 +30,7 @@ namespace CacheProvider.Providers
         /// <param name="settings"></param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IRealProvider<T> provider, CacheType type, IOptions<CacheSettings> settings, ConnectionMultiplexer? connection)
+        public CacheProvider(IRealProvider<T> provider, CacheType type, IOptions<CacheSettings> settings, ConnectionMultiplexer? connection = null)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(provider);
@@ -38,30 +38,18 @@ namespace CacheProvider.Providers
             ArgumentNullException.ThrowIfNull(settings);
 
             // Initializations
-            _cacheType = type;
             _realProvider = provider;
-
-            switch (type)
-            {
-                case CacheType.Local:
-                    _localCache = LocalCache.GetInstance(settings)
-                        ?? throw new InvalidOperationException("LocalCache instantiation failed.");
-                    _cache = null;
-                    break;
-                case CacheType.Distributed:
-                    _cache = new DistributedCache(connection 
-                        ?? throw new ArgumentNullException(nameof(connection), "ConnectionMultiplexer cannot be null for DistributedCache."), settings);
-                    _localCache = null;
-                    break;
-                default:
-                    throw new InvalidOperationException("The CacheType is invalid.");
-            }
+            _cacheType = type;
+            _settings = settings.Value;
+            _cache = type is CacheType.Distributed
+                ? new DistributedCache(connection!, settings)
+                : default;
         }
 
         /// <summary>
         /// Gets the cache object representation.
         /// </summary>
-        public object Cache { get => _cacheType is CacheType.Local ? _localCache!.GetCache() : _cache!.GetCache(); }
+        public object Cache { get => _cacheType is CacheType.Local ? LocalCache.GetInstance(_settings).GetCache() : _cache!.GetCache(); }
 
         /// <summary>
         /// Asynchronously checks the cache for an item with a specified key.
@@ -73,15 +61,16 @@ namespace CacheProvider.Providers
         /// <param name="key">The key to use for caching the item.</param>
         /// <returns>The cached item.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the item is null.</exception>
-        /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
+        /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>        
         public async Task<T> CheckCacheAsync(T item, string key)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(item);
             ArgumentException.ThrowIfNullOrWhiteSpace(key);
+            ArgumentNullException.ThrowIfNull(_cache);
 
             // Check if the item is in the cache
-            var cachedItem = await _cache!.GetItemAsync<T>(key);
+            var cachedItem = await _cache.GetItemAsync<T>(key);
             if (cachedItem != null)
             {
                 return cachedItem;
@@ -98,14 +87,15 @@ namespace CacheProvider.Providers
             ArgumentNullException.ThrowIfNull(item);
             ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-            var cachedItem = _localCache!.GetItem<T>(key);
+            LocalCache localCache = LocalCache.GetInstance(_settings);
+            var cachedItem = localCache.GetItem<T>(key);
             if (cachedItem != null)
             {
                 return cachedItem;
             }
 
             cachedItem = _realProvider.GetItem(item);
-            _localCache!.SetItem(key, cachedItem);
+            localCache.SetItem(key, cachedItem);
             return cachedItem;
         }
     }
