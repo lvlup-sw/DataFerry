@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CacheProvider", "CacheProvi
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MockCachingOperation", "MockCachingOperation\MockCachingOperation.csproj", "{C9B7D322-DCD9-42FF-8A77-EE8470572934}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CacheProviderTests", "CacheProviderTests\CacheProviderTests.csproj", "{FBD3F94C-C686-468E-8EB5-7231229FEB94}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{C9B7D322-DCD9-42FF-8A77-EE8470572934}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C9B7D322-DCD9-42FF-8A77-EE8470572934}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C9B7D322-DCD9-42FF-8A77-EE8470572934}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FBD3F94C-C686-468E-8EB5-7231229FEB94}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FBD3F94C-C686-468E-8EB5-7231229FEB94}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FBD3F94C-C686-468E-8EB5-7231229FEB94}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FBD3F94C-C686-468E-8EB5-7231229FEB94}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
