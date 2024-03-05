@@ -24,7 +24,7 @@ namespace CacheProvider.Caches
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(IConnectionMultiplexer cache, IOptions<CacheSettings> settings)
+        public DistributedCache(IConnectionMultiplexer cache, CacheSettings settings)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(settings.ConnectionString);

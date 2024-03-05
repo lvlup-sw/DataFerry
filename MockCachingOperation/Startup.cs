@@ -35,7 +35,7 @@ namespace MockCachingOperation
                 services.AddSingleton<IDistributedCache, DistributedCache>(serviceProvider =>
                 {
                     var connectionMultiplexer = serviceProvider.GetRequiredService<IConnectionMultiplexer>();
-                    var cacheSettings = serviceProvider.GetRequiredService<IOptions<CacheSettings>>();
+                    var cacheSettings = serviceProvider.GetRequiredService<CacheSettings>();
                     return new DistributedCache(connectionMultiplexer, cacheSettings);
                 });
             }
