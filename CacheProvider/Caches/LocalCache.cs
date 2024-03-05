@@ -24,11 +24,11 @@ namespace CacheProvider.Caches
         /// </remarks>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>"
-        private LocalCache(IOptions<CacheSettings> settings)
+        private LocalCache(CacheSettings settings)
         {
-            ArgumentNullException.ThrowIfNull(settings.Value);
+            ArgumentNullException.ThrowIfNull(settings);
 
-            _settings = settings.Value;
+            _settings = settings;
             _data = new ConcurrentDictionary<string, (object value, DateTime timeStamp)>();
         }
 
@@ -36,7 +36,7 @@ namespace CacheProvider.Caches
         /// Initializes a new instance of a <see cref="LocalCache"/>.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
-        public static LocalCache GetInstance(IOptions<CacheSettings> settings) => _instance ??= new LocalCache(settings);
+        public static LocalCache GetInstance(CacheSettings settings) => _instance ??= new LocalCache(settings);
 
         /// <summary>
         /// Retrieves an item from the cache using a key. Note this is a synchronous operation in <see cref="LocalCache"/>.

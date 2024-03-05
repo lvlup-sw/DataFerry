@@ -19,7 +19,7 @@ namespace CacheProvider.Caches
         /// A distributed cache.
         /// </summary>
         /// <remarks>
-        /// Implemented as an <see cref="IDistributedCache"/>.
+        /// Implemented as an <see cref="DistributedCache"/>.
         /// </remarks>
         Distributed
     }

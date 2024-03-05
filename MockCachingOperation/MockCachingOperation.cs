@@ -20,13 +20,14 @@ namespace MockCachingOperation
             // Get configuration
             var provider    = _serviceProvider.GetService<IRealProvider<Payload>>();
             var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-            var settings    = _serviceProvider.GetService<IOptions<CacheSettings>>();
+            var _settings   = _serviceProvider.GetService<IOptions<CacheSettings>>();
             var connection  = _serviceProvider.GetService<ConnectionMultiplexer>() ?? null;
 
             // Null check
             ArgumentNullException.ThrowIfNull(provider);
             ArgumentNullException.ThrowIfNull(appsettings);
-            ArgumentNullException.ThrowIfNull(settings);
+            ArgumentNullException.ThrowIfNull(_settings);
+            CacheSettings settings = _settings.Value;
 
             // Setup the cache provider
             CacheProvider<Payload> cacheProvider;
@@ -70,10 +71,10 @@ namespace MockCachingOperation
                 Console.WriteLine(areItemsDifferent
                     ? "\nThe returned items are DIFFERENT from the original payloads."
                     : "\nThe returned items are IDENTICAL to the original payloads.");
-                bool areCachedItemsIdentical = CompareCachedItems(payloads, cacheItems!);
-                Console.WriteLine(areCachedItemsIdentical
-                    ? "The cached items are IDENTICAL to the original payloads.\n"
-                    : "The cached items are DIFFERENT from the original payloads.\n");
+                bool arePayloadsCached = CompareCachedItems(payloads, cacheItems!);
+                Console.WriteLine(arePayloadsCached
+                    ? "The payloads HAVE been found in the cache.\n"
+                    : "The payloads HAVE NOT been found in the cache.\n");
 
                 // Continue?
                 Console.WriteLine("Continue? y/n");
@@ -84,7 +85,7 @@ namespace MockCachingOperation
             }
             catch (Exception ex)
             {
-                Console.WriteLine("An error occurred while executing the program.\n", ex.Message);
+                Console.WriteLine("An error occurred while executing the program.\n" + ex.Message);
                 Console.WriteLine("Press any key to exit...");
                 Console.ReadKey();
                 await StopAsync(CancellationToken.None);
@@ -144,37 +145,17 @@ namespace MockCachingOperation
 
         private static bool CompareCachedItems(List<Payload> payloads, List<Payload> cachedPayloads)
         {
-            // Always returns false if payloads.length < cachedPayloads
-            // Investigate if this is due to identifier mismatch
-            // Or if the payloads we're passing in are incorrect
-
             // Null checks
             if (payloads is null || cachedPayloads is null)
             {
                 return false;
             }
 
-            // Take the last 100 items from cachedPayloads
-            var recentCachedPayloads = cachedPayloads.TakeLast(100).ToList();
+            List<Payload> commonItems = cachedPayloads
+                .Where(p1 => payloads.Exists(p2 => p2.Identifier == p1.Identifier))
+                .ToList();
 
-            // Sort the lists by Identifier for comparison
-            var sortedPayloads = payloads.OrderBy(p => p.Identifier).ToList();
-            recentCachedPayloads = recentCachedPayloads.OrderBy(p => p.Identifier).ToList();
-
-            // Check if the payloads in each list are the same
-            // This is a deep comparison
-            for (int i = 0; i < sortedPayloads.Count; i++)
-            {
-                if (!sortedPayloads[i].Equals(recentCachedPayloads[i]))
-                {
-                    Console.WriteLine($"Difference found at index {i}:");
-                    Console.WriteLine($"Payload: {sortedPayloads[i].Identifier}");
-                    Console.WriteLine($"Cached Payload: {recentCachedPayloads[i].Identifier}");
-                    return false;
-                }
-            }
-
-            return true;
+            return commonItems.Count == payloads.Count;
         }
     }
 }

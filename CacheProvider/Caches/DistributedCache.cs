@@ -8,7 +8,7 @@ using System.Text.Json;
 namespace CacheProvider.Caches
 {
     /// <summary>
-    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="ICache"/> interface as a base. Polly is overtop for handling exceptions and retries.
+    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="ICache"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.
     /// </summary>
     /// <remarks>
     /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Blob Storage.
@@ -27,10 +27,10 @@ namespace CacheProvider.Caches
         public DistributedCache(IConnectionMultiplexer cache, IOptions<CacheSettings> settings)
         {
             ArgumentNullException.ThrowIfNull(cache);
-            ArgumentNullException.ThrowIfNull(settings.Value.ConnectionString);
+            ArgumentNullException.ThrowIfNull(settings.ConnectionString);
 
             _cache = cache;
-            _settings = settings.Value;
+            _settings = settings;
             _policy = CreatePolicy(_settings);
         }
 
@@ -114,7 +114,7 @@ namespace CacheProvider.Caches
         /// <param name="settings">The settings for the cache.</param>
         private static AsyncPolicyWrap<object> CreatePolicy(CacheSettings settings)
         {
-            // ToDo: Add logging using ILogger
+            // TODO: Add logging using ILogger
 
             // Retry policy: RetryCount times with RetryInterval seconds delay
             var retryPolicy = Policy<object>
