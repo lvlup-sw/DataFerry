@@ -24,10 +24,21 @@ namespace MockCachingOperation
             // Inject services
             services.AddSingleton<IRealProvider<Payload>, RealProvider>();
 
-            // Inject DB connection
+            // Inject redis connection
             string redisConnection = Configuration.GetConnectionString("Redis") ?? "";
             if (!string.IsNullOrWhiteSpace(redisConnection))
-                services.AddSingleton(ConnectionMultiplexer.Connect(redisConnection));
+            {
+                services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
+                {
+                    return ConnectionMultiplexer.Connect(redisConnection);
+                });
+                services.AddSingleton<IDistributedCache, DistributedCache>(serviceProvider =>
+                {
+                    var connectionMultiplexer = serviceProvider.GetRequiredService<IConnectionMultiplexer>();
+                    var cacheSettings = serviceProvider.GetRequiredService<IOptions<CacheSettings>>();
+                    return new DistributedCache(connectionMultiplexer, cacheSettings);
+                });
+            }
 
             // Inject application and worker to execute
             services.AddScoped(provider => new MockCachingOperation(provider));

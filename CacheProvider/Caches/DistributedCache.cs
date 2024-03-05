@@ -17,14 +17,14 @@ namespace CacheProvider.Caches
     {
         private readonly CacheSettings _settings;
         private readonly AsyncPolicyWrap<object> _policy;
-        private readonly ConnectionMultiplexer _cache;
+        private readonly IConnectionMultiplexer _cache;
 
         /// <summary>
         /// The primary constructor for the <see cref="DistributedCache"/> class.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(ConnectionMultiplexer cache, IOptions<CacheSettings> settings)
+        public DistributedCache(IConnectionMultiplexer cache, IOptions<CacheSettings> settings)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(settings.Value.ConnectionString);
@@ -138,7 +138,7 @@ namespace CacheProvider.Caches
             var fallbackPolicy = Policy<object>
                 .Handle<Exception>()
                 .FallbackAsync(
-                    fallbackValue: new RedisValue(),
+                    fallbackValue: RedisValue.Null,
                     onFallbackAsync: (exception, context) =>
                     {
                         Console.WriteLine($"Fallback executed due to: {exception}");
