@@ -14,21 +14,29 @@ To instantiate a `CacheProvider`, you need to provide the following:
 
 Here's an example of how to instantiate a `CacheProvider`:
 
-
 ```
 // Using the Dependency Injection pattern
-var provider    = _serviceProvider.GetService<IRealProvider<YourPayload>>();
-var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-var settings    = _serviceProvider.GetService<IOptions<CacheSettings>>();
-var logger      = _serviceProvider.GetService<ILogger<YourClass>>();
-var connection  = _serviceProvider.GetService<IConnectionMultiplexer>() ?? null;
+var provider		= _serviceProvider.GetService<IRealProvider<YourPayload>>();
+var appsettings 	= _serviceProvider.GetService<IOptions<AppSettings>>();
+var cachesettings	= _serviceProvider.GetService<IOptions<CacheSettings>>().Value;
+var logger		= _serviceProvider.GetService<ILogger<YourClass>>();
+var connection		= _serviceProvider.GetService<IConnectionMultiplexer>() ?? null;
 
-// Try to create the cache provider
+// Setup the CacheProvider
 CacheProvider<YourPayload> cacheProvider;
+CacheType cache = appsettings.Value.CacheType switch
+{
+    "Local" => CacheType.Local,
+    "Distributed" => CacheType.Distributed,
+    _ => throw new ArgumentException("The CacheType is invalid.")
+};
+
+// Try to instantiate the cache provider
 try
 {
-    cacheProvider = new(provider, cache, settings, logger, connection);
+    cacheProvider = new(provider, cache, cachesettings, logger, connection);
 }
+...
 ```
 
 Note that you'll need to inject an `IConnectionMultiplexer` into your service collection if you plan on using `DistributedCache`. EX:
