@@ -36,7 +36,7 @@ Note that you'll need to inject an `IConnectionMultiplexer` into your service co
 ```
 services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
 {
-	return ConnectionMultiplexer.Connect(redisConnection);
+	return ConnectionMultiplexer.Connect(YourConnectionString);
 });
 ```
 
