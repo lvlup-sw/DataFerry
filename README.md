@@ -19,7 +19,7 @@ Here's an example of how to instantiate a `CacheProvider`:
 // Using the Dependency Injection pattern
 var provider    = _serviceProvider.GetService<IRealProvider<YourPayload>>();
 var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-var settings   = _serviceProvider.GetService<IOptions<CacheSettings>>();
+var settings    = _serviceProvider.GetService<IOptions<CacheSettings>>();
 var logger      = _serviceProvider.GetService<ILogger<YourClass>>();
 var connection  = _serviceProvider.GetService<IConnectionMultiplexer>() ?? null;
 
@@ -69,12 +69,12 @@ var cachedItem = await cacheProvider.CheckCacheAsync(item, key);
 ## Dependencies
 
 The project uses the following NuGet packages:
-- Polly 8.3.0
-- StackExchange.Redis 2.7.23
-- Microsoft.EntityFrameworkCore 8.0.2
-- Microsoft.Extensions.Caching.StackExchangeRedis 8.0.2
-- Microsoft.Extensions.DependencyInjection 8.0.0
-- Microsoft.Extensions.Options 8.0.2
+- Polly ~> 8.3.0
+- StackExchange.Redis ~> 2.7.23
+- Microsoft.EntityFrameworkCore ~> 8.0.2
+- Microsoft.Extensions.Caching.StackExchangeRedis ~> 8.0.2
+- Microsoft.Extensions.DependencyInjection ~> 8.0.0
+- Microsoft.Extensions.Options ~> 8.0.2
 
 ## License
 
