@@ -88,11 +88,11 @@ namespace CacheProvider.Caches
         /// <param name="item">The item to add to the cache.</param>
         public bool SetItem<T>(string key, T item)
         {
-            _logger.LogInformation("Attempting to add item with key {key} to local cache.", key);
+            _logger.LogInformation("Attempting to add item with key {key} to cache.", key);
             if (key is null || item is null)
             {
-                _logger.LogWarning("Failed to add item with key {key} to local cache. Key or item is null.", key);
-                return default;
+                _logger.LogWarning("Failed to add item with key {key} to cache. Key or item is null.", key);
+                return false;
             }
 
             bool success = _data.TryAdd(key, (item, DateTime.UtcNow));
@@ -108,11 +108,11 @@ namespace CacheProvider.Caches
         /// <param name="key">The key of the item to remove.</param>
         public bool RemoveItem(string key)
         {
-            _logger.LogInformation("Attempting to remove item with key {key} from local cache.", key);
+            _logger.LogInformation("Attempting to remove item with key {key} from cache.", key);
             if (key is null)
             {
-                _logger.LogWarning("Failed to remove item with key {key} from local cache. Key is null.", key);
-                return default;
+                _logger.LogWarning("Failed to remove item with key {key} from cache. Key is null.", key);
+                return false;
             }
 
             bool success = _data.TryRemove(key, out _);

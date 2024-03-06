@@ -49,6 +49,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async () =>
             {
+                _logger.LogInformation("Attempting to retrieve item with key {key} from cache.", key);
                 RedisValue data = await database.StringGetAsync(key);
                 return data.HasValue ? data : default;
             });
@@ -72,7 +73,8 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async () =>
             {
-                return await database.StringSetAsync(key, JsonSerializer.SerializeToUtf8Bytes(item));
+                _logger.LogInformation("Attempting to add item with key {key} to cache.", key);
+                return await database.StringSetAsync(key, JsonSerializer.Serialize(item));
             });
 
             return result is bool success
@@ -93,6 +95,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async () =>
             {
+                _logger.LogInformation("Attempting to remove item with key {key} from cache.", key);
                 return await database.KeyDeleteAsync(key);
             });
 

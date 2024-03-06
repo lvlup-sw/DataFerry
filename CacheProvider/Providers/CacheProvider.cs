@@ -75,9 +75,9 @@ namespace CacheProvider.Providers
             try
             {
                 // Null checks
+                ArgumentNullException.ThrowIfNull(_cache);
                 ArgumentNullException.ThrowIfNull(item);
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
-                ArgumentNullException.ThrowIfNull(_cache);
 
                 // Check if the item is in the cache and return if found
                 _logger.LogInformation("Checking cache for item with key {key}.", key);
@@ -92,23 +92,24 @@ namespace CacheProvider.Providers
                 _logger.LogInformation("Cached item with key {key} not found in cache. Getting item from real provider.", key);
                 cachedItem = await _realProvider.GetItemAsync(item);
 
-                // Log and return the item after setting it in the cache
-                _logger.LogInformation("Attempting to set item received from real provider with {key} in the cache.", key);
-                bool success = cachedItem is not null && await _cache.SetItemAsync(key, cachedItem);
+                if (cachedItem is null)
+                {
+                    _logger.LogError("Item with key {key} not received from real provider.", key);
+                    throw new NullReferenceException(string.Format("Item with key {0} was not successfully retrieved.", key));
+                }
 
-                if (success)
+                // Attempt to return the item after setting it in the cache
+                _logger.LogInformation("Attempting to set item received from real provider with {key} in the cache.", key);
+                if (await _cache.SetItemAsync(key, cachedItem))
                 {
                     _logger.LogInformation("Item with key {key} received from real provider and set in cache.", key);
                 }
                 else
                 {
-                    _logger.LogError(cachedItem is null
-                        ? "Item with key {key} not received from real provider."
-                        : "Failed to set item with key {key} in cache.", key);
+                    _logger.LogError("Failed to set item with key {key} in cache.", key);
                 }
 
-                return cachedItem 
-                    ?? throw new NullReferenceException(string.Format("Item with key {0} was not successfully retrieved.", key));
+                return cachedItem;
             }
             catch (Exception ex)
             {
@@ -116,6 +117,7 @@ namespace CacheProvider.Providers
                 throw ex.GetBaseException();
             }
         }
+
 
         /// <summary>
         /// Synchronously checks the cache for an item with a specified key.
@@ -151,23 +153,24 @@ namespace CacheProvider.Providers
                 _logger.LogInformation("Cached item with key {key} not found in local cache. Getting item from real provider.", key);
                 cachedItem = _realProvider.GetItem(item);
 
-                // Log and return the item after setting it in the cache
-                _logger.LogInformation("Attempting to set item received from real provider with {key} in the cache.", key);
-                bool success = cachedItem is not null && localCache.SetItem(key, cachedItem);
+                if (cachedItem is null)
+                {
+                    _logger.LogError("Item with key {key} not received from real provider.", key);
+                    throw new NullReferenceException(string.Format("Item with key {0} was not successfully retrieved.", key));
+                }
 
-                if (success)
+                // Attempt to return the item after setting it in the cache
+                _logger.LogInformation("Attempting to set item received from real provider with {key} in the cache.", key);
+                if (localCache.SetItem(key, cachedItem))
                 {
                     _logger.LogInformation("Item with key {key} received from real provider and set in cache.", key);
                 }
                 else
                 {
-                    _logger.LogError(cachedItem is null
-                        ? "Item with key {key} not received from real provider."
-                        : "Failed to set item with key {key} in cache.", key);
+                    _logger.LogError("Failed to set item with key {key} in cache.", key);
                 }
 
-                return cachedItem
-                    ?? throw new NullReferenceException(string.Format("Item with key {0} was not successfully retrieved.", key));
+                return cachedItem;
             }
             catch (Exception ex)
             {
