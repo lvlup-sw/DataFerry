@@ -141,7 +141,7 @@ namespace CacheProvider.Caches
                     fallbackValue: RedisValue.Null,
                     onFallbackAsync: (exception, context) =>
                     {
-                        _logger.LogError($"Fallback executed due to: {exception}");
+                        _logger.LogError("Fallback executed due to: {exception}", exception);
                         return Task.CompletedTask;
                     });
 
