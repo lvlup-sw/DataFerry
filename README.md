@@ -19,7 +19,7 @@ Here's an example of how to instantiate a `CacheProvider`:
 // Using the Dependency Injection pattern
 var provider    = _serviceProvider.GetService<IRealProvider<YourPayload>>();
 var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-var _settings   = _serviceProvider.GetService<IOptions<CacheSettings>>();
+var settings   = _serviceProvider.GetService<IOptions<CacheSettings>>();
 var logger      = _serviceProvider.GetService<ILogger<YourClass>>();
 var connection  = _serviceProvider.GetService<IConnectionMultiplexer>() ?? null;
 
