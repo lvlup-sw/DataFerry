@@ -3,8 +3,28 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+    <Nullable>enable</Nullable>  
+	<PackageId>rsalus.CacheProvider</PackageId>
+    <Title>CacheProvider</Title>
+	<Version>1.0.0</Version>
+	<Authors>rsalus</Authors>
+    <Description>CacheProvider is a generic class designed to provide caching functionality for any type of object. It packages several caching implementations into one Provider class, allowing for easy pairing with any RealProvider component following the ASP.NET Provider model.</Description>
+    <PackageProjectUrl>https://github.com/rsalus/cache-provider</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageTags>Redis;StackExchange.Redis;Cache;Caching;Provider;ASP.NET</PackageTags>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+	<PackageReference Include="NuGet.Build.Tasks.Pack" Version="6.9.1">
+		<PrivateAssets>all</PrivateAssets>
+		<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+	</PackageReference>
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.2" />
