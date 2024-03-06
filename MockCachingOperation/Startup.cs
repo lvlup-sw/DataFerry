@@ -31,15 +31,6 @@ namespace MockCachingOperation
                 {
                     return ConnectionMultiplexer.Connect(redisConnection);
                 });
-                /*
-                services.AddSingleton<IDistributedCache, DistributedCache>(serviceProvider =>
-                {
-                    var connectionMultiplexer = serviceProvider.GetRequiredService<IConnectionMultiplexer>();
-                    var cacheSettings = serviceProvider.GetRequiredService<CacheSettings>();
-                    var logger = serviceProvider.GetRequiredService<ILogger<DistributedCache>>();
-                    return new DistributedCache(connectionMultiplexer, cacheSettings, logger);
-                });
-                */
             }
 
             // Inject application and worker to execute
