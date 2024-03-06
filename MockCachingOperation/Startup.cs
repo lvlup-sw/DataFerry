@@ -1,12 +1,11 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using CacheProvider.Caches;
 using CacheProvider.Providers;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
-using Microsoft.Extensions.Options;
 using StackExchange.Redis;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MockCachingOperation
 {
@@ -25,19 +24,22 @@ namespace MockCachingOperation
             services.AddSingleton<IRealProvider<Payload>, RealProvider>();
 
             // Inject redis connection
-            string redisConnection = Configuration.GetConnectionString("Redis") ?? "";
+            string redisConnection = Configuration.GetConnectionString("Redis") ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(redisConnection))
             {
                 services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
                 {
                     return ConnectionMultiplexer.Connect(redisConnection);
                 });
+                /*
                 services.AddSingleton<IDistributedCache, DistributedCache>(serviceProvider =>
                 {
                     var connectionMultiplexer = serviceProvider.GetRequiredService<IConnectionMultiplexer>();
                     var cacheSettings = serviceProvider.GetRequiredService<CacheSettings>();
-                    return new DistributedCache(connectionMultiplexer, cacheSettings);
+                    var logger = serviceProvider.GetRequiredService<ILogger<DistributedCache>>();
+                    return new DistributedCache(connectionMultiplexer, cacheSettings, logger);
                 });
+                */
             }
 
             // Inject application and worker to execute

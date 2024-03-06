@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using StackExchange.Redis;
+using Microsoft.Extensions.Logging;
 
 namespace MockCachingOperation
 {
@@ -21,12 +22,14 @@ namespace MockCachingOperation
             var provider    = _serviceProvider.GetService<IRealProvider<Payload>>();
             var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
             var _settings   = _serviceProvider.GetService<IOptions<CacheSettings>>();
-            var connection  = _serviceProvider.GetService<ConnectionMultiplexer>() ?? null;
+            var logger      = _serviceProvider.GetService<ILogger<MockCachingOperation>>();
+            var connection  = _serviceProvider.GetService<IConnectionMultiplexer>() ?? null;
 
             // Null check
             ArgumentNullException.ThrowIfNull(provider);
             ArgumentNullException.ThrowIfNull(appsettings);
             ArgumentNullException.ThrowIfNull(_settings);
+            ArgumentNullException.ThrowIfNull(logger);
             CacheSettings settings = _settings.Value;
 
             // Setup the cache provider
@@ -41,7 +44,7 @@ namespace MockCachingOperation
             // Try to create the cache provider
             try
             {
-                cacheProvider = new(provider, cache, settings, connection);
+                cacheProvider = new(provider, cache, settings, logger, connection);
 
                 // Create some payloads
                 List<Payload> payloads = [];

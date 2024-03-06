@@ -1,8 +1,7 @@
-﻿//using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using Polly;
+﻿using Polly;
 using Polly.Wrap;
 using StackExchange.Redis;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 namespace CacheProvider.Caches
@@ -15,23 +14,26 @@ namespace CacheProvider.Caches
     /// </remarks>
     public class DistributedCache : IDistributedCache
     {
-        private readonly CacheSettings _settings;
-        private readonly AsyncPolicyWrap<object> _policy;
         private readonly IConnectionMultiplexer _cache;
+        private readonly CacheSettings _settings;
+        private readonly ILogger _logger;
+        private readonly AsyncPolicyWrap<object> _policy;
 
         /// <summary>
         /// The primary constructor for the <see cref="DistributedCache"/> class.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(IConnectionMultiplexer cache, CacheSettings settings)
+        public DistributedCache(IConnectionMultiplexer cache, CacheSettings settings, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(settings.ConnectionString);
+            ArgumentNullException.ThrowIfNull(logger);
 
             _cache = cache;
             _settings = settings;
-            _policy = CreatePolicy(_settings);
+            _logger = logger;
+            _policy = CreatePolicy();
         }
 
         /// <summary>
@@ -51,9 +53,9 @@ namespace CacheProvider.Caches
                 return data.HasValue ? data : default;
             });
 
-            return result is RedisValue typeResult 
-                ? JsonSerializer.Deserialize<T>(typeResult.ToString()) 
-                : default;
+            return result is RedisValue typeResult
+                ? LogAndReturnForGet<T>(typeResult, key)
+                : LogAndReturnForGet<T>(RedisValue.Null, key);
         }
 
         /// <summary>
@@ -74,8 +76,8 @@ namespace CacheProvider.Caches
             });
 
             return result is bool success
-                ? success
-                : default;
+                ? LogAndReturnForSet(key, success)
+                : LogAndReturnForSet(key, default);
         }
 
         /// <summary>
@@ -95,8 +97,8 @@ namespace CacheProvider.Caches
             });
 
             return result is bool success
-                ? success
-                : default;
+                ? LogAndReturnForRemove(key, success)
+                : LogAndReturnForRemove(key, default);
         }
 
         /// <summary>
@@ -111,26 +113,24 @@ namespace CacheProvider.Caches
         /// <summary>
         /// Creates a policy for handling exceptions when accessing the cache.
         /// </summary>
-        /// <param name="settings">The settings for the cache.</param>
-        private static AsyncPolicyWrap<object> CreatePolicy(CacheSettings settings)
+        /// <param name="_settings">The settings for the cache.</param>
+        private AsyncPolicyWrap<object> CreatePolicy()
         {
-            // TODO: Add logging using ILogger
-
             // Retry policy: RetryCount times with RetryInterval seconds delay
             var retryPolicy = Policy<object>
                 .Handle<Exception>()
                 .WaitAndRetryAsync(
-                    retryCount: settings.RetryCount,
-                    sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(settings.RetryInterval),
+                    retryCount: _settings.RetryCount,
+                    sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(_settings.RetryInterval),
                     onRetry: (exception, timeSpan, retryCount, context) =>
                     {
-                        if (retryCount == settings.RetryCount)
+                        if (retryCount == _settings.RetryCount)
                         {
-                            Console.WriteLine($"Retry limit of {settings.RetryCount} reached. Exception: {exception}");
+                            _logger.LogError($"Retry limit of {_settings.RetryCount} reached. Exception: {exception}");
                         }
                         else
                         {
-                            Console.WriteLine($"Retry {retryCount} of {settings.RetryCount} after {timeSpan.TotalSeconds} seconds delay due to: {exception}");
+                            _logger.LogInformation($"Retry {retryCount} of {_settings.RetryCount} after {timeSpan.TotalSeconds} seconds delay due to: {exception}");
                         }
                     });
 
@@ -141,11 +141,66 @@ namespace CacheProvider.Caches
                     fallbackValue: RedisValue.Null,
                     onFallbackAsync: (exception, context) =>
                     {
-                        Console.WriteLine($"Fallback executed due to: {exception}");
+                        _logger.LogError($"Fallback executed due to: {exception}");
                         return Task.CompletedTask;
                     });
 
             return Policy.WrapAsync(retryPolicy, fallbackPolicy);
+        }
+
+
+        // Logging Methods to simplify return statements
+        private T? LogAndReturnForGet<T>(RedisValue value, string key)
+        {
+            bool success = !value.IsNullOrEmpty;
+
+            string message = success
+                ? $"GetItemAsync operation completed for key: {key}"
+                : $"GetItemAsync operation failed for key: {key}";
+
+            if (success)
+                _logger.LogInformation(message);
+            else
+                _logger.LogError(message);
+
+            try
+            {
+                return success ? JsonSerializer.Deserialize<T>(value.ToString()) : default;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError("Failed to deserialize the object. Exception: {ex}", ex);
+                return default;
+            }
+        }
+
+
+        private bool LogAndReturnForSet(string key, bool success)
+        {
+            string message = success
+                ? $"SetItemAsync operation completed for key: {key}"
+                : $"SetItemAsync operation failed for key: {key}";
+
+            if (success) 
+                _logger.LogInformation(message);
+            else 
+                _logger.LogError(message);
+
+            return success;
+        }
+
+        private bool LogAndReturnForRemove(string key, bool success)
+        {
+            string message = success
+                ? $"RemoveItemAsync operation completed for key: {key}"
+                : $"RemoveItemAsync operation failed for key: {key}";
+
+            if (success)
+                _logger.LogInformation(message);
+            else
+                _logger.LogError(message);
+
+            return success;
         }
     }
 }
