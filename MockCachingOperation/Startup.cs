@@ -6,6 +6,7 @@ using MockCachingOperation.Configuration;
 using StackExchange.Redis;
 using CacheProvider.Providers.Interfaces;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace MockCachingOperation
 {
@@ -15,6 +16,10 @@ namespace MockCachingOperation
 
         public void ConfigureServices(IServiceCollection services)
         {
+            // Start the redis server
+            string scriptPath = Path.Combine(Directory.GetCurrentDirectory(), "../../../Start-Redis.sh");
+            ExecuteBashScript(scriptPath);
+
             // Add configuration
             services.AddOptions();
             services.Configure<AppSettings>(Configuration.GetSection("AppSettings"));
@@ -25,8 +30,8 @@ namespace MockCachingOperation
             services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
             {
                 return ConnectionMultiplexer.Connect(
-                    Configuration.GetConnectionString("Redis") ?? string.Empty
-                );
+                    Configuration.GetConnectionString("Redis")
+                    ?? "localhost:6379,abortConnect=false,ssl=false,allowAdmin=true");
             });
             services.AddSingleton<ICacheProvider<Payload>>(serviceProvider =>
             {
@@ -41,6 +46,28 @@ namespace MockCachingOperation
             // Inject application and worker to execute
             services.AddScoped(provider => new MockCachingOperation(provider));
             services.AddHostedService<Worker>();
+        }
+
+        public static void ExecuteBashScript(string scriptPath)
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = @"C:\Program Files\Git\git-bash.exe",
+                Arguments = scriptPath,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = false,
+                Verb = "runas",
+            };
+
+            var process = new System.Diagnostics.Process { StartInfo = startInfo };
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            Console.WriteLine(output);
+            Console.WriteLine("\nRedis server started...");
+            Task.Delay(3000).Wait();
         }
     }
 }

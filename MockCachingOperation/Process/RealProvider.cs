@@ -39,5 +39,33 @@ namespace MockCachingOperation.Process
             payload.Data = newData;
             return payload;
         }
+
+        public async Task<Dictionary<string, Payload>> GetBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        {
+            var result = new Dictionary<string, Payload>();
+
+            var fetchTasks = keys.Select(async key =>
+            {
+                var payload = new Payload // Initialize with Data
+                {
+                    Identifier = key,
+                    Data = new List<string>() // Ensure Data is not null
+                };
+
+                payload = await GetAsync(payload);
+                await Task.Delay(10);
+
+                return (key, payload);
+            });
+
+            var fetchedData = await Task.WhenAll(fetchTasks);
+
+            foreach (var (key, payload) in fetchedData)
+            {
+                result[key] = payload;
+            }
+
+            return result;
+        }
     }
 }

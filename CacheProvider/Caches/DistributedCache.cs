@@ -159,7 +159,7 @@ namespace CacheProvider.Caches
                     return results.ToDictionary(result => result.Key, result => result.Value);
                 },
                 new Context($"DistributedCache.GetBatchAsync for {keys}"),
-                cancellationToken ?? CancellationToken.None
+                cancellationToken ?? default
             );
 
             return policyExecutionResult as Dictionary<string, T> ?? [];
@@ -211,7 +211,7 @@ namespace CacheProvider.Caches
                     return results.Values.All(success => success);
                 },
                 new Context($"DistributedCache.SetBatchAsync for {string.Join(", ", data.Keys)}"),
-                cancellationToken ?? CancellationToken.None
+                cancellationToken ?? default
             );
 
             return policyExecutionResult is bool success
@@ -256,7 +256,7 @@ namespace CacheProvider.Caches
                     return results.Values.All(success => success);
                 },
                 new Context($"DistributedCache.RemoveBatchAsync for {string.Join(", ", keys)}"),
-                cancellationToken ?? CancellationToken.None
+                cancellationToken ?? default
             );
 
             return policyExecutionResult is bool success
@@ -334,7 +334,7 @@ namespace CacheProvider.Caches
             if (success)
                 _logger.LogInformation(message);
             else
-                _logger.LogError(message);
+                _logger.LogWarning(message);
 
             try
             {

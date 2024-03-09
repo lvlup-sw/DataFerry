@@ -4,7 +4,6 @@ using MockCachingOperation.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using StackExchange.Redis;
 using Microsoft.Extensions.Logging;
@@ -18,33 +17,18 @@ namespace MockCachingOperation
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            // Get configuration
-            var provider    = _serviceProvider.GetService<IRealProvider<Payload>>();
-            var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-            var _settings   = _serviceProvider.GetService<IOptions<CacheSettings>>();
-            var logger      = _serviceProvider.GetService<ILogger<MockCachingOperation>>();
-            var connection  = _serviceProvider.GetService<IConnectionMultiplexer>() ?? null;
-
-            // Null check
-            ArgumentNullException.ThrowIfNull(provider);
-            ArgumentNullException.ThrowIfNull(appsettings);
-            ArgumentNullException.ThrowIfNull(_settings);
-            ArgumentNullException.ThrowIfNull(logger);
-            CacheSettings settings = _settings.Value;
-
-            // Setup the cache provider
-            CacheProvider<Payload> cacheProvider;
-            CacheType cache = appsettings.Value.CacheType switch
-            {
-                "Local" => CacheType.Local,
-                "Distributed" => CacheType.Distributed,
-                _ => throw new ArgumentException("The CacheType is invalid."),
-            };
-
-            // Try to create the cache provider
             try
             {
-                cacheProvider = new(provider, cache, settings, logger, connection);
+                // Get configuration
+                var provider    = _serviceProvider.GetRequiredService<IRealProvider<Payload>>();
+                var _settings   = _serviceProvider.GetRequiredService<IOptions<CacheSettings>>();
+                var logger      = _serviceProvider.GetRequiredService<ILogger<MockCachingOperation>>();
+                var connection  = _serviceProvider.GetRequiredService<IConnectionMultiplexer>();
+                var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
+                CacheSettings settings = _settings.Value;
+
+                // Create the cache provider
+                CacheProvider<Payload> cacheProvider = new(connection, provider, settings, logger);
 
                 // Create some payloads
                 List<Payload> payloads = [];
@@ -54,30 +38,41 @@ namespace MockCachingOperation
                 // Run the cache operation
                 var tasks = payloads.Select(async payload =>
                 {
-                    return (cache) switch
-                    { 
-                        CacheType.Local => cacheProvider.CheckCache(payload, payload.Identifier),
-                        CacheType.Distributed => await cacheProvider.CheckCacheAsync(payload, payload.Identifier),
-                        _ => throw new InvalidOperationException("The CacheType is invalid.")
-                    };
+                    return await cacheProvider.GetFromCacheAsync(payload, payload.Identifier);
                 });
 
+                // Wait for the tasks to complete
                 var cachedPayloads = await Task.WhenAll(tasks);
-                List<Payload> results = [.. cachedPayloads];
-                var cacheObj = cacheProvider.Cache as ConcurrentDictionary<string, (object, DateTime)>;
-                var caches = cacheObj?.Values.Select( item => item.Item1 as Payload).ToList();
+                List<Payload> cachedPayloadsList = cachedPayloads
+                    .Where(payload => payload is not null)
+                    .Cast<Payload>()
+                    .ToList();
 
                 // Display the results
-                Console.WriteLine($"Sent {results.Count} payloads to the cache.");
-                Console.WriteLine($"Current cache count: {cacheObj?.Count} s.");
-                bool aresDifferent = Compares(payloads, results);
-                Console.WriteLine(aresDifferent
-                    ? "\nThe returned entries are DIFFERENT from the original payloads."
-                    : "\nThe returned entries are IDENTICAL to the original payloads.");
-                bool arePayloadsCached = CompareCacheds(payloads, caches!);
-                Console.WriteLine(arePayloadsCached
-                    ? "The payloads HAVE been found in the cache.\n"
-                    : "The payloads HAVE NOT been found in the cache.\n");
+                Console.WriteLine($"Sent {payloads.Count} payloads to the cache.");
+                Console.WriteLine($"Current cache count: {GetCount(connection)} entries.");
+                bool areDifferent = Compares(payloads, cachedPayloadsList);
+                Console.WriteLine(areDifferent
+                    ? "\nThe retrieved entries are DIFFERENT from the original payloads."
+                    : "\nThe retrieved entries are IDENTICAL to the original payloads.");
+
+                Console.WriteLine("Beginning batch retrieval operation...\n");
+                Task.Delay(2000, cancellationToken)
+                    .Wait(cancellationToken);
+
+                // Get the payloads from the cache
+                var retrievedPayloads = await cacheProvider.GetBatchFromCacheAsync(
+                    payloads.ToDictionary(payload => payload.Identifier, payload => payload),
+                    payloads.Select(payload => payload.Identifier)                       
+                );
+
+                // Display the results
+                Console.WriteLine($"Retrieved {retrievedPayloads.Count} payloads from the cache.");
+                Console.WriteLine($"Current cache count: {GetCount(connection)} entries.");
+                areDifferent = Compares(cachedPayloadsList, retrievedPayloads.Values.ToList());
+                Console.WriteLine(areDifferent
+                    ? "\nThe retrieved entries are DIFFERENT from the cached payloads."
+                    : "\nThe retrieved entries are IDENTICAL to the cached payloads.");
 
                 // Continue?
                 Console.WriteLine("Continue? y/n");
@@ -146,19 +141,10 @@ namespace MockCachingOperation
             return payloads.Zip(results, (payload, result) => payload.Data.SequenceEqual(result.Data)).All(equal => equal);
         }
 
-        private static bool CompareCacheds(List<Payload> payloads, List<Payload> cachedPayloads)
+        public static long GetCount(IConnectionMultiplexer connection)
         {
-            // Null checks
-            if (payloads is null || cachedPayloads is null)
-            {
-                return false;
-            }
-
-            List<Payload> commons = cachedPayloads
-                .Where(p1 => payloads.Exists(p2 => p2.Identifier == p1.Identifier))
-                .ToList();
-
-            return commons.Count == payloads.Count;
+            var server = connection.GetServer(connection.GetEndPoints().First());
+            return server.DatabaseSize();
         }
     }
 }
