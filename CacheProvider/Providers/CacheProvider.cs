@@ -1,5 +1,6 @@
 ﻿using CacheProvider.Caches;
 using CacheProvider.Providers.Interfaces;
+using MemCache = Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
@@ -43,13 +44,13 @@ namespace CacheProvider.Providers
             _realProvider = provider;
             _settings = settings;
             _logger = logger;
-            _cache = new DistributedCache(connection, settings, logger);
+            _cache = new DistributedCache(connection, new MemCache.MemoryCache(new MemCache.MemoryCacheOptions()), settings, logger);
         }
 
         /// <summary>
-        /// Gets the cache representation.
+        /// Gets the cache instance.
         /// </summary>
-        public object Cache => _cache.GetCache();
+        public DistributedCache Cache => _cache;
 
         /// <summary>
         /// Asynchronously checks the cache for an  with a specified key.
@@ -63,13 +64,13 @@ namespace CacheProvider.Providers
         /// <exception cref="ArgumentNullException">Thrown when the  is null or if the cache was not successfully instantiated.</exception>
         /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
         /// <exception cref="NullReferenceException">Thrown when the  is not successfully retrieved.</exception>
-        public async Task<T> GetFromCacheAsync(T , string key, GetFlags? flag = null)
+        public async Task<T> GetFromCacheAsync(T data, string key, GetFlags? flag = null)
         {
             try
             {
                 // Null checks
                 ArgumentNullException.ThrowIfNull(_cache);
-                ArgumentNullException.ThrowIfNull();
+                ArgumentNullException.ThrowIfNull(data);
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
                 // Check if the  is in the cache and return if found
@@ -83,7 +84,7 @@ namespace CacheProvider.Providers
 
                 // If not, get the  from the real provider and set it in the cache
                 _logger.LogInformation("Cached  with key {key} not found in cache. Getting  from real provider.", key);
-                cached = await _realProvider.GetAsync();
+                cached = await _realProvider.GetAsync(data);
 
                 if (cached is null)
                 {
@@ -126,12 +127,14 @@ namespace CacheProvider.Providers
         /// <exception cref="ArgumentNullException">Thrown when the  is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
         /// <exception cref="NullReferenceException">Thrown when the  is not successfully retrieved.</exception>
-        public T GetFromCache(T , string key, GetFlags? flags = null)
+        public T GetFromCache(T data, string key, GetFlags? flags = null)
         {
+            throw new NotImplementedException();
+            /*
             try
             {
                 // Null checks
-                ArgumentNullException.ThrowIfNull();
+                ArgumentNullException.ThrowIfNull(data);
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
                 // Check if the  is in the cache and return if found
@@ -146,7 +149,7 @@ namespace CacheProvider.Providers
 
                 // If not, get the  from the real provider and set it in the cache
                 _logger.LogInformation("Cached  with key {key} not found in local cache. Getting  from real provider.", key);
-                cached = _realProvider.Get();
+                cached = _realProvider.Get(data);
 
                 if (cached is null)
                 {
@@ -172,6 +175,12 @@ namespace CacheProvider.Providers
                 _logger.LogError(ex, "An error occurred while checking the cache.");
                 throw ex.GetBaseException();
             }
+            */
+        }
+
+        public Task<IDictionary<string, T>> GetBatchFromCacheAsync(IDictionary<string, T> data, IEnumerable<string> keys, GetFlags? flags)
+        {
+            throw new NotImplementedException();
         }
     }
 }

@@ -6,13 +6,13 @@
     public interface IRealProvider<T>
     {
         /// <summary>
-        /// Asynchronousy get  from data source
+        /// Asynchronousy get data from data source
         /// </summary>
-        Task<T> GetAsync(T );
+        Task<T> GetAsync(T data);
 
         /// <summary>
-        /// Get  from data source
+        /// Get data from data source
         /// </summary>
-        T Get(T );
+        T Get(T data);
     }
 }

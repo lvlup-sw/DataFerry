@@ -24,7 +24,7 @@ namespace CacheProvider.Caches.Interfaces
         /// </remarks>
         /// <param name="key">The key to use for the .</param>
         /// <param name="">The  to add to the cache.</param>
-        Task<bool> SetAsync<T>(string key, T );
+        Task<bool> SetAsync<T>(string key, T data);
 
         /// <summary>
         /// Asynchronously removes an  from the cache using a key.
@@ -60,6 +60,6 @@ namespace CacheProvider.Caches.Interfaces
         /// <summary>
         /// Retrieves an <see cref="IDatabase"/> representation of the cache.
         /// </summary>
-        IDatabase GetCache();
+        IDatabase GetCacheConnection();
     }
 }

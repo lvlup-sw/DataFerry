@@ -3,7 +3,7 @@
 namespace CacheProvider.Providers
 {
     /// <summary>
-    /// Cache settings for <see cref="MemoryCache"/> and <see cref="DistributedCache"/>.
+    /// Cache settings for <see cref="DistributedCache"/>.
     /// </summary>
     /// <remarks>
     /// You need to pass an instance of this class to the <see cref="CacheProvider{T}"/>.
@@ -33,6 +33,6 @@ namespace CacheProvider.Providers
         /// <summary>
         /// Connection String used to connect to the Distributed Cache (ex Elasticache, Redis, etc).
         /// </summary>
-        public string? ConnectionString { get; set; }
+        public required string ConnectionString { get; set; }
     }
 }
