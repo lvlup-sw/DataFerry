@@ -1,5 +1,4 @@
-﻿using CacheProvider.Caches;
-using CacheProvider.Providers;
+﻿using CacheProvider.Providers;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using StackExchange.Redis;
 using Microsoft.Extensions.Logging;
+using CacheProvider.Providers.Interfaces;
 
 namespace MockCachingOperation
 {
@@ -65,16 +65,16 @@ namespace MockCachingOperation
                 var cachedPayloads = await Task.WhenAll(tasks);
                 List<Payload> results = [.. cachedPayloads];
                 var cacheObj = cacheProvider.Cache as ConcurrentDictionary<string, (object, DateTime)>;
-                var cacheItems = cacheObj?.Values.Select(item => item.Item1 as Payload).ToList();
+                var caches = cacheObj?.Values.Select( => .1 as Payload).ToList();
 
                 // Display the results
                 Console.WriteLine($"Sent {results.Count} payloads to the cache.");
-                Console.WriteLine($"Current cache count: {cacheObj?.Count} items.");
-                bool areItemsDifferent = CompareItems(payloads, results);
-                Console.WriteLine(areItemsDifferent
-                    ? "\nThe returned items are DIFFERENT from the original payloads."
-                    : "\nThe returned items are IDENTICAL to the original payloads.");
-                bool arePayloadsCached = CompareCachedItems(payloads, cacheItems!);
+                Console.WriteLine($"Current cache count: {cacheObj?.Count} s.");
+                bool aresDifferent = Compares(payloads, results);
+                Console.WriteLine(aresDifferent
+                    ? "\nThe returned s are DIFFERENT from the original payloads."
+                    : "\nThe returned s are IDENTICAL to the original payloads.");
+                bool arePayloadsCached = CompareCacheds(payloads, caches!);
                 Console.WriteLine(arePayloadsCached
                     ? "The payloads HAVE been found in the cache.\n"
                     : "The payloads HAVE NOT been found in the cache.\n");
@@ -135,7 +135,7 @@ namespace MockCachingOperation
             return new string(randomBytes.Select(b => chars[b % chars.Length]).ToArray());
         }
 
-        private static bool CompareItems(List<Payload> payloads, List<Payload> results)
+        private static bool Compares(List<Payload> payloads, List<Payload> results)
         {
             if (payloads.Count != results.Count)
             {
@@ -146,7 +146,7 @@ namespace MockCachingOperation
             return payloads.Zip(results, (payload, result) => payload.Data.SequenceEqual(result.Data)).All(equal => equal);
         }
 
-        private static bool CompareCachedItems(List<Payload> payloads, List<Payload> cachedPayloads)
+        private static bool CompareCacheds(List<Payload> payloads, List<Payload> cachedPayloads)
         {
             // Null checks
             if (payloads is null || cachedPayloads is null)
@@ -154,11 +154,11 @@ namespace MockCachingOperation
                 return false;
             }
 
-            List<Payload> commonItems = cachedPayloads
+            List<Payload> commons = cachedPayloads
                 .Where(p1 => payloads.Exists(p2 => p2.Identifier == p1.Identifier))
                 .ToList();
 
-            return commonItems.Count == payloads.Count;
+            return commons.Count == payloads.Count;
         }
     }
 }

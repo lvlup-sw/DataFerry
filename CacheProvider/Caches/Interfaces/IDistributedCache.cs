@@ -1,6 +1,6 @@
 ﻿using StackExchange.Redis;
 
-namespace CacheProvider.Caches
+namespace CacheProvider.Caches.Interfaces
 {
     /// <summary>
     /// A cache interface for caching arbitrary objects.
@@ -8,31 +8,31 @@ namespace CacheProvider.Caches
     public interface IDistributedCache
     {
         /// <summary>
-        /// Asynchronously retrieves an item from the cache using a key.
+        /// Asynchronously retrieves an  from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns the item if it exists in the cache, null otherwise.
+        /// Returns the  if it exists in the cache, null otherwise.
         /// </remarks>
-        /// <param name="key">The key of the item to retrieve.</param>
+        /// <param name="key">The key of the  to retrieve.</param>
         Task<T?> GetAsync<T>(string key);
 
         /// <summary>
-        /// Asynchronously adds an item to the cache with a specified key.
+        /// Asynchronously adds an  to the cache with a specified key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the item was added to the cache, false otherwise.
+        /// Returns true if the  was added to the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key to use for the item.</param>
-        /// <param name="item">The item to add to the cache.</param>
-        Task<bool> SetAsync<T>(string key, T item);
+        /// <param name="key">The key to use for the .</param>
+        /// <param name="">The  to add to the cache.</param>
+        Task<bool> SetAsync<T>(string key, T );
 
         /// <summary>
-        /// Asynchronously removes an item from the cache using a key.
+        /// Asynchronously removes an  from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the item was removed from the cache, false otherwise.
+        /// Returns true if the  was removed from the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key of the item to remove.</param>
+        /// <param name="key">The key of the  to remove.</param>
         Task<bool> RemoveAsync(string key);
 
         /// <summary>

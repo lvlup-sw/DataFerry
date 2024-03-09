@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using CacheProvider.Caches.Interfaces;
+using CacheProvider.Providers;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
@@ -7,28 +9,28 @@ using System.Text.Json;
 namespace CacheProvider.Caches
 {
     /// <summary>
-    /// LocalCache is an in-memory caching implementation with asynchronous operations.
+    /// MemoryCache is an in-memory caching implementation with asynchronous operations.
     /// </summary>
     /// <remarks>
-    /// This class inherits the <see cref="ILocalCache"/> interface and makes use of a <see cref="ConcurrentDictionary{TKey, TValue}"/> object behind the scenes.
+    /// This class inherits the <see cref="IMemoryCache"/> interface and makes use of a <see cref="ConcurrentDictionary{TKey, TValue}"/> object behind the scenes.
     /// Cache invalidation is also implemented in this class using <see cref="TimeSpan"/>.
     /// </remarks> 
-    public class LocalCache : ILocalCache
+    public class MemoryCache : IMemoryCache
     {
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private readonly ConcurrentDictionary<string, (object value, DateTime timeStamp)> _data;
-        private static LocalCache? _instance = null;
+        private static MemoryCache? _instance = null;
 
         /// <summary>
-        /// Private constructor of <see cref="LocalCache"/>.
+        /// Private constructor of <see cref="MemoryCache"/>.
         /// </summary>
         /// <remarks>
         /// This prevents more than one instance being created per process.
         /// </remarks>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException">Thrown when settings or logger is null.</exception>"
-        private LocalCache(CacheSettings settings, ILogger logger)
+        private MemoryCache(CacheSettings settings, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(logger);
@@ -39,37 +41,37 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Initializes a new instance of a <see cref="LocalCache"/>.
+        /// Initializes a new instance of a <see cref="MemoryCache"/>.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException">Thrown when settings or logger is null.</exception>"
-        public static LocalCache GetInstance(CacheSettings settings, ILogger logger) => _instance ??= new LocalCache(settings, logger);
+        public static MemoryCache GetInstance(CacheSettings settings, ILogger logger) => _instance ??= new MemoryCache(settings, logger);
 
         /// <summary>
-        /// Retrieves an item from the cache using a key. Note this is a synchronous operation in <see cref="LocalCache"/>.
+        /// Retrieves an  from the cache using a key. Note this is a synchronous operation in <see cref="MemoryCache"/>.
         /// </summary>
         /// <remarks>
-        /// Returns the item if it exists in the cache, null otherwise.
+        /// Returns the  if it exists in the cache, null otherwise.
         /// </remarks>
-        /// <param name="key">The key of the item to retrieve.</param>
-        public T? GetItem<T>(string key)
+        /// <param name="key">The key of the  to retrieve.</param>
+        public T? Get<T>(string key)
         {
-            _logger.LogInformation("Attempting to retrieve item with key {key} from local cache.", key);
-            if (!_data.TryGetValue(key, out var item))
+            _logger.LogInformation("Attempting to retrieve  with key {key} from local cache.", key);
+            if (!_data.TryGetValue(key, out var ))
             {
-                _logger.LogInformation("Item with key {key} not found in local cache.", key);
+                _logger.LogInformation(" with key {key} not found in local cache.", key);
                 return default;
             }
 
-            if (IsExpired(item, _settings.AbsoluteExpiration))
+            if (IsExpired(, _settings.AbsoluteExpiration))
             {
-                _logger.LogWarning("Item with key {key} found in local cache but was expired. Removing from cache.", key);
+                _logger.LogWarning(" with key {key} found in local cache but was expired. Removing from cache.", key);
                 _data.TryRemove(key, out _);
                 return default;
             }
 
-            _logger.LogInformation("Item with key {key} retrieved from local cache.", key);
-            return LogAndReturnForGet<T>(item.value, key);
+            _logger.LogInformation(" with key {key} retrieved from local cache.", key);
+            return LogAndReturnForGet<T>(.value, key);
         }
 
 
@@ -79,39 +81,39 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Adds an item from the cache using a key.
+        /// Adds an  from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the item was added to the cache, false otherwise.
+        /// Returns true if the  was added to the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key to use for the item.</param>
-        /// <param name="item">The item to add to the cache.</param>
-        public bool SetItem<T>(string key, T item)
+        /// <param name="key">The key to use for the .</param>
+        /// <param name="">The  to add to the cache.</param>
+        public bool Set<T>(string key, T )
         {
-            _logger.LogInformation("Attempting to add item with key {key} to cache.", key);
-            if (key is null || item is null)
+            _logger.LogInformation("Attempting to add  with key {key} to cache.", key);
+            if (key is null ||  is null)
             {
-                _logger.LogWarning("Failed to add item with key {key} to cache. Key or item is null.", key);
+                _logger.LogWarning("Failed to add  with key {key} to cache. Key or  is null.", key);
                 return false;
             }
 
-            bool success = _data.TryAdd(key, (item, DateTime.UtcNow));
+            bool success = _data.TryAdd(key, (, DateTime.UtcNow));
             return LogAndReturnForSet(key, success);
         }
 
         /// <summary>
-        /// Remove an item to the cache with a specified key.
+        /// Remove an  to the cache with a specified key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the item was remove from the cache, false otherwise.
+        /// Returns true if the  was remove from the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key of the item to remove.</param>
-        public bool RemoveItem(string key)
+        /// <param name="key">The key of the  to remove.</param>
+        public bool Remove(string key)
         {
-            _logger.LogInformation("Attempting to remove item with key {key} from cache.", key);
+            _logger.LogInformation("Attempting to remove  with key {key} from cache.", key);
             if (key is null)
             {
-                _logger.LogWarning("Failed to remove item with key {key} from cache. Key is null.", key);
+                _logger.LogWarning("Failed to remove  with key {key} from cache. Key is null.", key);
                 return false;
             }
 
@@ -134,8 +136,8 @@ namespace CacheProvider.Caches
             bool success = value is not null && value is T;
 
             string message = success
-                ? $"GetItem operation completed for key: {key}"
-                : $"GetItem operation failed for key: {key}";
+                ? $"Get operation completed for key: {key}"
+                : $"Get operation failed for key: {key}";
 
             if (success)
                 _logger.LogInformation(message);
@@ -148,8 +150,8 @@ namespace CacheProvider.Caches
         private bool LogAndReturnForSet(string key, bool success)
         {
             string message = success
-                ? $"SetItem operation completed for key: {key}"
-                : $"SetItem operation failed for key: {key}";
+                ? $"Set operation completed for key: {key}"
+                : $"Set operation failed for key: {key}";
 
             if (success)
                 _logger.LogInformation(message);
@@ -162,8 +164,8 @@ namespace CacheProvider.Caches
         private bool LogAndReturnForRemove(string key, bool success)
         {
             string message = success
-                ? $"RemoveItem operation completed for key: {key}"
-                : $"RemoveItem operation failed for key: {key}";
+                ? $"Remove operation completed for key: {key}"
+                : $"Remove operation failed for key: {key}";
 
             if (success)
                 _logger.LogInformation(message);

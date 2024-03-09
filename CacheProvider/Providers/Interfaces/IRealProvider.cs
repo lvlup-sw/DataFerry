@@ -1,4 +1,4 @@
-﻿namespace CacheProvider.Providers
+﻿namespace CacheProvider.Providers.Interfaces
 {
     /// <summary>
     /// An interface for the real provider.
@@ -6,13 +6,13 @@
     public interface IRealProvider<T>
     {
         /// <summary>
-        /// Asynchronousy get item from data source
+        /// Asynchronousy get  from data source
         /// </summary>
-        Task<T> GetItemAsync(T item);
+        Task<T> GetAsync(T );
 
         /// <summary>
-        /// Get item from data source
+        /// Get  from data source
         /// </summary>
-        T GetItem(T item);
+        T Get(T );
     }
 }

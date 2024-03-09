@@ -1,4 +1,4 @@
-﻿using CacheProvider.Providers;
+﻿using CacheProvider.Providers.Interfaces;
 
 namespace MockCachingOperation.Process
 {
@@ -15,7 +15,7 @@ namespace MockCachingOperation.Process
         /// </remarks>
         /// <param name="payload"></param>
         /// <returns><see cref="Task"/> of type <see cref="Payload"/></returns>
-        public async Task<Payload> GetItemAsync(Payload payload)
+        public async Task<Payload> GetAsync(Payload payload)
         {
             List<string> newData = payload.Data?
                 .Select(data => new string(data.Reverse().ToArray()))
@@ -30,7 +30,7 @@ namespace MockCachingOperation.Process
         /// <summary>
         /// Get object from data source
         /// </summary>
-        public Payload GetItem(Payload payload)
+        public Payload Get(Payload payload)
         {
             List<string> newData = payload.Data?
                 .Select(data => new string(data.Reverse().ToArray()))

@@ -1,12 +1,12 @@
 # CacheProvider
 
-The `CacheProvider` class is a generic class that implements the `ICacheProvider<T>` interface. It is designed to provide caching functionality for any type of object. The class uses two types of caches: `LocalCache` and `DistributedCache`. It also uses the `IRealProvider<T>` interface to retrieve items from the real provider when they are not found in the cache. The type of cache to use is determined by the CacheType parameter passed to the CacheProvider constructor.
+The `CacheProvider` class is a generic class that implements the `ICacheProvider<T>` interface. It is designed to provide caching functionality for any type of object. The class uses two types of caches: `MemoryCache` and `DistributedCache`. It also uses the `IRealProvider<T>` interface to retrieve s from the real provider when they are not found in the cache. The type of cache to use is determined by the CacheType parameter passed to the CacheProvider constructor.
 
 ## How to Instantiate CacheProvider
 
 To instantiate a `CacheProvider`, you need to provide the following:
 
-1. An instance of a class that implements the `IRealProvider<T>` interface. This is the "real provider" that the `CacheProvider` will use to retrieve items if they are not found in the cache.
+1. An instance of a class that implements the `IRealProvider<T>` interface. This is the "real provider" that the `CacheProvider` will use to retrieve s if they are not found in the cache.
 2. A `CacheType` value to specify the type of cache to use.
 3. An instance of `CacheSettings` to configure the cache.
 4. An instance of `ILogger` for logging.
@@ -50,24 +50,24 @@ services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
 
 ## Cache Implementations
 
-### LocalCache
+### MemoryCache
 
-`LocalCache` is an in-memory caching implementation of `ILocalCache` that uses a `ConcurrentDictionary<string, (object value, DateTime timeStamp)>` to store cached items. Each item in the cache is associated with a timestamp, which is used in conjunction with the `AbsoluteExpiration` setting to manage cache invalidation. This class is designed as a singleton to prevent multiple instances from being created per process. It provides synchronous operations for retrieving, adding, and removing items from the cache.
+`MemoryCache` is an in-memory caching implementation of `IMemoryCache` that uses a `ConcurrentDictionary<string, (object value, DateTime timeStamp)>` to store cached s. Each  in the cache is associated with a timestamp, which is used in conjunction with the `AbsoluteExpiration` setting to manage cache invalidation. This class is designed as a singleton to prevent multiple instances from being created per process. It provides synchronous operations for retrieving, adding, and removing s from the cache.
 
 ### DistributedCache
 
 `DistributedCache` is an implementation of `IDistributedCache` that uses the `StackExchange.Redis` library as its foundation. It leverages the `Polly` library to handle exceptions and retries, making it robust and resilient. This implementation is compatible with various distributed cache providers, including Redis, AWS ElastiCache, and Azure Blob Storage.
 
-The `DistributedCache` class requires a `CacheSettings` object for configuration and an `IConnectionMultiplexer` for connecting to the cache provider. It also uses an `AsyncPolicyWrap<object>` to define a policy for handling exceptions when accessing the cache. This policy includes a retry policy, which retries a specified number of times with a delay, and a fallback policy, which executes a fallback action if an exception is thrown. The class provides asynchronous operations for retrieving, adding, and removing items from the cache.
+The `DistributedCache` class requires a `CacheSettings` object for configuration and an `IConnectionMultiplexer` for connecting to the cache provider. It also uses an `AsyncPolicyWrap<object>` to define a policy for handling exceptions when accessing the cache. This policy includes a retry policy, which retries a specified number of times with a delay, and a fallback policy, which executes a fallback action if an exception is thrown. The class provides asynchronous operations for retrieving, adding, and removing s from the cache.
 
 ## Usage
 
-Once you have an instance of the `CacheProvider` class, you can use the `CheckCacheAsync` or `CheckCache` method to check the cache for an item with a specified key. If the item is found in the cache, it is returned. If not, the item is retrieved from the real provider and then cached before being returned. Here is an example:
+Once you have an instance of the `CacheProvider` class, you can use the `CheckCacheAsync` or `CheckCache` method to check the cache for an  with a specified key. If the  is found in the cache, it is returned. If not, the  is retrieved from the real provider and then cached before being returned. Here is an example:
 
 ```
-object item = new();
+object  = new();
 var key = "myKey";
-var cachedItem = await cacheProvider.CheckCacheAsync(item, key);
+var cached = await cacheProvider.CheckCacheAsync(, key);
 ```
 
 ## Prerequisities

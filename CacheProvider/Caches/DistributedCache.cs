@@ -3,6 +3,8 @@ using Polly.Wrap;
 using StackExchange.Redis;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using CacheProvider.Providers;
+using CacheProvider.Caches.Interfaces;
 
 namespace CacheProvider.Caches
 {
@@ -27,7 +29,7 @@ namespace CacheProvider.Caches
         public DistributedCache(IConnectionMultiplexer cache, CacheSettings settings, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
-            ArgumentNullException.ThrowIfNull(settings.ConnectionString);
+            ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(logger);
 
             _cache = cache;
@@ -37,20 +39,20 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Asynchronously retrieves an item from the cache using a key.
+        /// Asynchronously retrieves an  from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns the item if it exists in the cache, null otherwise.
+        /// Returns the  if it exists in the cache, null otherwise.
         /// </remarks>
-        /// <param name="key">The key of the item to retrieve.</param>
+        /// <param name="key">The key of the  to retrieve.</param>
         public async Task<T?> GetAsync<T>(string key)
         {
             IDatabase database = _cache.GetDatabase();
 
             object result = await _policy.ExecuteAsync(async () =>
             {
-                _logger.LogInformation("Attempting to retrieve item with key {key} from cache.", key);
-                RedisValue data = await database.StringGetAsync(key);
+                _logger.LogInformation("Attempting to retrieve  with key {key} from cache.", key);
+                RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica);
                 return data.HasValue ? data : default;
             });
 
@@ -60,21 +62,21 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Asynchronously adds an item to the cache with a specified key.
+        /// Asynchronously adds an  to the cache with a specified key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the item was added to the cache, false otherwise.
+        /// Returns true if the  was added to the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key to use for the item.</param>
-        /// <param name="item">The item to add to the cache.</param>
-        public async Task<bool> SetAsync<T>(string key, T item)
+        /// <param name="key">The key to use for the .</param>
+        /// <param name="">The  to add to the cache.</param>
+        public async Task<bool> SetAsync<T>(string key, T )
         {
             IDatabase database = _cache.GetDatabase();
 
             object result = await _policy.ExecuteAsync(async () =>
             {
-                _logger.LogInformation("Attempting to add item with key {key} to cache.", key);
-                return await database.StringSetAsync(key, JsonSerializer.Serialize(item));
+                _logger.LogInformation("Attempting to add  with key {key} to cache.", key);
+                return await database.StringSetAsync(key, JsonSerializer.Serialize());
             });
 
             return result is bool success
@@ -83,19 +85,19 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Asynchronously removes an item from the cache using a key.
+        /// Asynchronously removes an  from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the item was removed from the cache, false otherwise.
+        /// Returns true if the  was removed from the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key of the item to remove.</param>
+        /// <param name="key">The key of the  to remove.</param>
         public async Task<bool> RemoveAsync(string key)
         {
             IDatabase database = _cache.GetDatabase();
 
             object result = await _policy.ExecuteAsync(async () =>
             {
-                _logger.LogInformation("Attempting to remove item with key {key} from cache.", key);
+                _logger.LogInformation("Attempting to remove  with key {key} from cache.", key);
                 return await database.KeyDeleteAsync(key);
             });
 
@@ -105,11 +107,11 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Batch operation for getting multiple Items from cache
+        /// Batch operation for getting multiple s from cache
         /// </summary>
         /// <typeparam name="T">The type of the data to retrieve from the cache.</typeparam>
         /// <param name="keys">The keys associated with the data in the cache.</param>
-        /// <returns>A dictionary of the retrieved Items. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
+        /// <returns>A dictionary of the retrieved s. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
         public async Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys)
         {
             IDatabase database = _cache.GetDatabase();
@@ -144,12 +146,12 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Batch operation for setting multiple Items in cache
+        /// Batch operation for setting multiple s in cache
         /// </summary>
         /// <typeparam name="T">The type of the data to store in the cache.</typeparam>
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the data. If this is null, the default expiration time is used.</param>
-        /// <returns>True if all Items were set successfully; otherwise, false.</returns>
+        /// <returns>True if all s were set successfully; otherwise, false.</returns>
         public async Task<bool> SetBatchAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null)
         {
             TimeSpan absoluteExpiration = absoluteExpireTime ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
@@ -192,10 +194,10 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Batch operation for removing multiple Items from cache
+        /// Batch operation for removing multiple s from cache
         /// </summary>
         /// <param name="keys">The keys associated with the data in the cache.</param>
-        /// <returns>True if all Items were removed successfully; otherwise, false.</returns>
+        /// <returns>True if all s were removed successfully; otherwise, false.</returns>
         public async Task<bool> RemoveBatchAsync(IEnumerable<string> keys)
         {
             IDatabase database = _cache.GetDatabase();

@@ -1,4 +1,5 @@
 ﻿using CacheProvider.Caches;
+using CacheProvider.Providers.Interfaces;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
@@ -8,17 +9,16 @@ namespace CacheProvider.Providers
     /// CacheProvider is a generic class that implements the <see cref="ICacheProvider{T}"/> interface.
     /// </summary>
     /// <remarks>
-    /// This class makes use of two types of caches: <see cref="LocalCache"/> and <see cref="DistributedCache"/>.
-    /// It uses the <see cref="IRealProvider{T}>"/> interface to retrieve items from the real provider.
+    /// This class makes use of two types of caches: <see cref="MemoryCache"/> and <see cref="DistributedCache"/>.
+    /// It uses the <see cref="IRealProvider{T}>"/> interface to retrieve s from the real provider.
     /// </remarks>
     /// <typeparam name="T">The type of object to cache.</typeparam>
     public class CacheProvider<T> : ICacheProvider<T> where T : class
     {
         private readonly IRealProvider<T> _realProvider;
-        private readonly CacheType _cacheType;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
-        private readonly DistributedCache? _cache;
+        private readonly DistributedCache _cache;
 
         /// <summary>
         /// Primary constructor for the CacheProvider class.
@@ -31,85 +31,78 @@ namespace CacheProvider.Providers
         /// <param name="settings"></param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IRealProvider<T> provider, CacheType type, CacheSettings settings, ILogger logger, IConnectionMultiplexer? connection = null)
+        public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, CacheSettings settings, ILogger logger)
         {
             // Null checks
+            ArgumentNullException.ThrowIfNull(connection);
             ArgumentNullException.ThrowIfNull(provider);
-            ArgumentNullException.ThrowIfNull(type);
             ArgumentNullException.ThrowIfNull(settings);
+            ArgumentNullException.ThrowIfNull(logger);
 
             // Initializations
             _realProvider = provider;
-            _cacheType = type;
             _settings = settings;
             _logger = logger;
-            _cache = type is CacheType.Distributed
-                ? new DistributedCache(connection!, settings, logger)
-                : default;
+            _cache = new DistributedCache(connection, settings, logger);
         }
 
         /// <summary>
-        /// Gets the cache object representation.
+        /// Gets the cache representation.
         /// </summary>
-        public object Cache 
-        {
-            get => _cacheType is CacheType.Distributed
-                ? _cache!.GetCache()
-                : LocalCache.GetInstance(_settings, _logger).GetCache();
-        }
+        public object Cache => _cache.GetCache();
 
         /// <summary>
-        /// Asynchronously checks the cache for an item with a specified key.
+        /// Asynchronously checks the cache for an  with a specified key.
         /// </summary>
         /// <remarks>
-        /// If the item is found in the cache, it is returned. If not, the item is retrieved from the real provider and then cached before being returned.
+        /// If the  is found in the cache, it is returned. If not, the  is retrieved from the real provider and then cached before being returned.
         /// </remarks>
-        /// <param name="item">The item to cache.</param>
-        /// <param name="key">The key to use for caching the item.</param>
-        /// <returns>The cached item.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when the item is null or if the cache was not successfully instantiated.</exception>
+        /// <param name="">The  to cache.</param>
+        /// <param name="key">The key to use for caching the .</param>
+        /// <returns>The cached .</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the  is null or if the cache was not successfully instantiated.</exception>
         /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
-        /// <exception cref="NullReferenceException">Thrown when the item is not successfully retrieved.</exception>
-        public async Task<T> CheckCacheAsync(T item, string key)
+        /// <exception cref="NullReferenceException">Thrown when the  is not successfully retrieved.</exception>
+        public async Task<T> GetFromCacheAsync(T , string key, GetFlags? flag = null)
         {
             try
             {
                 // Null checks
                 ArgumentNullException.ThrowIfNull(_cache);
-                ArgumentNullException.ThrowIfNull(item);
+                ArgumentNullException.ThrowIfNull();
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-                // Check if the item is in the cache and return if found
-                _logger.LogInformation("Checking cache for item with key {key}.", key);
-                var cachedItem = await _cache.GetItemAsync<T>(key);
-                if (cachedItem is not null)
+                // Check if the  is in the cache and return if found
+                _logger.LogInformation("Checking cache for  with key {key}.", key);
+                var cached = await _cache.GetAsync<T>(key);
+                if (cached is not null)
                 {
-                    _logger.LogInformation("Cached item with key {key} found in cache.", key);
-                    return cachedItem;
+                    _logger.LogInformation("Cached  with key {key} found in cache.", key);
+                    return cached;
                 }
 
-                // If not, get the item from the real provider and set it in the cache
-                _logger.LogInformation("Cached item with key {key} not found in cache. Getting item from real provider.", key);
-                cachedItem = await _realProvider.GetItemAsync(item);
+                // If not, get the  from the real provider and set it in the cache
+                _logger.LogInformation("Cached  with key {key} not found in cache. Getting  from real provider.", key);
+                cached = await _realProvider.GetAsync();
 
-                if (cachedItem is null)
+                if (cached is null)
                 {
-                    _logger.LogError("Item with key {key} not received from real provider.", key);
-                    throw new NullReferenceException(string.Format("Item with key {0} was not successfully retrieved.", key));
+                    _logger.LogError(" with key {key} not received from real provider.", key);
+                    throw new NullReferenceException(string.Format(" with key {0} was not successfully retrieved.", key));
                 }
 
-                // Attempt to return the item after setting it in the cache
-                _logger.LogInformation("Attempting to set item received from real provider with {key} in the cache.", key);
-                if (await _cache.SetItemAsync(key, cachedItem))
+                // Attempt to return the  after setting it in the cache
+                _logger.LogInformation("Attempting to set  received from real provider with {key} in the cache.", key);
+                if (await _cache.SetAsync(key, cached))
                 {
-                    _logger.LogInformation("Item with key {key} received from real provider and set in cache.", key);
+                    _logger.LogInformation(" with key {key} received from real provider and set in cache.", key);
                 }
                 else
                 {
-                    _logger.LogError("Failed to set item with key {key} in cache.", key);
+                    _logger.LogError("Failed to set  with key {key} in cache.", key);
                 }
 
-                return cachedItem;
+                return cached;
             }
             catch (Exception ex)
             {
@@ -118,59 +111,61 @@ namespace CacheProvider.Providers
             }
         }
 
+        // Add batch ops
+
 
         /// <summary>
-        /// Synchronously checks the cache for an item with a specified key.
+        /// Synchronously checks the cache for an  with a specified key.
         /// </summary>
         /// <remarks>
-        /// If the item is found in the cache, it is returned. If not, the item is retrieved from the real provider and then cached before being returned.
+        /// If the  is found in the cache, it is returned. If not, the  is retrieved from the real provider and then cached before being returned.
         /// </remarks>
-        /// <param name="item">The item to cache.</param>
-        /// <param name="key">The key to use for caching the item.</param>
-        /// <returns>The cached item.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when the item is null.</exception>
+        /// <param name="">The  to cache.</param>
+        /// <param name="key">The key to use for caching the .</param>
+        /// <returns>The cached .</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the  is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
-        /// <exception cref="NullReferenceException">Thrown when the item is not successfully retrieved.</exception>
-        public T CheckCache(T item, string key)
+        /// <exception cref="NullReferenceException">Thrown when the  is not successfully retrieved.</exception>
+        public T GetFromCache(T , string key, GetFlags? flags = null)
         {
             try
             {
                 // Null checks
-                ArgumentNullException.ThrowIfNull(item);
+                ArgumentNullException.ThrowIfNull();
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-                // Check if the item is in the cache and return if found
-                LocalCache localCache = LocalCache.GetInstance(_settings, _logger);
-                _logger.LogInformation("Checking local cache for item with key {key}.", key);
-                var cachedItem = localCache.GetItem<T>(key);
-                if (cachedItem is not null)
+                // Check if the  is in the cache and return if found
+                MemoryCache MemoryCache = MemoryCache.GetInstance(_settings, _logger);
+                _logger.LogInformation("Checking local cache for  with key {key}.", key);
+                var cached = MemoryCache.Get<T>(key);
+                if (cached is not null)
                 {
-                    _logger.LogInformation("Cached item with key {key} found in local cache.", key);
-                    return cachedItem;
+                    _logger.LogInformation("Cached  with key {key} found in local cache.", key);
+                    return cached;
                 }
 
-                // If not, get the item from the real provider and set it in the cache
-                _logger.LogInformation("Cached item with key {key} not found in local cache. Getting item from real provider.", key);
-                cachedItem = _realProvider.GetItem(item);
+                // If not, get the  from the real provider and set it in the cache
+                _logger.LogInformation("Cached  with key {key} not found in local cache. Getting  from real provider.", key);
+                cached = _realProvider.Get();
 
-                if (cachedItem is null)
+                if (cached is null)
                 {
-                    _logger.LogError("Item with key {key} not received from real provider.", key);
-                    throw new NullReferenceException(string.Format("Item with key {0} was not successfully retrieved.", key));
+                    _logger.LogError(" with key {key} not received from real provider.", key);
+                    throw new NullReferenceException(string.Format(" with key {0} was not successfully retrieved.", key));
                 }
 
-                // Attempt to return the item after setting it in the cache
-                _logger.LogInformation("Attempting to set item received from real provider with {key} in the cache.", key);
-                if (localCache.SetItem(key, cachedItem))
+                // Attempt to return the  after setting it in the cache
+                _logger.LogInformation("Attempting to set  received from real provider with {key} in the cache.", key);
+                if (MemoryCache.Set(key, cached))
                 {
-                    _logger.LogInformation("Item with key {key} received from real provider and set in cache.", key);
+                    _logger.LogInformation(" with key {key} received from real provider and set in cache.", key);
                 }
                 else
                 {
-                    _logger.LogError("Failed to set item with key {key} in cache.", key);
+                    _logger.LogError("Failed to set  with key {key} in cache.", key);
                 }
 
-                return cachedItem;
+                return cached;
             }
             catch (Exception ex)
             {

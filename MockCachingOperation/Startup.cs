@@ -1,10 +1,10 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using CacheProvider.Caches;
 using CacheProvider.Providers;
 using MockCachingOperation.Process;
 using MockCachingOperation.Configuration;
 using StackExchange.Redis;
+using CacheProvider.Providers.Interfaces;
 
 namespace MockCachingOperation
 {

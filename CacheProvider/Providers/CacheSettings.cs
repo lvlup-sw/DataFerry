@@ -1,9 +1,9 @@
-﻿using CacheProvider.Providers;
+﻿using CacheProvider.Caches;
 
-namespace CacheProvider.Caches
+namespace CacheProvider.Providers
 {
     /// <summary>
-    /// Cache settings for <see cref="LocalCache"/> and <see cref="DistributedCache"/>.
+    /// Cache settings for <see cref="MemoryCache"/> and <see cref="DistributedCache"/>.
     /// </summary>
     /// <remarks>
     /// You need to pass an instance of this class to the <see cref="CacheProvider{T}"/>.
