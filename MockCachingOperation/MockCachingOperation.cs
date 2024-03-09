@@ -65,15 +65,15 @@ namespace MockCachingOperation
                 var cachedPayloads = await Task.WhenAll(tasks);
                 List<Payload> results = [.. cachedPayloads];
                 var cacheObj = cacheProvider.Cache as ConcurrentDictionary<string, (object, DateTime)>;
-                var caches = cacheObj?.Values.Select( => .1 as Payload).ToList();
+                var caches = cacheObj?.Values.Select( item => item.Item1 as Payload).ToList();
 
                 // Display the results
                 Console.WriteLine($"Sent {results.Count} payloads to the cache.");
                 Console.WriteLine($"Current cache count: {cacheObj?.Count} s.");
                 bool aresDifferent = Compares(payloads, results);
                 Console.WriteLine(aresDifferent
-                    ? "\nThe returned s are DIFFERENT from the original payloads."
-                    : "\nThe returned s are IDENTICAL to the original payloads.");
+                    ? "\nThe returned entries are DIFFERENT from the original payloads."
+                    : "\nThe returned entries are IDENTICAL to the original payloads.");
                 bool arePayloadsCached = CompareCacheds(payloads, caches!);
                 Console.WriteLine(arePayloadsCached
                     ? "The payloads HAVE been found in the cache.\n"

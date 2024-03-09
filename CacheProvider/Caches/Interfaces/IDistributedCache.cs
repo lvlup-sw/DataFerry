@@ -23,7 +23,7 @@ namespace CacheProvider.Caches.Interfaces
         /// Returns true if the  was added to the cache, false otherwise.
         /// </remarks>
         /// <param name="key">The key to use for the .</param>
-        /// <param name="">The  to add to the cache.</param>
+        /// <param name="data">The  to add to the cache.</param>
         Task<bool> SetAsync<T>(string key, T data);
 
         /// <summary>
@@ -40,7 +40,7 @@ namespace CacheProvider.Caches.Interfaces
         /// </summary>
         /// <param name="keys">The keys of the records to remove.</param>
         /// <returns>A dictionary of the records associated with the keys, if they exist; otherwise, default(<typeparamref name="T"/>).</returns>
-        Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys);
+        Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache.
@@ -48,14 +48,14 @@ namespace CacheProvider.Caches.Interfaces
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the records.</param>
         /// <returns>True if all records were set successfully; otherwise, false.</returns>
-        Task<bool> SetBatchAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null);
+        Task<bool> SetBatchAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Removes multiple records from the cache.
         /// </summary>
         /// <param name="keys">The keys of the records to remove.</param>
         /// <returns>True if all records were removed successfully; otherwise, false.</returns>
-        Task<bool> RemoveBatchAsync(IEnumerable<string> keys);
+        Task<bool> RemoveBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Retrieves an <see cref="IDatabase"/> representation of the cache.

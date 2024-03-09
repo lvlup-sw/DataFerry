@@ -10,7 +10,7 @@ using Microsoft.Extensions.Caching.Memory;
 namespace CacheProvider.Caches
 {
     /// <summary>
-    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="ICache"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.
+    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="IDistributedCache"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.
     /// </summary>
     /// <remarks>
     /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Blob Storage.
@@ -43,10 +43,10 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Asynchronously retrieves an  from the cache using a key.
+        /// Asynchronously retrieves an entry from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns the  if it exists in the cache, null otherwise.
+        /// Returns the entry if it exists in the cache, null otherwise.
         /// </remarks>
         /// <param name="key">The key of the  to retrieve.</param>
         public async Task<T?> GetAsync<T>(string key)
@@ -76,12 +76,12 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Asynchronously adds an  to the cache with a specified key.
+        /// Asynchronously adds an entry to the cache with a specified key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the  was added to the cache, false otherwise.
+        /// Returns true if the entry was added to the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key to use for the .</param>
+        /// <param name="key">The key to use for the entry.</param>
         /// <param name="data">The data to add to the cache.</param>
         public async Task<bool> SetAsync<T>(string key, T data)
         {
@@ -100,12 +100,12 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Asynchronously removes an  from the cache using a key.
+        /// Asynchronously removes an entry from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the  was removed from the cache, false otherwise.
+        /// Returns true if the entry was removed from the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key of the  to remove.</param>
+        /// <param name="key">The key of the entry to remove.</param>
         public async Task<bool> RemoveAsync(string key)
         {
             _memCache.Remove(key);
@@ -123,19 +123,19 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Batch operation for getting multiple s from cache
+        /// Batch operation for getting multiple entries from cache
         /// </summary>
         /// <typeparam name="T">The type of the data to retrieve from the cache.</typeparam>
         /// <param name="keys">The keys associated with the data in the cache.</param>
-        /// <returns>A dictionary of the retrieved s. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
-        public async Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys)
+        /// <returns>A dictionary of the retrieved entries. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
+        public async Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
 
             // Setup polly to retry the entire operation if anything fails
             object policyExecutionResult = await _policy.ExecuteAsync(
-                async (c) =>
+                async (c, ct) =>
                 {
                     // We use a dictionary to store the tasks and their associated keys since we need the values
                     // Also, we only want to retrieve the keys that don't exist in the _memCache
@@ -158,20 +158,21 @@ namespace CacheProvider.Caches
                     );
                     return results.ToDictionary(result => result.Key, result => result.Value);
                 },
-                new Context($"DistributedCache.GetBatchAsync for {keys}")
+                new Context($"DistributedCache.GetBatchAsync for {keys}"),
+                cancellationToken ?? CancellationToken.None
             );
 
             return policyExecutionResult as Dictionary<string, T> ?? [];
         }
 
         /// <summary>
-        /// Batch operation for setting multiple s in cache
+        /// Batch operation for setting multiple entries in cache
         /// </summary>
         /// <typeparam name="T">The type of the data to store in the cache.</typeparam>
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the data. If this is null, the default expiration time is used.</param>
-        /// <returns>True if all s were set successfully; otherwise, false.</returns>
-        public async Task<bool> SetBatchAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null)
+        /// <returns>True if all entries were set successfully; otherwise, false.</returns>
+        public async Task<bool> SetBatchAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null, CancellationToken? cancellationToken = null)
         {
             TimeSpan absoluteExpiration = absoluteExpireTime ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
             IDatabase database = _cache.GetDatabase();
@@ -179,21 +180,23 @@ namespace CacheProvider.Caches
 
             // Setup polly to retry the entire operation if anything fails
             object policyExecutionResult = await _policy.ExecuteAsync(
-                async (c) =>
+                async (c, ct) =>
                 {
                     // We use a list to store the tasks since we're just adding bools
-                    var tasks = data.Select(kv => new
-                    {
-                        kv.Key,
-                        Task = batch.StringSetAsync(
+                    var tasks = data
+                        .Where(kv => kv.Value is not null) // Exclude null values
+                        .Select(kv => new
+                        {
                             kv.Key,
-                            JsonSerializer.Serialize(kv.Value),
-                            absoluteExpiration
-                        )
-                    }).ToList();
+                            Task = batch.StringSetAsync(
+                                kv.Key,
+                                JsonSerializer.Serialize(kv.Value),
+                                absoluteExpiration
+                            )
+                        }).ToList();
 
                     // Set items in the memCache
-                    data.ToList().ForEach(kv => _memCache.Set(kv.Key, kv.Value));
+                    data.Where(kv => kv.Value is not null).ToList().ForEach(kv => _memCache.Set(kv.Key, kv.Value)); // Exclude null values
 
                     // Execute the batch and wait for all the tasks to complete
                     batch.Execute();
@@ -207,7 +210,8 @@ namespace CacheProvider.Caches
                     );
                     return results.Values.All(success => success);
                 },
-                new Context($"DistributedCache.SetBatchAsync for {string.Join(", ", data.Keys)}")
+                new Context($"DistributedCache.SetBatchAsync for {string.Join(", ", data.Keys)}"),
+                cancellationToken ?? CancellationToken.None
             );
 
             return policyExecutionResult is bool success
@@ -216,18 +220,18 @@ namespace CacheProvider.Caches
         }
 
         /// <summary>
-        /// Batch operation for removing multiple entries from cache
+        /// Batch operation for removing multiple entries from cache.
         /// </summary>
         /// <param name="keys">The keys associated with the data in the cache.</param>
         /// <returns>True if all entries were removed successfully; otherwise, false.</returns>
-        public async Task<bool> RemoveBatchAsync(IEnumerable<string> keys)
+        public async Task<bool> RemoveBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
 
             // Setup polly to retry the entire operation if anything fails
             object policyExecutionResult = await _policy.ExecuteAsync(
-                async (c) =>
+                async (c, ct) =>
                 {
                     // We use a list to store the tasks since we're just adding bools
                     var tasks = keys.Select(key => new
@@ -251,7 +255,8 @@ namespace CacheProvider.Caches
                     );
                     return results.Values.All(success => success);
                 },
-                new Context($"DistributedCache.RemoveBatchAsync for {string.Join(", ", keys)}")
+                new Context($"DistributedCache.RemoveBatchAsync for {string.Join(", ", keys)}"),
+                cancellationToken ?? CancellationToken.None
             );
 
             return policyExecutionResult is bool success

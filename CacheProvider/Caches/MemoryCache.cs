@@ -1,21 +1,17 @@
-﻿using CacheProvider.Providers;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Caching.Memory;
-using System.Collections.Concurrent;
 
 namespace CacheProvider.Caches
 {
     /// <summary>
-    /// MemoryCache is an in-memory caching implementation with asynchronous operations.
+    /// MemoryCache is an in-memory caching implementation.
     /// </summary>
     /// <remarks>
-    /// This class inherits the <see cref="IMemoryCache"/> interface and makes use of a <see cref="ConcurrentDictionary{TKey, TValue}"/> object behind the scenes.
-    /// Cache invalidation is also implemented in this class using <see cref="TimeSpan"/>.
+    /// This class inherits the <see cref="IMemoryCache"/> interface behind the scenes.
     /// </remarks> 
     internal class MemoryCache : IMemoryCache, IDisposable
     {
         private readonly IMemoryCache _cache;
-        private readonly CacheSettings _settings;
         private readonly ILogger _logger;
 
         /// <summary>
@@ -26,14 +22,12 @@ namespace CacheProvider.Caches
         /// </remarks>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException">Thrown when settings or logger is null.</exception>"
-        public MemoryCache(IMemoryCache cache, CacheSettings settings, ILogger logger)
+        public MemoryCache(IMemoryCache cache, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
-            ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(logger);
 
             _cache = cache;
-            _settings = settings;
             _logger = logger;
         }
 

@@ -3,7 +3,6 @@
     public enum GetFlags
     {
         ReturnNullIfNotFoundInCache,
-        ForceMasterToRead,
-        DoNotSetDataInCache
+        DoNotSetCacheEntry
     }
 }

@@ -8,11 +8,14 @@
         /// <summary>
         /// Asynchronousy get data from data source
         /// </summary>
+        /// <param name="data"></param>
         Task<T> GetAsync(T data);
 
         /// <summary>
-        /// Get data from data source
+        /// Asynchronousy get batch of data from data source
         /// </summary>
-        T Get(T data);
+        /// <param name="keys"></param>
+        /// <param name="cancellationToken"></param>
+        Task<Dictionary<string, T>> GetBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
     }
 }
