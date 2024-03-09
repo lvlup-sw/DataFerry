@@ -14,7 +14,7 @@ namespace CacheProvider.Caches
         /// Returns the item if it exists in the cache, null otherwise.
         /// </remarks>
         /// <param name="key">The key of the item to retrieve.</param>
-        Task<T?> GetItemAsync<T>(string key);
+        Task<T?> GetAsync<T>(string key);
 
         /// <summary>
         /// Asynchronously adds an item to the cache with a specified key.
@@ -24,7 +24,7 @@ namespace CacheProvider.Caches
         /// </remarks>
         /// <param name="key">The key to use for the item.</param>
         /// <param name="item">The item to add to the cache.</param>
-        Task<bool> SetItemAsync<T>(string key, T item);
+        Task<bool> SetAsync<T>(string key, T item);
 
         /// <summary>
         /// Asynchronously removes an item from the cache using a key.
@@ -33,14 +33,33 @@ namespace CacheProvider.Caches
         /// Returns true if the item was removed from the cache, false otherwise.
         /// </remarks>
         /// <param name="key">The key of the item to remove.</param>
-        Task<bool> RemoveItemAsync(string key);
+        Task<bool> RemoveAsync(string key);
 
         /// <summary>
-        /// Retrieves an object representation of the cache. The cache may be a local cache or a distributed cache.
+        /// Retrieves multiple records from the cache.
         /// </summary>
-        /// <remarks>
-        /// In <see cref="DistributedCache"/>, the cache object returned is a Redis <see cref="IDatabase"/>.
-        /// </remarks>
-        object GetCache();
+        /// <param name="keys">The keys of the records to remove.</param>
+        /// <returns>A dictionary of the records associated with the keys, if they exist; otherwise, default(<typeparamref name="T"/>).</returns>
+        Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys);
+
+        /// <summary>
+        /// Sets multiple records in the cache.
+        /// </summary>
+        /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
+        /// <param name="absoluteExpireTime">The absolute expiration time for the records.</param>
+        /// <returns>True if all records were set successfully; otherwise, false.</returns>
+        Task<bool> SetBatchAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null);
+
+        /// <summary>
+        /// Removes multiple records from the cache.
+        /// </summary>
+        /// <param name="keys">The keys of the records to remove.</param>
+        /// <returns>True if all records were removed successfully; otherwise, false.</returns>
+        Task<bool> RemoveBatchAsync(IEnumerable<string> keys);
+
+        /// <summary>
+        /// Retrieves an <see cref="IDatabase"/> representation of the cache.
+        /// </summary>
+        IDatabase GetCache();
     }
 }

@@ -21,6 +21,11 @@ namespace CacheProvider.Caches
         public int RetryInterval { get; set; }
 
         /// <summary>
+        /// Set to true to use exponential backoff for cache operation retries.
+        /// </summary>
+        public bool UseExponentialBackoff { get; set; }
+
+        /// <summary>
         /// Retrieves or sets the expiration of the cache in minutes.
         /// </summary>
         public int AbsoluteExpiration { get; set; }
