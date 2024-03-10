@@ -65,7 +65,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
-                _logger.LogInformation("Attempting to retrieve  with key {key} from cache.", key);
+                _logger.LogInformation("Attempting to retrieve entry with key {key} from cache.", key);
                 RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica);
                 return data.HasValue ? data : default;
             }, new Context($"DistributedCache.GetAsync for {key}"));
@@ -90,7 +90,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
-                _logger.LogInformation("Attempting to add  with key {key} to cache.", key);
+                _logger.LogInformation("Attempting to add entry with key {key} to cache.", key);
                 return await database.StringSetAsync(key, JsonSerializer.Serialize(data));
             }, new Context($"DistributedCache.SetAsync for {key}"));
 
@@ -113,7 +113,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
-                _logger.LogInformation("Attempting to remove  with key {key} from cache.", key);
+                _logger.LogInformation("Attempting to remove entry with key {key} from cache.", key);
                 return await database.KeyDeleteAsync(key);
             }, new Context($"DistributedCache.RemoveAsync for {key}"));
 

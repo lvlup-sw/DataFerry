@@ -32,9 +32,9 @@ namespace MockCachingOperation
                 {   // Set to whatever level you want
                     logging.ClearProviders();
                     logging.AddConsole();
-                    logging.AddFilter("Microsoft", LogLevel.Warning);
-                    logging.AddFilter("System", LogLevel.Warning);
-                    logging.AddFilter("MockCachingOperation", LogLevel.Warning);
+                    logging.AddFilter("Microsoft", LogLevel.Information);
+                    logging.AddFilter("System", LogLevel.Information);
+                    logging.AddFilter("MockCachingOperation", LogLevel.Information);
                 });
     }
 }

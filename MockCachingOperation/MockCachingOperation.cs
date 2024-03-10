@@ -33,7 +33,7 @@ namespace MockCachingOperation
 
                 // Create some payloads
                 List<Payload> payloads = [];
-                while (payloads.Count < 100)
+                while (payloads.Count < 10)
                     payloads.Add(CreatePayload());
 
                 // Run the cache operation
@@ -149,6 +149,5 @@ namespace MockCachingOperation
             var server = connection.GetServer(connection.GetEndPoints().First());
             return server.DatabaseSize();
         }
-
     }
 }
