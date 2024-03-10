@@ -19,6 +19,8 @@ namespace MockCachingOperation
             // Start the redis server
             string scriptPath = Path.Combine(Directory.GetCurrentDirectory(), "../../../Start-Redis.sh");
             ExecuteBashScript(scriptPath);
+            Console.WriteLine("\nRedis server started...");
+            Task.Delay(3000).Wait();
 
             // Add configuration
             services.AddOptions();
@@ -66,8 +68,6 @@ namespace MockCachingOperation
             process.WaitForExit();
 
             Console.WriteLine(output);
-            Console.WriteLine("\nRedis server started...");
-            Task.Delay(3000).Wait();
         }
     }
 }

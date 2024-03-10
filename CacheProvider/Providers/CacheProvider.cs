@@ -28,9 +28,10 @@ namespace CacheProvider.Providers
         /// <remarks>
         /// Takes a real provider, cache type, and cache settings as parameters.
         /// </remarks>
-        /// <param name="provider"></param>
-        /// <param name="type"></param>
-        /// <param name="settings"></param>
+        /// <param name="connection">The connection to the Redis server.</param>
+        /// <param name="provider">The real provider to use as a data source in the case of cache misses.</param>
+        /// <param name="settings">The settings for the cache.</param>
+        /// <param name="logger">The logger to use for logging.</param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
         public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, CacheSettings settings, ILogger logger)
@@ -54,14 +55,13 @@ namespace CacheProvider.Providers
         public DistributedCache Cache => _cache;
 
         /// <summary>
-        /// Asynchronously checks the cache for an entry with a specified key.
+        /// Asynchronously retrieves an entry from the cache using a specified key.
+        /// If the entry is not found in the cache, it retrieves the entry from the real provider and caches it before returning.
         /// </summary>
-        /// <remarks>
-        /// If the entry is found in the cache, it is returned. If not, the entry is retrieved from the RealProvider and then cached before being returned.
-        /// </remarks>
-        /// <param name="">The  to cache.</param>
-        /// <param name="key">The key to use for caching the .</param>
-        /// <returns>The cached .</returns>
+        /// <param name="data">The data to cache.</param>
+        /// <param name="key">The key to use for caching the data.</param>
+        /// <param name="flag">Optional flag to control cache behavior.</param>
+        /// <returns>The cached data.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the entry is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
         /// <exception cref="NullReferenceException">Thrown when the entry is not successfully retrieved from the RealProvider.</exception>
@@ -115,6 +115,12 @@ namespace CacheProvider.Providers
             }
         }
 
+        /// <summary>
+        /// Asynchronously sets an entry in the cache using a specified key.
+        /// </summary>
+        /// <param name="key">The key to use for caching the data.</param>
+        /// <param name="data">The data to cache.</param>
+        /// <returns>True if the operation is successful; otherwise, false.</returns>
         public async Task<bool> SetInCacheAsync(string key, T data)
         {
             try
@@ -141,6 +147,11 @@ namespace CacheProvider.Providers
             }
         }
 
+        /// <summary>
+        /// Asynchronously removes an entry from the cache using a specified key.
+        /// </summary>
+        /// <param name="key">The key of the entry to remove.</param>
+        /// <returns>True if the operation is successful; otherwise, false.</returns>
         public async Task<bool> RemoveFromCacheAsync(string key)
         {
             try
@@ -166,6 +177,15 @@ namespace CacheProvider.Providers
             }
         }
 
+        /// <summary>
+        /// Asynchronously retrieves multiple entries from the cache using specified keys.
+        /// If any entries are not found in the cache, it retrieves them from the real provider and caches them before returning.
+        /// </summary>
+        /// <param name="data">The data to cache.</param>
+        /// <param name="keys">The keys to use for caching the data.</param>
+        /// <param name="flags">Optional flags to control cache behavior.</param>
+        /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>The cached data.</returns>
         public async Task<IDictionary<string, T>> GetBatchFromCacheAsync(IDictionary<string, T> data, IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
         {
             try
@@ -215,6 +235,12 @@ namespace CacheProvider.Providers
             }
         }
 
+        /// <summary>
+        /// Asynchronously sets multiple entries in the cache using specified keys.
+        /// </summary>
+        /// <param name="data">The data to cache.</param>
+        /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>True if the operation is successful; otherwise, false.</returns>
         public async Task<bool> SetBatchInCacheAsync(Dictionary<string, T> data, CancellationToken? cancellationToken = null)
         {
             try
@@ -245,6 +271,12 @@ namespace CacheProvider.Providers
             }
         }
 
+        /// <summary>
+        /// Asynchronously removes multiple entries from the cache using specified keys.
+        /// </summary>
+        /// <param name="keys">The keys of the entries to remove.</param>
+        /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>True if the operation is successful; otherwise, false.</returns>
         public async Task<bool> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             try

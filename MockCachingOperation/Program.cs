@@ -19,15 +19,6 @@ namespace MockCachingOperation
                     // Add Configurations
                     config.SetBasePath(Directory.GetCurrentDirectory());
                     config.AddJsonFile("./appsettings.json", optional: false, reloadOnChange: true);
-                    /* Uncomment to use Parameter Store
-                    config.AddSystemsManager("/MockCachingOperation", false);
-                    config.AddSystemsManager(configureSource =>
-                    {
-                        configureSource.Path = "/MockCachingOperation";
-                        configureSource.Optional = false;
-                        configureSource.ParameterProcessor = new JsonParameterProcessor();
-                        configureSource.ReloadAfter = TimeSpan.FromHours(1);
-                    }); */
                     config.AddEnvironmentVariables();
                 })
                 .ConfigureServices((hostContext, services) =>

@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using StackExchange.Redis;
 using Microsoft.Extensions.Logging;
 using CacheProvider.Providers.Interfaces;
+using System.Diagnostics;
 
 namespace MockCachingOperation
 {
@@ -92,6 +93,8 @@ namespace MockCachingOperation
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
+            string scriptPath = Path.Combine(Directory.GetCurrentDirectory(), "../../../Stop-Redis.sh");
+            Startup.ExecuteBashScript(scriptPath);
             Environment.Exit(0);
             return Task.CompletedTask;
         }
@@ -146,5 +149,6 @@ namespace MockCachingOperation
             var server = connection.GetServer(connection.GetEndPoints().First());
             return server.DatabaseSize();
         }
+
     }
 }
