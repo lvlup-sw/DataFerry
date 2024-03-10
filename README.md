@@ -1,41 +1,27 @@
 # CacheProvider
 
-The `CacheProvider` class is a generic class that implements the `ICacheProvider<T>` interface. It is designed to provide caching functionality for any type of object. The class uses two types of caches: `MemoryCache` and `DistributedCache`. It also uses the `IRealProvider<T>` interface to retrieve s from the real provider when they are not found in the cache. The type of cache to use is determined by the CacheType parameter passed to the CacheProvider constructor.
+The `CacheProvider` class is a generic class that implements the `ICacheProvider<T>` interface. It is designed to provide caching functionality for any type of object. The class uses two types of caches: `MemoryCache` and `DistributedCache`. It also uses the `IRealProvider<T>` interface to retrieve s from the real provider when they are not found in the cache.
 
 ## How to Instantiate CacheProvider
 
 To instantiate a `CacheProvider`, you need to provide the following:
 
-1. An instance of a class that implements the `IRealProvider<T>` interface. This is the "real provider" that the `CacheProvider` will use to retrieve s if they are not found in the cache.
-2. A `CacheType` value to specify the type of cache to use.
+1. An instance of `IConnectionMultiplexer` for connecting to the Redis server.
+2. An instance of a class that implements the `IRealProvider<T>` interface. This is the "real provider" that the `CacheProvider` will use to retrieve s if they are not found in the cache.
 3. An instance of `CacheSettings` to configure the cache.
 4. An instance of `ILogger` for logging.
-5. An optional `IConnectionMultiplexer` instance for connecting to a Redis server (only required if using `CacheType.Distributed`).
 
 Here's an example of how to instantiate a `CacheProvider`:
 
 ```
-// Using the Dependency Injection pattern
-var provider		= _serviceProvider.GetService<IRealProvider<YourPayload>>();
-var appsettings 	= _serviceProvider.GetService<IOptions<AppSettings>>();
-var cachesettings	= _serviceProvider.GetService<IOptions<CacheSettings>>().Value;
-var logger		= _serviceProvider.GetService<ILogger<YourClass>>();
-var connection		= _serviceProvider.GetService<IConnectionMultiplexer>() ?? null;
+// Get configuration
+var provider    = _serviceProvider.GetRequiredService<IRealProvider<Payload>>();
+var settings    = _serviceProvider.GetRequiredService<IOptions<CacheSettings>>().Value;
+var logger      = _serviceProvider.GetRequiredService<ILogger<MockCachingOperation>>();
+var connection  = _serviceProvider.GetRequiredService<IConnectionMultiplexer>();
 
-// Setup the CacheProvider
-CacheProvider<YourPayload> cacheProvider;
-CacheType cache = appsettings.Value.CacheType switch
-{
-    "Local" => CacheType.Local,
-    "Distributed" => CacheType.Distributed,
-    _ => throw new ArgumentException("The CacheType is invalid.")
-};
-
-// Try to instantiate the cache provider
-try
-{
-    cacheProvider = new(provider, cache, cachesettings, logger, connection);
-}
+// Create the cache provider
+CacheProvider<Payload> cacheProvider = new(connection, provider, settings, logger);
 ...
 ```
 
@@ -49,10 +35,6 @@ services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
 ```
 
 ## Cache Implementations
-
-### MemoryCache
-
-`MemoryCache` is an in-memory caching implementation of `IMemoryCache` that uses a `ConcurrentDictionary<string, (object value, DateTime timeStamp)>` to store cached s. Each  in the cache is associated with a timestamp, which is used in conjunction with the `AbsoluteExpiration` setting to manage cache invalidation. This class is designed as a singleton to prevent multiple instances from being created per process. It provides synchronous operations for retrieving, adding, and removing s from the cache.
 
 ### DistributedCache
 
