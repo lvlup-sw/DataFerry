@@ -6,9 +6,9 @@
     <Nullable>enable</Nullable>  
 	<PackageId>rsalus.CacheProvider</PackageId>
     <Title>CacheProvider</Title>
-	<Version>1.1.2</Version>
+	<Version>1.1.3</Version>
 	<Authors>rsalus</Authors>
-    <Description>CacheProvider is a generic class designed to provide caching functionality for any type of object. It packages several caching implementations into one Provider class, allowing for easy pairing with any RealProvider component following the ASP.NET Provider model.</Description>
+    <Description>CacheProvider is a generic class designed to provide caching functionality for any type of object. It packages a distributed Redis caching implementation into one Provider class, allowing for easy pairing with any RealProvider component following the ASP.NET Provider model.</Description>
     <PackageProjectUrl>https://github.com/rsalus/cache-provider</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 	<PackageLicenseExpression>MIT</PackageLicenseExpression>

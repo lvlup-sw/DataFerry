@@ -10,7 +10,7 @@ namespace CacheProvider.Providers.Interfaces
         /// <summary>
         /// Check the cache for an entry with a specified key.
         /// </summary>
-        Task<T?> GetFromCacheAsync(T data, string key, GetFlags? flags);
+        Task<T?> GetFromCacheAsync(T data, string key, GetFlags? flags = null);
 
         /// <summary>
         /// Asynchronously adds an  to the cache with a specified key.
@@ -34,7 +34,7 @@ namespace CacheProvider.Providers.Interfaces
         /// <summary>
         /// Batch operation to check the cache for an entries with the specified keys.
         /// </summary>
-        Task<IDictionary<string, T>> GetBatchFromCacheAsync(IDictionary<string, T> data, IEnumerable<string> keys, GetFlags? flags, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, T>> GetBatchFromCacheAsync(IDictionary<string, T> data, IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache.

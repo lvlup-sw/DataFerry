@@ -20,16 +20,7 @@ namespace MockCachingOperation
         {
             try
             {
-                // Get configuration
-                var provider    = _serviceProvider.GetRequiredService<IRealProvider<Payload>>();
-                var _settings   = _serviceProvider.GetRequiredService<IOptions<CacheSettings>>();
-                var logger      = _serviceProvider.GetRequiredService<ILogger<MockCachingOperation>>();
-                var connection  = _serviceProvider.GetRequiredService<IConnectionMultiplexer>();
-                var appsettings = _serviceProvider.GetService<IOptions<AppSettings>>();
-                CacheSettings settings = _settings.Value;
-
-                // Create the cache provider
-                CacheProvider<Payload> cacheProvider = new(connection, provider, settings, logger);
+                var cacheProvider = _serviceProvider.GetRequiredService<ICacheProvider<Payload>>();
 
                 // Create some payloads
                 List<Payload> payloads = [];
