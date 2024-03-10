@@ -52,12 +52,10 @@ namespace CacheProvider.Caches
         public async Task<T?> GetAsync<T>(string key)
         {
             // Check the _memCache first
-            if (_memCache.TryGetValue(key, out var memData))
+            if (_memCache.TryGetValue(key, out T? memData))
             {
                 _logger.LogInformation("Retrieved data with key {key} from memory cache.", key);
-                return memData is T typeData
-                    ? typeData
-                    : default;
+                return memData;
             }
 
             // If the key does not exist in the _memCache, proceed with the Polly policy execution
@@ -338,7 +336,15 @@ namespace CacheProvider.Caches
 
             try
             {
-                return success ? JsonSerializer.Deserialize<T>(value.ToString()) : default;
+                T? result = default;
+
+                if (success)
+                {
+                    result = JsonSerializer.Deserialize<T?>(value.ToString());
+                    _memCache.Set(key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
+                }
+
+                return result;
             }
             catch (JsonException ex)
             {
@@ -346,7 +352,6 @@ namespace CacheProvider.Caches
                 return default;
             }
         }
-
 
         private bool LogAndReturnForSet(string key, bool success)
         {

@@ -33,7 +33,7 @@ namespace MockCachingOperation
 
                 // Create some payloads
                 List<Payload> payloads = [];
-                while (payloads.Count < 10)
+                while (payloads.Count < 10000)
                     payloads.Add(CreatePayload());
 
                 // Run the cache operation
