@@ -405,7 +405,7 @@ namespace CacheProvider.Caches
                 if (success)
                 {
                     result = JsonSerializer.Deserialize<T?>(value.ToString());
-                    _memCache.Set(key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
+                    _memCache.Set(task.Key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
                 }
 
                 return result;
