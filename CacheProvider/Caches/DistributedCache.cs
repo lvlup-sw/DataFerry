@@ -6,6 +6,7 @@ using System.Text.Json;
 using CacheProvider.Providers;
 using CacheProvider.Caches.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
 
 namespace CacheProvider.Caches
 {
@@ -399,7 +400,15 @@ namespace CacheProvider.Caches
             // We handle the deserialization here, so we need a try-catch
             try
             {
-                return success ? JsonSerializer.Deserialize<T>(value.ToString()) : default;
+                T? result = default;
+
+                if (success)
+                {
+                    result = JsonSerializer.Deserialize<T?>(value.ToString());
+                    _memCache.Set(key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
+                }
+
+                return result;
             }
             catch (JsonException e)
             {
