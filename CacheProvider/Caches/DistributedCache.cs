@@ -6,7 +6,6 @@ using System.Text.Json;
 using CacheProvider.Providers;
 using CacheProvider.Caches.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
 
 namespace CacheProvider.Caches
 {
@@ -53,7 +52,7 @@ namespace CacheProvider.Caches
         public async Task<T?> GetAsync<T>(string key)
         {
             // Check the _memCache first
-            if (_memCache.TryGetValue(key, out T? memData))
+            if (_settings.UseMemoryCache && _memCache.TryGetValue(key, out T? memData))
             {
                 _logger.LogInformation("Retrieved data with key {key} from memory cache.", key);
                 return memData;
@@ -84,8 +83,11 @@ namespace CacheProvider.Caches
         /// <param name="data">The data to add to the cache.</param>
         public async Task<bool> SetAsync<T>(string key, T data)
         {
-            _memCache.Set(key, data);
             IDatabase database = _cache.GetDatabase();
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.Set(key, data);
+            }
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
@@ -107,8 +109,11 @@ namespace CacheProvider.Caches
         /// <param name="key">The key of the entry to remove.</param>
         public async Task<bool> RemoveAsync(string key)
         {
-            _memCache.Remove(key);
             IDatabase database = _cache.GetDatabase();
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.Remove(key);
+            }
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
@@ -139,7 +144,7 @@ namespace CacheProvider.Caches
                     // We use a dictionary to store the tasks and their associated keys since we need the values
                     // Also, we only want to retrieve the keys that don't exist in the _memCache
                     var tasks = keys
-                        .Where(key => !_memCache.TryGetValue(key, out _))
+                        .Where(key => _settings.UseMemoryCache && !_memCache.TryGetValue(key, out _))
                         .ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
 
                     // Execute the batch and wait for all the tasks to complete
@@ -195,7 +200,10 @@ namespace CacheProvider.Caches
                         }).ToList();
 
                     // Set items in the memCache
-                    data.Where(kv => kv.Value is not null).ToList().ForEach(kv => _memCache.Set(kv.Key, kv.Value)); // Exclude null values
+                    if (_settings.UseMemoryCache)
+                    {
+                        data.Where(kv => kv.Value is not null).ToList().ForEach(kv => _memCache.Set(kv.Key, kv.Value));
+                    }
 
                     // Execute the batch and wait for all the tasks to complete
                     batch.Execute();
@@ -240,7 +248,10 @@ namespace CacheProvider.Caches
                     }).ToList();
 
                     // Remove items from the memCache
-                    keys.ToList().ForEach(key => _memCache.Remove(key));
+                    if (_settings.UseMemoryCache)
+                    {
+                        keys.ToList().ForEach(key => _memCache.Remove(key));
+                    }
 
                     // Execute the batch and wait for all the tasks to complete
                     batch.Execute();
@@ -342,7 +353,7 @@ namespace CacheProvider.Caches
                 if (success)
                 {
                     result = JsonSerializer.Deserialize<T?>(value.ToString());
-                    _memCache.Set(key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
+                    UseMemoryCacheIfEnabled(key, result);
                 }
 
                 return result;
@@ -405,7 +416,7 @@ namespace CacheProvider.Caches
                 if (success)
                 {
                     result = JsonSerializer.Deserialize<T?>(value.ToString());
-                    _memCache.Set(task.Key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
+                    UseMemoryCacheIfEnabled(task.Key, result);
                 }
 
                 return result;
@@ -414,6 +425,14 @@ namespace CacheProvider.Caches
             {
                 _logger.LogError(e, "Failed to deserialize the value retrieved from cache with key {key}.", task.Key);
                 return default;
+            }
+        }
+
+        private void UseMemoryCacheIfEnabled<T>(string key, T result)
+        {
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.Set(key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
             }
         }
     }
