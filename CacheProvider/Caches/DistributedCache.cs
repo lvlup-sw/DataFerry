@@ -54,7 +54,7 @@ namespace CacheProvider.Caches
             // Check the _memCache first
             if (_settings.UseMemoryCache && _memCache.TryGetValue(key, out T? memData))
             {
-                _logger.LogInformation("Retrieved data with key {key} from memory cache.", key);
+                _logger.LogDebug("Retrieved data with key {key} from memory cache.", key);
                 return memData;
             }
 
@@ -63,7 +63,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
-                _logger.LogInformation("Attempting to retrieve entry with key {key} from cache.", key);
+                _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
                 RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica);
                 return data.HasValue ? data : default;
             }, new Context($"DistributedCache.GetAsync for {key}"));
@@ -91,7 +91,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
-                _logger.LogInformation("Attempting to add entry with key {key} to cache.", key);
+                _logger.LogDebug("Attempting to add entry with key {key} to cache.", key);
                 return await database.StringSetAsync(key, JsonSerializer.Serialize(data));
             }, new Context($"DistributedCache.SetAsync for {key}"));
 
@@ -117,7 +117,7 @@ namespace CacheProvider.Caches
 
             object result = await _policy.ExecuteAsync(async (context) =>
             {
-                _logger.LogInformation("Attempting to remove entry with key {key} from cache.", key);
+                _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
                 return await database.KeyDeleteAsync(key);
             }, new Context($"DistributedCache.RemoveAsync for {key}"));
 
@@ -342,9 +342,9 @@ namespace CacheProvider.Caches
                 : $"GetAsync operation failed for key: {key}";
 
             if (success)
-                _logger.LogInformation(message);
+                _logger.LogDebug(message);
             else
-                _logger.LogWarning(message);
+                _logger.LogInformation(message);
 
             try
             {
@@ -372,9 +372,9 @@ namespace CacheProvider.Caches
                 : $"SetAsync operation failed for key: {key}";
 
             if (success) 
-                _logger.LogInformation(message);
+                _logger.LogDebug(message);
             else 
-                _logger.LogError(message);
+                _logger.LogInformation(message);
 
             return success;
         }
@@ -386,9 +386,9 @@ namespace CacheProvider.Caches
                 : $"RemoveAsync operation failed for key: {key}";
 
             if (success)
-                _logger.LogInformation(message);
+                _logger.LogDebug(message);
             else
-                _logger.LogError(message);
+                _logger.LogInformation(message);
 
             return success;
         }
@@ -404,9 +404,9 @@ namespace CacheProvider.Caches
                 : $"Nothing found in cache with key {task.Key}.";
 
             if (success)
-                _logger.LogInformation(message);
+                _logger.LogDebug(message);
             else
-                _logger.LogWarning(message);
+                _logger.LogInformation(message);
 
             // We handle the deserialization here, so we need a try-catch
             try

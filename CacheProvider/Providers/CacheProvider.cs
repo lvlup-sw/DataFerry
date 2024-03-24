@@ -64,7 +64,6 @@ namespace CacheProvider.Providers
         /// <returns>The cached data.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the entry is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
-        /// <exception cref="NullReferenceException">Thrown when the entry is not successfully retrieved from the RealProvider.</exception>
         public async Task<T?> GetFromCacheAsync(T data, string key, GetFlags? flag = null)
         {
             try
@@ -77,33 +76,34 @@ namespace CacheProvider.Providers
                 var cached = await _cache.GetAsync<T>(key);
                 if (cached is not null)
                 {
-                    _logger.LogInformation("Cached entry with key {key} found in cache.", key);
+                    _logger.LogDebug("Cached entry with key {key} found in cache.", key);
                     return cached;
                 }
                 else if (GetFlags.ReturnNullIfNotFoundInCache == flag)
                 {
-                    _logger.LogInformation("Cached entry with key {key} not found in cache.", key);
+                    _logger.LogDebug("Cached entry with key {key} not found in cache.", key);
                     return null;
                 }
 
                 // If not found, get the entry from the real provider
-                _logger.LogInformation("Cached entry with key {key} not found in cache. Getting entry from real provider.", key);
+                _logger.LogDebug("Cached entry with key {key} not found in cache. Getting entry from real provider.", key);
                 cached = await _realProvider.GetAsync(data);
 
-                if (cached is null)
+                // Set the entry in the cache (with refinements)
+                if (cached is not null && flag != GetFlags.DoNotSetCacheEntry)
+                {
+                    if (await _cache.SetAsync(key, cached))
+                    {
+                        _logger.LogDebug("Entry with key {key} received from real provider and set in cache.", key);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to set entry with key {key} in cache.", key);
+                    }
+                }
+                else if (cached is null)
                 {
                     _logger.LogError("Entry with key {key} not received from real provider.", key);
-                    throw new NullReferenceException(string.Format("Entry with key {0} was not successfully retrieved.", key));
-                }
-
-                // Set the entry in the cache
-                if (GetFlags.DoNotSetCacheEntry != flag && await _cache.SetAsync(key, cached))
-                {
-                    _logger.LogInformation("Entry with key {key} received from real provider and set in cache.", key);
-                }
-                else
-                {
-                    _logger.LogError("Failed to set entry with key {key} in cache.", key);
                 }
 
                 return cached;
@@ -131,7 +131,7 @@ namespace CacheProvider.Providers
                 bool result = await _cache.SetAsync(key, data);
                 if (result)
                 {
-                    _logger.LogInformation("Entry with key {key} set in cache.", key);
+                    _logger.LogDebug("Entry with key {key} set in cache.", key);
                 }
                 else
                 {
@@ -161,7 +161,7 @@ namespace CacheProvider.Providers
                 var result = await _cache.RemoveAsync(key);
                 if (result)
                 {
-                    _logger.LogInformation("Entry with key {key} removed from cache.", key);
+                    _logger.LogDebug("Entry with key {key} removed from cache.", key);
                 }
                 else
                 {
@@ -201,29 +201,35 @@ namespace CacheProvider.Providers
                 var cached = await _cache.GetBatchAsync<T>(keys, cancellationToken);
                 if (cached is not null && cached.Count > 0)
                 {
-                    _logger.LogInformation("Cached entries with keys {keys} found in cache.", string.Join(", ", keys));
+                    _logger.LogDebug("Cached entries with keys {keys} found in cache.", string.Join(", ", keys));
                     return cached;
                 }
 
+                // What if we get some entries from the cache but not all of them?
+                // If we get some entries, we should remove them from the keys list
+                // We can do this by checking if any of the returned entries are null
+                // However, it will add O(n) complexity to the code
+
+
                 // If not found, get the entries from the real provider
-                _logger.LogInformation("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", keys));
+                _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", keys));
                 cached = await _realProvider.GetBatchAsync(keys, cancellationToken);
 
                 if (cached is null || cached.Count == 0)
                 {
-                    _logger.LogError("Entries with keys {keys} not received from real provider.", string.Join(", ", keys));
-                    throw new NullReferenceException(string.Format("Entries with keys {0} were not successfully retrieved.", string.Join(", ", keys)));
+                    _logger.LogWarning("Entries with keys {keys} not received from real provider.", string.Join(", ", keys));
+                    return cached;
                 }
 
                 // Set the entries in the cache
                 TimeSpan absoluteExpiration = TimeSpan.FromSeconds(_settings.AbsoluteExpiration);
                 if (GetFlags.DoNotSetCacheEntry != flags && await _cache.SetBatchAsync(cached, absoluteExpiration, cancellationToken))
                 {
-                    _logger.LogInformation("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", keys));
+                    _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", keys));
                 }
                 else
                 {
-                    _logger.LogError("Failed to set entries with keys {keys} in cache.", string.Join(", ", keys));
+                    _logger.LogWarning("Failed to set entries with keys {keys} in cache.", string.Join(", ", keys));
                 }
 
                 return cached;
