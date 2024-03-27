@@ -8,8 +8,8 @@
         /// <summary>
         /// Asynchronousy get data from data source
         /// </summary>
-        /// <param name="data"></param>
-        Task<T> GetAsync(T data);
+        /// <param name="key"></param>
+        Task<T> GetAsync(string key);
 
         /// <summary>
         /// Asynchronousy get batch of data from data source

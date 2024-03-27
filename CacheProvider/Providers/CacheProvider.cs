@@ -58,18 +58,15 @@ namespace CacheProvider.Providers
         /// Asynchronously retrieves an entry from the cache using a specified key.
         /// If the entry is not found in the cache, it retrieves the entry from the real provider and caches it before returning.
         /// </summary>
-        /// <param name="data">The data to cache.</param>
         /// <param name="key">The key to use for caching the data.</param>
         /// <param name="flag">Optional flag to control cache behavior.</param>
         /// <returns>The cached data.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when the entry is null.</exception>
         /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
-        public async Task<T?> GetFromCacheAsync(T data, string key, GetFlags? flag = null)
+        public async Task<T?> GetFromCacheAsync(string key, GetFlags? flag = null)
         {
             try
             {
                 // Null Checks
-                ArgumentNullException.ThrowIfNull(data);
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
                 // Try to get entry from the cache
@@ -87,7 +84,7 @@ namespace CacheProvider.Providers
 
                 // If not found, get the entry from the real provider
                 _logger.LogDebug("Cached entry with key {key} not found in cache. Getting entry from real provider.", key);
-                cached = await _realProvider.GetAsync(data);
+                cached = await _realProvider.GetAsync(key);
 
                 // Set the entry in the cache (with refinements)
                 if (cached is not null && flag != GetFlags.DoNotSetCacheEntry)
@@ -181,44 +178,74 @@ namespace CacheProvider.Providers
         /// Asynchronously retrieves multiple entries from the cache using specified keys.
         /// If any entries are not found in the cache, it retrieves them from the real provider and caches them before returning.
         /// </summary>
-        /// <param name="data">The data to cache.</param>
         /// <param name="keys">The keys to use for caching the data.</param>
         /// <param name="flags">Optional flags to control cache behavior.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>The cached data.</returns>
-        public async Task<IDictionary<string, T>> GetBatchFromCacheAsync(IDictionary<string, T> data, IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
+        public async Task<IDictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
         {
             try
             {
                 // Null Checks
-                ArgumentNullException.ThrowIfNull(data);
                 foreach (var key in keys)
                 {
                     ArgumentException.ThrowIfNullOrEmpty(key);
                 }
 
+                Dictionary<string, T> cached = [];
                 // Try to get entries from the cache
-                var cached = await _cache.GetBatchAsync<T>(keys, cancellationToken);
-                if (cached is not null && cached.Count > 0)
+                cached = await _cache.GetBatchAsync<T>(keys, cancellationToken);
+
+                // Cache hit scenario
+                if (cached.Count > 0)
                 {
-                    _logger.LogDebug("Cached entries with keys {keys} found in cache.", string.Join(", ", keys));
+                    // Extract missing keys
+                    var cachedKeys = cached.Keys.ToList();
+                    var missingKeys = keys.Except(cachedKeys);
+
+                    // Fetch missing keys from real provider
+                    if (missingKeys.Any())
+                    {
+                        _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", missingKeys));
+
+                        var missingData = await _realProvider.GetBatchAsync(missingKeys, cancellationToken);
+
+                        // Update cache selectively
+                        if (missingData is not null && missingData.Count > 0 && GetFlags.DoNotSetCacheEntry != flags)
+                        {
+                            await _cache.SetBatchAsync(missingData, TimeSpan.FromSeconds(_settings.AbsoluteExpiration), cancellationToken);
+                            _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", missingData.Keys));
+                        }
+                        else if (missingData is null || missingData.Count == 0)
+                        {
+                            _logger.LogWarning("Entries with keys {keys} not received from real provider.", string.Join(", ", missingKeys));
+                        }
+
+                        // Conditionally add missing data to return object
+                        cached = (missingData is not null) switch
+                        {
+                            true  => cached.Concat(missingData).ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+                            false => cached
+                        };
+                    }
+
+                    _logger.LogDebug("Cached entries with keys {keys} found in cache.", string.Join(", ", cachedKeys));
                     return cached;
                 }
 
-                // What if we get some entries from the cache but not all of them?
-                // If we get some entries, we should remove them from the keys list
-                // We can do this by checking if any of the returned entries are null
-                // However, it will add O(n) complexity to the code
-
-
-                // If not found, get the entries from the real provider
+                // Cache miss scenario
+                // Get the entries from the real provider
                 _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", keys));
                 cached = await _realProvider.GetBatchAsync(keys, cancellationToken);
 
-                if (cached is null || cached.Count == 0)
+                if (cached.Count == 0)
                 {
                     _logger.LogWarning("Entries with keys {keys} not received from real provider.", string.Join(", ", keys));
                     return cached;
+                }
+                else if (cached.Count < keys.Count())
+                {
+                    _logger.LogWarning("Entries with keys {keys} partially received from real provider.", string.Join(", ", keys));
                 }
 
                 // Set the entries in the cache
