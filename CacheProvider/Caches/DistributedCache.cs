@@ -132,7 +132,7 @@ namespace CacheProvider.Caches
         /// <typeparam name="T">The type of the data to retrieve from the cache.</typeparam>
         /// <param name="keys">The keys associated with the data in the cache.</param>
         /// <returns>A dictionary of the retrieved entries. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
-        public async Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        public async Task<Dictionary<string, T?>> GetBatchAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
@@ -166,7 +166,7 @@ namespace CacheProvider.Caches
                 cancellationToken ?? default
             );
 
-            return policyExecutionResult as Dictionary<string, T> ?? [];
+            return policyExecutionResult as Dictionary<string, T?> ?? [];
         }
 
         /// <summary>

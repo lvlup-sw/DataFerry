@@ -34,7 +34,7 @@ namespace CacheProvider.Providers.Interfaces
         /// <summary>
         /// Batch operation to check the cache for an entries with the specified keys.
         /// </summary>
-        Task<IDictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, T?>> GetBatchFromCacheAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache.

@@ -182,7 +182,7 @@ namespace CacheProvider.Providers
         /// <param name="flags">Optional flags to control cache behavior.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>The cached data.</returns>
-        public async Task<IDictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
+        public async Task<IDictionary<string, T?>> GetBatchFromCacheAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
         {
             try
             {
@@ -192,7 +192,7 @@ namespace CacheProvider.Providers
                     ArgumentException.ThrowIfNullOrEmpty(key);
                 }
 
-                Dictionary<string, T> cached = [];
+                Dictionary<string, T?> cached = [];
                 // Try to get entries from the cache
                 cached = await _cache.GetBatchAsync<T>(keys, cancellationToken);
 

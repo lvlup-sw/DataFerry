@@ -9,13 +9,13 @@
         /// Asynchronousy get data from data source
         /// </summary>
         /// <param name="key"></param>
-        Task<T> GetAsync(string key);
+        Task<T?> GetAsync(string key);
 
         /// <summary>
         /// Asynchronousy get batch of data from data source
         /// </summary>
         /// <param name="keys"></param>
         /// <param name="cancellationToken"></param>
-        Task<Dictionary<string, T>> GetBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
+        Task<Dictionary<string, T?>> GetBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
     }
 }

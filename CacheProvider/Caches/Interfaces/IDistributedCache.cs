@@ -40,7 +40,7 @@ namespace CacheProvider.Caches.Interfaces
         /// </summary>
         /// <param name="keys">The keys of the records to remove.</param>
         /// <returns>A dictionary of the records associated with the keys, if they exist; otherwise, default(<typeparamref name="T"/>).</returns>
-        Task<Dictionary<string, T>> GetBatchAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
+        Task<Dictionary<string, T?>> GetBatchAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache.
