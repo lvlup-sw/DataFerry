@@ -118,14 +118,14 @@ namespace CacheProvider.Providers
         /// <param name="key">The key to use for caching the data.</param>
         /// <param name="data">The data to cache.</param>
         /// <returns>True if the operation is successful; otherwise, false.</returns>
-        public async Task<bool> SetInCacheAsync(string key, T data)
+        public async Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration = null)
         {
             try
             {
                 ArgumentNullException.ThrowIfNull(data);
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-                bool result = await _cache.SetAsync(key, data);
+                bool result = await _cache.SetAsync(key, data, expiration);
                 if (result)
                 {
                     _logger.LogDebug("Entry with key {key} set in cache.", key);
