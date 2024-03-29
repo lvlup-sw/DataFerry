@@ -22,9 +22,10 @@ namespace CacheProvider.Caches.Interfaces
         /// <remarks>
         /// Returns true if the  was added to the cache, false otherwise.
         /// </remarks>
-        /// <param name="key">The key to use for the .</param>
+        /// <param name="key">The key to use for the record.</param>
         /// <param name="data">The  to add to the cache.</param>
-        Task<bool> SetAsync<T>(string key, T data);
+        /// <param name="expiration">The expiration time for the record.</param>
+        Task<bool> SetAsync<T>(string key, T data, TimeSpan? expiration);
 
         /// <summary>
         /// Asynchronously removes an  from the cache using a key.

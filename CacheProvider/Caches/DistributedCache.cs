@@ -81,7 +81,7 @@ namespace CacheProvider.Caches
         /// </remarks>
         /// <param name="key">The key to use for the entry.</param>
         /// <param name="data">The data to add to the cache.</param>
-        public async Task<bool> SetAsync<T>(string key, T data)
+        public async Task<bool> SetAsync<T>(string key, T data, TimeSpan? timeSpan = null)
         {
             IDatabase database = _cache.GetDatabase();
             if (_settings.UseMemoryCache)
@@ -92,7 +92,7 @@ namespace CacheProvider.Caches
             object result = await _policy.ExecuteAsync(async (context) =>
             {
                 _logger.LogDebug("Attempting to add entry with key {key} to cache.", key);
-                return await database.StringSetAsync(key, JsonSerializer.Serialize(data));
+                return await database.StringSetAsync(key, JsonSerializer.Serialize(data), timeSpan);
             }, new Context($"DistributedCache.SetAsync for {key}"));
 
             return result is bool success
