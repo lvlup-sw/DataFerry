@@ -13,20 +13,21 @@ namespace CacheProvider.Providers.Interfaces
         Task<T?> GetFromCacheAsync(string key, GetFlags? flags = null);
 
         /// <summary>
-        /// Asynchronously adds an  to the cache with a specified key.
+        /// Asynchronously adds an entry to the cache with a specified key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the  was added to the cache, false otherwise.
+        /// Returns true if the entry was added to the cache, false otherwise.
         /// </remarks>
         /// <param name="key">The key to use for the .</param>
         /// <param name="data">The  to add to the cache.</param>
-        Task<bool> SetInCacheAsync(string key, T data);
+        /// <param name="expiration">The expiration time for the record.</param>
+        Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration);
 
         /// <summary>
-        /// Asynchronously removes an  from the cache using a key.
+        /// Asynchronously removes an entry from the cache using a key.
         /// </summary>
         /// <remarks>
-        /// Returns true if the  was removed from the cache, false otherwise.
+        /// Returns true if the entry was removed from the cache, false otherwise.
         /// </remarks>
         /// <param name="key">The key of the  to remove.</param>
         Task<bool> RemoveFromCacheAsync(string key);
