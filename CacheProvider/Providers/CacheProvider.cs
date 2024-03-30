@@ -4,6 +4,7 @@ using MemCache = Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 
 namespace CacheProvider.Providers
 {
@@ -34,7 +35,7 @@ namespace CacheProvider.Providers
         /// <param name="logger">The logger to use for logging.</param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, CacheSettings settings, ILogger logger)
+        public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, IOptions<CacheSettings> settings, ILogger logger)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(connection);
@@ -44,7 +45,7 @@ namespace CacheProvider.Providers
 
             // Initializations
             _realProvider = provider;
-            _settings = settings;
+            _settings = settings.Value;
             _logger = logger;
             _cache = new DistributedCache(connection, new MemCache.MemoryCache(new MemoryCacheOptions()), settings, logger);
         }

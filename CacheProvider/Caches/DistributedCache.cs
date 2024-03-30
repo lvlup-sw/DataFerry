@@ -6,6 +6,7 @@ using System.Text.Json;
 using CacheProvider.Providers;
 using CacheProvider.Caches.Interfaces;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 
 namespace CacheProvider.Caches
 {
@@ -28,7 +29,7 @@ namespace CacheProvider.Caches
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(IConnectionMultiplexer cache, IMemoryCache memCache, CacheSettings settings, ILogger logger)
+        public DistributedCache(IConnectionMultiplexer cache, IMemoryCache memCache, IOptions<CacheSettings> settings, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(memCache);
@@ -37,7 +38,7 @@ namespace CacheProvider.Caches
 
             _cache = cache;
             _memCache = memCache;
-            _settings = settings;
+            _settings = settings.Value;
             _logger = logger;
             _policy = CreatePolicy();
         }
