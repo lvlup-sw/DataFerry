@@ -1,9 +1,9 @@
-﻿using CacheProvider.Caches;
-using CacheProvider.Providers.Interfaces;
-using MemCache = Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
-using StackExchange.Redis;
+﻿using MemCache = Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Caching.Memory;
+using StackExchange.Redis;
+using CacheProvider.Caches;
+using CacheProvider.Providers.Interfaces;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CacheProvider.Providers
@@ -119,15 +119,15 @@ namespace CacheProvider.Providers
         /// <param name="key">The key to use for caching the data.</param>
         /// <param name="data">The data to cache.</param>
         /// <returns>True if the operation is successful; otherwise, false.</returns>
-        public async Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration = null)
+        public async Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration = default)
         {
             try
             {
                 ArgumentNullException.ThrowIfNull(data);
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-                bool result = await _cache.SetAsync(key, data, expiration);
-                if (result)
+                bool cacheResult = await _cache.SetAsync(key, data, expiration);
+                if (cacheResult)
                 {
                     _logger.LogDebug("Entry with key {key} set in cache.", key);
                 }
@@ -136,7 +136,17 @@ namespace CacheProvider.Providers
                     _logger.LogError("Failed to set entry with key {key} in cache.", key);
                 }
 
-                return result;
+                bool providerResult = await _realProvider.SetAsync(data);
+                if (providerResult)
+                {
+                    _logger.LogDebug("Entry with key {key} added to data source.", key);
+                }
+                else
+                {
+                    _logger.LogError("Failed to add entry with key {key} from data source.", key);
+                }
+
+                return cacheResult && providerResult;
             }
             catch (Exception ex)
             {
@@ -156,8 +166,8 @@ namespace CacheProvider.Providers
             {
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-                var result = await _cache.RemoveAsync(key);
-                if (result)
+                bool cacheResult = await _cache.RemoveAsync(key);
+                if (cacheResult)
                 {
                     _logger.LogDebug("Entry with key {key} removed from cache.", key);
                 }
@@ -166,7 +176,17 @@ namespace CacheProvider.Providers
                     _logger.LogError("Failed to remove entry with key {key} from cache.", key);
                 }
 
-                return result;
+                bool providerResult = await _realProvider.DeleteAsync(key);
+                if (providerResult)
+                {
+                    _logger.LogDebug("Entry with key {key} removed from data source.", key);
+                }
+                else
+                {
+                    _logger.LogError("Failed to remove entry with key {key} from data source.", key);
+                }
+
+                return cacheResult && providerResult;
             }
             catch (Exception ex)
             {
@@ -225,7 +245,7 @@ namespace CacheProvider.Providers
                         // Conditionally add missing data to return object
                         cached = (missingData is not null) switch
                         {
-                            true  => cached.Concat(missingData).ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+                            true => cached.Concat(missingData).ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
                             false => cached
                         };
                     }

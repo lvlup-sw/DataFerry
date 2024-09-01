@@ -67,5 +67,20 @@ namespace MockCachingOperation.Process
 
             return result;
         }
+
+        Task<Payload?> IRealProvider<Payload>.GetAsync(string key)
+        {
+            throw new NotImplementedException();
+        }
+
+        Task<bool> IRealProvider<Payload>.SetAsync(Payload data)
+        {
+            throw new NotImplementedException();
+        }
+
+        Task<bool> IRealProvider<Payload>.DeleteAsync(string key)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

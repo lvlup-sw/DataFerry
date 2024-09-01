@@ -1,6 +1,4 @@
-﻿using CacheProvider.Caches;
-
-namespace CacheProvider.Providers
+﻿namespace CacheProvider.Providers
 {
     /// <summary>
     /// Cache settings for <see cref="DistributedCache"/>.
@@ -34,10 +32,5 @@ namespace CacheProvider.Providers
         /// Set to true to use In-Memory Caching.
         /// </summary>
         public bool UseMemoryCache { get; set; }
-
-        /// <summary>
-        /// Connection String used to connect to the Distributed Cache (ex Elasticache, Redis, etc).
-        /// </summary>
-        public required string ConnectionString { get; set; }
     }
 }

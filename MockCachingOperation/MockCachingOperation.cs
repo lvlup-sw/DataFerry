@@ -30,7 +30,7 @@ namespace MockCachingOperation
                 // Run the cache operation
                 var tasks = payloads.Select(async payload =>
                 {
-                    return await cacheProvider.GetFromCacheAsync(payload, payload.Identifier);
+                    return await cacheProvider.GetFromCacheAsync(payload.Identifier);
                 });
 
                 // Wait for the tasks to complete

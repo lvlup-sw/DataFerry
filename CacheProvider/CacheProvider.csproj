@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>  
 	<PackageId>rsalus.CacheProvider</PackageId>
     <Title>CacheProvider</Title>
-	<Version>1.1.9</Version>
+	<Version>1.2.0</Version>
 	<Authors>rsalus</Authors>
     <Description>CacheProvider is a generic class designed to provide caching functionality for any type of object. It packages a distributed Redis caching implementation into one Provider class, allowing for easy pairing with any RealProvider component following the ASP.NET Provider model.</Description>
     <PackageProjectUrl>https://github.com/rsalus/cache-provider</PackageProjectUrl>
@@ -20,19 +20,19 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
-	<PackageReference Include="NuGet.Build.Tasks.Pack" Version="6.9.1">
+	<PackageReference Include="NuGet.Build.Tasks.Pack" Version="6.11.0">
 		<PrivateAssets>all</PrivateAssets>
 		<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
 	</PackageReference>
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.8" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
-    <PackageReference Include="Polly" Version="8.3.1" />
-    <PackageReference Include="StackExchange.Redis" Version="2.7.33" />
+    <PackageReference Include="Polly" Version="8.4.1" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.0" />
   </ItemGroup>
 
 </Project>

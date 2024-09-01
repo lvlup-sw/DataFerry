@@ -1,12 +1,12 @@
-﻿using Polly;
-using Polly.Wrap;
-using StackExchange.Redis;
-using Microsoft.Extensions.Logging;
-using System.Text.Json;
-using CacheProvider.Providers;
-using CacheProvider.Caches.Interfaces;
+﻿using StackExchange.Redis;
 using Microsoft.Extensions.Caching.Memory;
+using Polly.Wrap;
+using Polly;
+using CacheProvider.Providers;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
+using CacheProvider.Caches.Interfaces;
 
 namespace CacheProvider.Caches
 {
@@ -330,7 +330,7 @@ namespace CacheProvider.Caches
                         return Task.CompletedTask;
                     });
 
-            return Policy.WrapAsync(retryPolicy, fallbackPolicy);
+            return fallbackPolicy.WrapAsync(retryPolicy);
         }
 
         // Logging Methods to simplify return statements
@@ -342,10 +342,7 @@ namespace CacheProvider.Caches
                 ? $"GetAsync operation completed for key: {key}"
                 : $"GetAsync operation failed for key: {key}";
 
-            if (success)
-                _logger.LogDebug(message);
-            else
-                _logger.LogInformation(message);
+            _logger.LogDebug(message);
 
             try
             {
@@ -372,10 +369,10 @@ namespace CacheProvider.Caches
                 ? $"SetAsync operation completed for key: {key}"
                 : $"SetAsync operation failed for key: {key}";
 
-            if (success) 
+            if (success)
                 _logger.LogDebug(message);
-            else 
-                _logger.LogInformation(message);
+            else
+                _logger.LogWarning(message);
 
             return success;
         }
@@ -389,7 +386,7 @@ namespace CacheProvider.Caches
             if (success)
                 _logger.LogDebug(message);
             else
-                _logger.LogInformation(message);
+                _logger.LogWarning(message);
 
             return success;
         }
@@ -404,10 +401,7 @@ namespace CacheProvider.Caches
                 ? $"GetBatchAsync operation completed from cache with key {task.Key}."
                 : $"Nothing found in cache with key {task.Key}.";
 
-            if (success)
-                _logger.LogDebug(message);
-            else
-                _logger.LogInformation(message);
+            _logger.LogDebug(message);
 
             // We handle the deserialization here, so we need a try-catch
             try

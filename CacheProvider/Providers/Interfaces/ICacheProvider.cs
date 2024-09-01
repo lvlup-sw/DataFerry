@@ -5,6 +5,10 @@ namespace CacheProvider.Providers.Interfaces
     /// <summary>
     /// An interface for the Cache Provider.
     /// </summary>
+    /// <remarks>
+    /// The main benefit of this class is how it tightly couples
+    /// the database and cache, ensuring synchronous behavior.
+    /// </remarks>
     public interface ICacheProvider<T> where T : class
     {
         /// <summary>
@@ -21,7 +25,7 @@ namespace CacheProvider.Providers.Interfaces
         /// <param name="key">The key to use for the .</param>
         /// <param name="data">The  to add to the cache.</param>
         /// <param name="expiration">The expiration time for the record.</param>
-        Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration);
+        Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration = default);
 
         /// <summary>
         /// Asynchronously removes an entry from the cache using a key.
