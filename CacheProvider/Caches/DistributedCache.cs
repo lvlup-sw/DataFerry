@@ -282,6 +282,11 @@ namespace CacheProvider.Caches
         public IDatabase GetCacheConnection() => _cache.GetDatabase();
 
         /// <summary>
+        /// Get the configured Polly policy.
+        /// </summary>
+        public AsyncPolicyWrap<object> GetPollyPolicy() => _policy;
+
+        /// <summary>
         /// Set the fallback value for the polly retry policy.
         /// </summary>
         /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
