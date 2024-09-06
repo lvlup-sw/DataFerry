@@ -5,6 +5,7 @@ using CacheProvider.Caches;
 using CacheProvider.Providers.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using CacheProvider.Properties;
 
 namespace CacheProvider.Providers
 {

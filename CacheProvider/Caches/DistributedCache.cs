@@ -2,11 +2,12 @@
 using Microsoft.Extensions.Caching.Memory;
 using Polly.Wrap;
 using Polly;
-using CacheProvider.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 using CacheProvider.Caches.Interfaces;
+using CacheProvider.Properties;
+using Cache.Utilities;
 
 namespace CacheProvider.Caches
 {
@@ -40,7 +41,7 @@ namespace CacheProvider.Caches
             _memCache = memCache;
             _settings = settings.Value;
             _logger = logger;
-            _policy = CreatePolicy();
+            _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings);
         }
 
         /// <summary>
@@ -285,53 +286,7 @@ namespace CacheProvider.Caches
         /// </summary>
         /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
         /// <param name="value"></param>
-        public void SetFallbackValue(object value) => _policy = CreatePolicy(value);
-
-        /// <summary>
-        /// Creates a policy for handling exceptions when accessing the cache.
-        /// </summary>
-        /// <param name="_settings">The settings for the cache.</param>
-        private AsyncPolicyWrap<object> CreatePolicy(object? configuredValue = null)
-        {
-            // Retry Policy Settings:
-            // + RetryCount: The number of times to retry a cache operation.
-            // + RetryInterval: The interval between cache operation retries.
-            // + UseExponentialBackoff: Set to true to use exponential backoff for cache operation retries.
-            var retryPolicy = Policy<object>
-                .Handle<Exception>()
-                .WaitAndRetryAsync(
-                    retryCount: _settings.RetryCount,
-                    // Exponential backoff or fixed interval with jitter
-                    sleepDurationProvider: retryAttempt => _settings.UseExponentialBackoff
-                        ? TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))
-                        : TimeSpan.FromSeconds(_settings.RetryInterval)
-                            + TimeSpan.FromMilliseconds(new Random().Next(0, 100)),
-                    onRetry: (exception, timeSpan, retryCount, context) =>
-                    {
-                        if (retryCount == _settings.RetryCount)
-                        {
-                            _logger.LogError($"Retry limit of {_settings.RetryCount} reached. Exception: {exception}");
-                        }
-                        else
-                        {
-                            _logger.LogInformation($"Retry {retryCount} of {_settings.RetryCount} after {timeSpan.TotalSeconds} seconds delay due to: {exception}");
-                        }
-                    });
-
-            // Fallback Policy Settings:
-            // + FallbackValue: The value to return if the fallback action is executed.
-            var fallbackPolicy = Policy<object>
-                .Handle<Exception>()
-                .FallbackAsync(
-                    fallbackValue: configuredValue ?? RedisValue.Null,
-                    onFallbackAsync: (exception, context) =>
-                    {
-                        _logger.LogError("Fallback executed due to: {exception}", exception);
-                        return Task.CompletedTask;
-                    });
-
-            return fallbackPolicy.WrapAsync(retryPolicy);
-        }
+        public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
 
         // Logging Methods to simplify return statements
         private T? LogAndReturnForGet<T>(RedisValue value, string key)

@@ -1,4 +1,4 @@
-﻿namespace CacheProvider.Providers
+﻿namespace CacheProvider.Properties
 {
     public enum GetFlags
     {

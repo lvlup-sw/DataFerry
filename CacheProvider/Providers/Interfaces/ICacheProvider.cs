@@ -1,4 +1,5 @@
 ﻿using CacheProvider.Caches;
+using CacheProvider.Properties;
 
 namespace CacheProvider.Providers.Interfaces
 {
