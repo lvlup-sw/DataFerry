@@ -6,7 +6,6 @@ using CacheProvider.Providers.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using CacheProvider.Properties;
-using Polly.Wrap;
 
 namespace CacheProvider.Providers
 {
@@ -56,6 +55,11 @@ namespace CacheProvider.Providers
         /// Gets the cache instance.
         /// </summary>
         public DistributedCache Cache => _cache;
+
+        /// <summary>
+        /// Gets the data source instance.
+        /// </summary>
+        public IRealProvider<T> RealProvider => _realProvider;
 
         /// <summary>
         /// Asynchronously retrieves an entry from the cache using a specified key.
@@ -360,11 +364,5 @@ namespace CacheProvider.Providers
                 throw ex.GetBaseException();
             }
         }
-
-        /// <summary>
-        /// Configure the polly policy used in the <see cref="IRealProvider{T}"/>.
-        /// </summary>
-        /// <param name="policy"></param>
-        public void ConfigureProviderPollyPolicy(AsyncPolicyWrap<object> policy) => _realProvider.ConfigurePollyPolicy(policy);
     }
 }

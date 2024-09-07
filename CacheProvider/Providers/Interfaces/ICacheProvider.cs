@@ -57,6 +57,11 @@ namespace CacheProvider.Providers.Interfaces
         Task<bool> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
+        /// Gets the data source object representation.
+        /// </summary>
+        IRealProvider<T> RealProvider { get; }
+
+        /// <summary>
         /// Gets the cache object representation.
         /// </summary>
         DistributedCache Cache { get; }

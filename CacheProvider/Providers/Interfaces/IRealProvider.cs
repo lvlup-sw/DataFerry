@@ -51,9 +51,8 @@ namespace CacheProvider.Providers.Interfaces
         Task<bool> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
-        /// Set the polly policy used in the <see cref="IRealProvider{T}"/>.
+        /// The polly policy used in the <see cref="IRealProvider{T}"/>.
         /// </summary>
-        /// <param name="policy"></param>
-        void ConfigurePollyPolicy(AsyncPolicyWrap<object> policy);
+        AsyncPolicyWrap<object> Policy { get; set; }
     }
 }
