@@ -50,8 +50,8 @@ namespace CacheProvider.Caches
         /// <remarks>
         /// Returns the entry if it exists in the cache, null otherwise.
         /// </remarks>
-        /// <param name="key">The key of the  to retrieve.</param>
-        public async Task<T?> GetAsync<T>(string key)
+        /// <param name="key">The key of the record to retrieve.</param>
+        public async Task<T?> GetFromCacheAsync<T>(string key)
         {
             // Check the _memCache first
             if (_settings.UseMemoryCache && _memCache.TryGetValue(key, out T? memData))
@@ -83,7 +83,7 @@ namespace CacheProvider.Caches
         /// </remarks>
         /// <param name="key">The key to use for the entry.</param>
         /// <param name="data">The data to add to the cache.</param>
-        public async Task<bool> SetAsync<T>(string key, T data, TimeSpan? timeSpan = null)
+        public async Task<bool> SetInCacheAsync<T>(string key, T data, TimeSpan? timeSpan = null)
         {
             IDatabase database = _cache.GetDatabase();
             if (_settings.UseMemoryCache)
@@ -109,7 +109,7 @@ namespace CacheProvider.Caches
         /// Returns true if the entry was removed from the cache, false otherwise.
         /// </remarks>
         /// <param name="key">The key of the entry to remove.</param>
-        public async Task<bool> RemoveAsync(string key)
+        public async Task<bool> RemoveFromCacheAsync(string key)
         {
             IDatabase database = _cache.GetDatabase();
             if (_settings.UseMemoryCache)
@@ -134,7 +134,7 @@ namespace CacheProvider.Caches
         /// <typeparam name="T">The type of the data to retrieve from the cache.</typeparam>
         /// <param name="keys">The keys associated with the data in the cache.</param>
         /// <returns>A dictionary of the retrieved entries. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
-        public async Task<Dictionary<string, T?>> GetBatchAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        public async Task<Dictionary<string, T?>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
@@ -178,7 +178,7 @@ namespace CacheProvider.Caches
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the data. If this is null, the default expiration time is used.</param>
         /// <returns>True if all entries were set successfully; otherwise, false.</returns>
-        public async Task<bool> SetBatchAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null, CancellationToken? cancellationToken = null)
+        public async Task<bool> SetBatchInCacheAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null, CancellationToken? cancellationToken = null)
         {
             TimeSpan absoluteExpiration = absoluteExpireTime ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
             IDatabase database = _cache.GetDatabase();
@@ -233,7 +233,7 @@ namespace CacheProvider.Caches
         /// </summary>
         /// <param name="keys">The keys associated with the data in the cache.</param>
         /// <returns>True if all entries were removed successfully; otherwise, false.</returns>
-        public async Task<bool> RemoveBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        public async Task<bool> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();

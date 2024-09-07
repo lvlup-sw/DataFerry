@@ -14,7 +14,7 @@ namespace CacheProvider.Providers
     /// </summary>
     /// <remarks>
     /// This class makes use of two types of caches: <see cref="MemoryCache"/> and <see cref="DistributedCache"/>.
-    /// It uses the <see cref="IRealProvider{T}"/> interface to retrieve entries from the real provider.
+    /// It uses the <see cref="IRealProvider{T}"/> interface to retrieve records from the data source.
     /// </remarks>
     /// <typeparam name="T">The type of object to cache.</typeparam>
     public class CacheProvider<T> : ICacheProvider<T> where T : class
@@ -62,22 +62,21 @@ namespace CacheProvider.Providers
         public IRealProvider<T> RealProvider => _realProvider;
 
         /// <summary>
-        /// Asynchronously retrieves an entry from the cache using a specified key.
-        /// If the entry is not found in the cache, it retrieves the entry from the real provider and caches it before returning.
+        /// Gets the record from the cache and data source with a specified key.
         /// </summary>
-        /// <param name="key">The key to use for caching the data.</param>
-        /// <param name="flag">Optional flag to control cache behavior.</param>
-        /// <returns>The cached data.</returns>
-        /// <exception cref="ArgumentException">Thrown when the key is null, an empty string, or contains only white-space characters.</exception>
-        public async Task<T?> GetFromCacheAsync(string key, GetFlags? flag = null)
+        /// <param name="key">The key of the record to retrieve.</param>
+        /// <param name="flags">Flags to configure the behavior of the operation.</param>
+        /// <returns>The data <typeparamref name="T"/></returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="key"/> is null, an empty string, or contains only white-space characters.</exception>
+        public async Task<T?> GetDataAsync(string key, GetFlags? flag = null)
         {
             try
             {
                 // Null Checks
-                ArgumentException.ThrowIfNullOrWhiteSpace(key);
+                ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
 
                 // Try to get entry from the cache
-                var cached = await _cache.GetAsync<T>(key);
+                var cached = await _cache.GetFromCacheAsync<T>(key);
                 if (cached is not null)
                 {
                     _logger.LogDebug("Cached entry with key {key} found in cache.", key);
@@ -91,12 +90,12 @@ namespace CacheProvider.Providers
 
                 // If not found, get the entry from the real provider
                 _logger.LogDebug("Cached entry with key {key} not found in cache. Getting entry from real provider.", key);
-                cached = await _realProvider.GetAsync(key);
+                cached = await _realProvider.GetFromSourceAsync(key);
 
                 // Set the entry in the cache (with refinements)
                 if (cached is not null && flag != GetFlags.DoNotSetCacheEntry)
                 {
-                    if (await _cache.SetAsync(key, cached))
+                    if (await _cache.SetInCacheAsync(key, cached))
                     {
                         _logger.LogDebug("Entry with key {key} received from real provider and set in cache.", key);
                     }
@@ -114,25 +113,28 @@ namespace CacheProvider.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while checking the cache.");
+                _logger.LogError(ex, "An error occurred while getting the record.");
                 throw ex.GetBaseException();
             }
         }
 
         /// <summary>
-        /// Asynchronously sets an entry in the cache using a specified key.
+        /// Adds a record to the cache and data source with a specified key.
         /// </summary>
-        /// <param name="key">The key to use for caching the data.</param>
-        /// <param name="data">The data to cache.</param>
+        /// <param name="key">The key of the record to add.</param>
+        /// <param name="data">The data to add to the cache.</param>
+        /// <param name="expiration">The expiration time for the record.</param>
         /// <returns>True if the operation is successful; otherwise, false.</returns>
-        public async Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration = default)
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="key"/> is null, an empty string, or contains only white-space characters.</exception>
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="T"/> is null.</exception>
+        public async Task<bool> SetDataAsync(string key, T data, TimeSpan? expiration = default)
         {
             try
             {
                 ArgumentNullException.ThrowIfNull(data);
-                ArgumentException.ThrowIfNullOrWhiteSpace(key);
+                ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
 
-                bool cacheResult = await _cache.SetAsync(key, data, expiration);
+                bool cacheResult = await _cache.SetInCacheAsync(key, data, expiration);
                 if (cacheResult)
                 {
                     _logger.LogDebug("Entry with key {key} set in cache.", key);
@@ -142,7 +144,7 @@ namespace CacheProvider.Providers
                     _logger.LogError("Failed to set entry with key {key} in cache.", key);
                 }
 
-                bool providerResult = await _realProvider.SetAsync(data);
+                bool providerResult = await _realProvider.SetInSourceAsync(data);
                 if (providerResult)
                 {
                     _logger.LogDebug("Entry with key {key} added to data source.", key);
@@ -156,23 +158,24 @@ namespace CacheProvider.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while setting the cache.");
+                _logger.LogError(ex, "An error occurred while setting the record.");
                 throw ex.GetBaseException();
             }
         }
 
         /// <summary>
-        /// Asynchronously removes an entry from the cache using a specified key.
+        /// Removes a record from the cache and data source with a specified key.
         /// </summary>
-        /// <param name="key">The key of the entry to remove.</param>
-        /// <returns>True if the operation is successful; otherwise, false.</returns>
-        public async Task<bool> RemoveFromCacheAsync(string key)
+        /// <returns>Returns true if the entry was removed from the cache and data source, false otherwise.</returns>
+        /// <param name="key">The key of the record to remove.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="key"/> is null, an empty string, or contains only white-space characters.</exception>
+        public async Task<bool> RemoveDataAsync(string key)
         {
             try
             {
-                ArgumentException.ThrowIfNullOrWhiteSpace(key);
+                ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
 
-                bool cacheResult = await _cache.RemoveAsync(key);
+                bool cacheResult = await _cache.RemoveFromCacheAsync(key);
                 if (cacheResult)
                 {
                     _logger.LogDebug("Entry with key {key} removed from cache.", key);
@@ -182,7 +185,7 @@ namespace CacheProvider.Providers
                     _logger.LogError("Failed to remove entry with key {key} from cache.", key);
                 }
 
-                bool providerResult = await _realProvider.DeleteAsync(key);
+                bool providerResult = await _realProvider.DeleteFromSourceAsync(key);
                 if (providerResult)
                 {
                     _logger.LogDebug("Entry with key {key} removed from data source.", key);
@@ -196,32 +199,32 @@ namespace CacheProvider.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while removing from the cache.");
+                _logger.LogError(ex, "An error occurred while removing from the record.");
                 throw ex.GetBaseException();
             }
         }
 
         /// <summary>
-        /// Asynchronously retrieves multiple entries from the cache using specified keys.
-        /// If any entries are not found in the cache, it retrieves them from the real provider and caches them before returning.
+        /// Gets multiple records from the cache or data source with the specified keys.
         /// </summary>
-        /// <param name="keys">The keys to use for caching the data.</param>
-        /// <param name="flags">Optional flags to control cache behavior.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
-        /// <returns>The cached data.</returns>
-        public async Task<IDictionary<string, T?>> GetBatchFromCacheAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
+        /// <param name="keys">The keys of the records to retrieve.</param>
+        /// <param name="flags">Flags to configure the behavior of the operation.</param>
+        /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
+        /// <returns>A <typeparamref name="Dictionary"/> of <typeparamref name="string"/> keys and <typeparamref name="T"/> data</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="keys"/> is null, an empty string, or contains only white-space characters.</exception>
+        public async Task<IDictionary<string, T?>> GetDataBatchAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
         {
             try
             {
                 // Null Checks
                 foreach (var key in keys)
                 {
-                    ArgumentException.ThrowIfNullOrEmpty(key);
+                    ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
                 }
 
                 Dictionary<string, T?> cached = [];
                 // Try to get entries from the cache
-                cached = await _cache.GetBatchAsync<T>(keys, cancellationToken);
+                cached = await _cache.GetBatchFromCacheAsync<T>(keys, cancellationToken);
 
                 // Cache hit scenario
                 if (cached.Count > 0)
@@ -235,12 +238,12 @@ namespace CacheProvider.Providers
                     {
                         _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", missingKeys));
 
-                        var missingData = await _realProvider.GetBatchAsync(missingKeys, cancellationToken);
+                        var missingData = await _realProvider.GetBatchFromSourceAsync(missingKeys, cancellationToken);
 
                         // Update cache selectively
                         if (missingData is not null && missingData.Count > 0 && GetFlags.DoNotSetCacheEntry != flags)
                         {
-                            await _cache.SetBatchAsync(missingData, TimeSpan.FromSeconds(_settings.AbsoluteExpiration), cancellationToken);
+                            await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromSeconds(_settings.AbsoluteExpiration), cancellationToken);
                             _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", missingData.Keys));
                         }
                         else if (missingData is null || missingData.Count == 0)
@@ -263,7 +266,7 @@ namespace CacheProvider.Providers
                 // Cache miss scenario
                 // Get the entries from the real provider
                 _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", keys));
-                cached = await _realProvider.GetBatchAsync(keys, cancellationToken);
+                cached = await _realProvider.GetBatchFromSourceAsync(keys, cancellationToken);
 
                 if (cached.Count == 0)
                 {
@@ -277,7 +280,7 @@ namespace CacheProvider.Providers
 
                 // Set the entries in the cache
                 TimeSpan absoluteExpiration = TimeSpan.FromSeconds(_settings.AbsoluteExpiration);
-                if (GetFlags.DoNotSetCacheEntry != flags && await _cache.SetBatchAsync(cached, absoluteExpiration, cancellationToken))
+                if (GetFlags.DoNotSetCacheEntry != flags && await _cache.SetBatchInCacheAsync(cached, absoluteExpiration, cancellationToken))
                 {
                     _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", keys));
                 }
@@ -290,29 +293,31 @@ namespace CacheProvider.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An error occurred while checking the cache.");
+                _logger.LogError(ex, "An error occurred while getting the records.");
                 throw ex.GetBaseException();
             }
         }
 
         /// <summary>
-        /// Asynchronously sets multiple entries in the cache using specified keys.
+        /// Sets multiple records in the cache and data source with the specified keys.
         /// </summary>
-        /// <param name="data">The data to cache.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
-        /// <returns>True if the operation is successful; otherwise, false.</returns>
-        public async Task<bool> SetBatchInCacheAsync(Dictionary<string, T> data, CancellationToken? cancellationToken = null)
+        /// <param name="Dictionary{string, T}">A dictionary containing the keys and data to store in the cache and data source.</param>
+        /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
+        /// <returns>True if all records were set successfully; otherwise, false.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="string"/> is null, an empty string, or contains only white-space characters.</exception>
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="T"/> is null.</exception>
+        public async Task<bool> SetDataBatchAsync(Dictionary<string, T> data, CancellationToken? cancellationToken = null)
         {
             try
             {
                 ArgumentNullException.ThrowIfNull(data);
                 foreach (var key in data.Keys)
                 {
-                    ArgumentException.ThrowIfNullOrEmpty(key);
+                    ArgumentNullException.ThrowIfNullOrEmpty(key);
                 }
 
                 TimeSpan absoluteExpiration = TimeSpan.FromSeconds(_settings.AbsoluteExpiration);
-                var result = await _cache.SetBatchAsync(data, absoluteExpiration, cancellationToken);
+                var result = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken);
                 if (result)
                 {
                     _logger.LogInformation("Entries with keys {keys} set in cache.", string.Join(", ", data.Keys));
@@ -332,12 +337,13 @@ namespace CacheProvider.Providers
         }
 
         /// <summary>
-        /// Asynchronously removes multiple entries from the cache using specified keys.
+        /// Removes multiple records from the cache and data source with the specified keys.
         /// </summary>
-        /// <param name="keys">The keys of the entries to remove.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
-        /// <returns>True if the operation is successful; otherwise, false.</returns>
-        public async Task<bool> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        /// <param name="keys">The keys of the records to remove.</param>
+        /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
+        /// <returns>True if all records were removed successfully; otherwise, false.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="keys"/> is null, an empty string, or contains only white-space characters.</exception> 
+        public async Task<bool> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             try
             {
@@ -346,7 +352,7 @@ namespace CacheProvider.Providers
                     ArgumentException.ThrowIfNullOrEmpty(key);
                 }
 
-                var result = await _cache.RemoveBatchAsync(keys, cancellationToken);
+                var result = await _cache.RemoveBatchFromCacheAsync(keys, cancellationToken);
                 if (result)
                 {
                     _logger.LogInformation("Entries with keys {keys} removed from cache.", string.Join(", ", keys));
