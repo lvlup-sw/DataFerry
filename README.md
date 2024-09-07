@@ -1,34 +1,36 @@
-# CacheProvider — Seamless Caching for .NET Applications
+# DataFerry — Seamless Cache Synchronization for .NET Applications
 
-**Simplify data access and boost performance with CacheProvider, a generic caching solution designed for tight coupling between your cache and database.**
+**Simplify data access and boost resiliency with DataFerry, a generic caching solution designed for tight coupling between your cache and database.**
 
 ## Features
 
 * **Generic Caching:** Works with any data type and data provider through the `IRealProvider<T>` interface.
 * **Redis Integration:** Leverages the high-performance and robustness of the [StackExchange.Redis](https://stackexchange.github.io/StackExchange.Redis/) library.
-* **Built-in Resilience:** Implements [Polly](https://www.pollydocs.org) policies for automatic retry and circuit breaker patterns, enhancing application stability.
+* **Built-in Resilience:** Implements [Polly](https://www.pollydocs.org) policies for automatic retry, circuit breakers, and other resiliency patterns, enhancing the reliability of your transactions.
 * **Easy Configuration:** Inject the `IConnectionMultiplexer` and your `IRealProvider<T>` implementation, and you're ready to go.
 
-## How it Works
+## Overview
 
-CacheProvider acts as a bridge between your application and your data sources. When you request data:
+DataFerry's `CacheProvider` class acts as a bridge between your application and your data sources. When you request data:
 
-1. **Cache Check:** It first checks the Redis cache for the data.
+1. **Cache Check:** It first checks your Redis cache for the data.
 2. **Database Fetch (if needed):** If the data is not found in the cache, it fetches it from your database using your `IRealProvider<T>` implementation.
 3. **Cache Update:** The fetched data is then stored in the cache for future requests.
 
 This approach ensures that:
 
-* **Your cache and database remain synchronized.**
+* **Your cache and database remain synchronized, eliminating inconsistencies.**
 * **You avoid redundant database calls, improving performance.**
-* **Your application handles transient errors gracefully.**
+* **Your application handles transient errors gracefully, increasing reliability.**
+
+`CacheProvider` offers a complete set of tools for managing your cached data. It supports all fundamental CRUD operations, as well as optimized batch versions for handling multiple records efficiently. Create and update functionality is combined into a single upsert via the `SetData` and `SetDataBatch` methods.
 
 ## Getting Started
 
 1. **Install the NuGet package:**
 
    ```bash
-   Install-Package CacheProvider
+   Install-Package DataFerry
    ```
 
 2. **Implement `IRealProvider<T>`**
@@ -83,6 +85,16 @@ private string ConstructCacheKey(MyDataRequest request, string version)
 }
 ```
 
+### Configuring your Resiliency Pattern
+
+DataFerry leverages Polly policies to enhance the reliability of your data access. You can tailor the resilience behavior using the `PollyPolicy` property in `CacheSettings`. Currently supported options include:
+
+1. **Default:** A basic timeout and fallback policy.
+2. **Basic:** Adds automatic retries with configurable intervals and retry counts.
+3. **Advanced:** Includes bulkhead isolation and circuit breaker patterns for advanced resilience.
+
+Simply set the `PollyPolicy` property in your configuration to the desired `PollyPolicyEnum` value to apply the corresponding pattern.
+
 ## License
 
-Cache-Provider is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+DataFerry is licensed under the [MIT License](https://opensource.org/licenses/MIT).

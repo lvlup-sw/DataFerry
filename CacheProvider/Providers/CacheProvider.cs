@@ -14,7 +14,7 @@ namespace CacheProvider.Providers
     /// </summary>
     /// <remarks>
     /// This class makes use of two types of caches: <see cref="MemoryCache"/> and <see cref="DistributedCache"/>.
-    /// It uses the <see cref="IRealProvider{T}>"/> interface to retrieve entries from the real provider.
+    /// It uses the <see cref="IRealProvider{T}"/> interface to retrieve entries from the real provider.
     /// </remarks>
     /// <typeparam name="T">The type of object to cache.</typeparam>
     public class CacheProvider<T> : ICacheProvider<T> where T : class
