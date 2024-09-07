@@ -5,8 +5,8 @@
 ## Features
 
 * **Generic Caching:** Works with any data type and data provider through the `IRealProvider<T>` interface.
-* **Redis Integration:** Leverages the high-performance and robustness of the StackExchange.Redis library.
-* **Built-in Resilience:** Implements Polly policies for automatic retry and circuit breaker patterns, enhancing application stability.
+* **Redis Integration:** Leverages the high-performance and robustness of the [StackExchange.Redis](https://stackexchange.github.io/StackExchange.Redis/) library.
+* **Built-in Resilience:** Implements [Polly](https://www.pollydocs.org) policies for automatic retry and circuit breaker patterns, enhancing application stability.
 * **Easy Configuration:** Inject the `IConnectionMultiplexer` and your `IRealProvider<T>` implementation, and you're ready to go.
 
 ## How it Works
