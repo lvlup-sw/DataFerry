@@ -30,7 +30,7 @@ namespace Cache.Utilities
             {
                 PollyPolicyEnum.Advanced => GetAdvancedPattern(configuredValue),
                 PollyPolicyEnum.Basic => GetBasicPattern(configuredValue),
-                _ => GetNonePattern()
+                _ => GetDefaultPattern()
             };
         }
 
@@ -38,7 +38,7 @@ namespace Cache.Utilities
         {
             if (_settings is null || _logger is null)
             {
-                return GetNonePattern();
+                return GetDefaultPattern();
             }
 
             // First layer: timeouts
@@ -102,7 +102,7 @@ namespace Cache.Utilities
         {
             if (_settings is null || _logger is null)
             {
-                return GetNonePattern();
+                return GetDefaultPattern();
             }
 
             // Retry Policy Settings:
@@ -134,7 +134,7 @@ namespace Cache.Utilities
             return fallbackPolicy.WrapAsync(retryPolicy);
         }
 
-        private static AsyncPolicyWrap<object> GetNonePattern()
+        private static AsyncPolicyWrap<object> GetDefaultPattern()
         {
             var timeoutPolicy = Policy.TimeoutAsync(
                 TimeSpan.FromSeconds(30));

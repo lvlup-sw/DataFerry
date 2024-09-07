@@ -6,6 +6,7 @@ using CacheProvider.Providers.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using CacheProvider.Properties;
+using Polly.Wrap;
 
 namespace CacheProvider.Providers
 {
@@ -359,5 +360,11 @@ namespace CacheProvider.Providers
                 throw ex.GetBaseException();
             }
         }
+
+        /// <summary>
+        /// Configure the polly policy used in the <see cref="IRealProvider{T}"/>.
+        /// </summary>
+        /// <param name="policy"></param>
+        public void ConfigureProviderPollyPolicy(AsyncPolicyWrap<object> policy) => _realProvider.ConfigurePollyPolicy(policy);
     }
 }
