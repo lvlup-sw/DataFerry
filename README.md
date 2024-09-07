@@ -1,69 +1,87 @@
-# CacheProvider
+# CacheProvider — Seamless Caching for .NET Applications
 
-The `CacheProvider` class is a generic class that implements the `ICacheProvider<T>` interface. It is designed to provide caching functionality for any type of object. The class uses `DistributedCache` for caching and the `IRealProvider<T>` interface to retrieve data from the real provider when they are not found in the cache.
+**Simplify data access and boost performance with CacheProvider, a generic caching solution designed for tight coupling between your cache and database.**
 
-## How to Instantiate CacheProvider
+## Features
 
-To instantiate a `CacheProvider`, you need to provide the following:
+* **Generic Caching:** Works with any data type and data provider through the `IRealProvider<T>` interface.
+* **Redis Integration:** Leverages the high-performance and robustness of the StackExchange.Redis library.
+* **Built-in Resilience:** Implements Polly policies for automatic retry and circuit breaker patterns, enhancing application stability.
+* **Easy Configuration:** Inject the `IConnectionMultiplexer` and your `IRealProvider<T>` implementation, and you're ready to go.
 
-1. An instance of `IConnectionMultiplexer` for connecting to the Redis server.
-2. An instance of a class that implements the `IRealProvider<T>` interface. This is the "real provider" that the `CacheProvider` will use to retrieve s if they are not found in the cache.
-3. An instance of `CacheSettings` to configure the cache.
-4. An instance of `ILogger` for logging.
+## How it Works
 
-Here's an example of how to instantiate a `CacheProvider`:
-```
-// Get configuration
-var connection  = _serviceProvider.GetRequiredService<IConnectionMultiplexer>();
-var provider    = _serviceProvider.GetRequiredService<IRealProvider<Payload>>();
-var settings    = _serviceProvider.GetRequiredService<IOptions<CacheSettings>>().Value;
-var logger      = _serviceProvider.GetRequiredService<ILogger<YourClass>>();
+CacheProvider acts as a bridge between your application and your data sources. When you request data:
 
-// Create the cache provider
-CacheProvider<Payload> cacheProvider = new(connection, provider, settings, logger);
-...
-```
+1. **Cache Check:** It first checks the Redis cache for the data.
+2. **Database Fetch (if needed):** If the data is not found in the cache, it fetches it from your database using your `IRealProvider<T>` implementation.
+3. **Cache Update:** The fetched data is then stored in the cache for future requests.
 
-Note that you'll need to inject an `IConnectionMultiplexer` into your service collection if you plan on using `DistributedCache`. EX:
+This approach ensures that:
 
-```
-services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
+* **Your cache and database remain synchronized.**
+* **You avoid redundant database calls, improving performance.**
+* **Your application handles transient errors gracefully.**
+
+## Getting Started
+
+1. **Install the NuGet package:**
+
+   ```bash
+   Install-Package CacheProvider
+   ```
+
+2. **Implement `IRealProvider<T>`**
+
+	```csharp
+	public interface IMyDataProvider : IRealProvider<MyDataModel>
+	```
+
+3. **Inject your Dependencies**
+
+	```csharp
+		// Configure your cache settings
+        services.Configure<CacheSettings>(builder.Configuration.GetSection("CacheSettings"));
+
+        // Register IConnectionMultiplexer 
+        services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(connectionString));
+
+		// Register your IRealProvider
+		builder.Services.AddTransient<IMyDataProvider, MyDataProvider>();
+
+		// Register CacheProvider
+		builder.Services.AddTransient<ICacheProvider<MyDataModel>>(serviceProvider =>
+			new CacheProvider<MyDataModel>(
+				serviceProvider.GetRequiredService<IConnectionMultiplexer>(),
+				serviceProvider.GetRequiredService<IMyDataProvider>(),
+				serviceProvider.GetRequiredService<IOptions<CacheSettings>>(),
+				serviceProvider.GetRequiredService<ILogger<CacheProvider<MyDataModel>>>()
+			));
+	```
+
+4. **Use CacheProvider in your Service**
+
+	```csharp
+	MyDataModel? myData = await _cacheProvider.GetFromCacheAsync(cacheKey);
+	```
+
+### Designing your Cache Key
+
+When designing your cache key, it's important to consider how they'll be used both in the cache and when interacting with your database. Since your cache key serves as the database query key as well, you have two main options for handling the information encoded within it:
+
+1. **Extract the information directly from the key.** This works well if your key has a clear structure that your `IRealProvider<T>` implementation can easily parse.
+2. **Deserialize the key if it's a hash.** If you use hashing to generate your cache keys, you'll need to deserialize them within your `IRealProvider<T>` implementation to extract the necessary lookup information.
+
+A common and effective pattern is to include versioning information and the actual lookup key as a prefix to the hash. This approach gives you built-in version control for your cached data and a straightforward way to access the primary lookup value for database queries. EX:
+
+```csharp
+private string ConstructCacheKey(MyDataRequest request, string version)
 {
-	return ConnectionMultiplexer.Connect(YourConnectionString);
-});
+	string prefix = $"{version}:{request.Key}";
+	// Hashes request object and attaches prefix
+	return CacheKeyGenerator.GenerateCacheKey(request, prefix);
+}
 ```
-
-## Cache Implementations
-
-### DistributedCache
-
-`DistributedCache` is an implementation that uses the `StackExchange.Redis` library as its foundation. It leverages the `Polly` library to handle exceptions and retries, making it robust and resilient. This implementation is compatible with various distributed Redis cache providers, including AWS ElastiCache and Azure Blob Storage.
-
-The `DistributedCache` class requires a `CacheSettings` object for configuration and an `IConnectionMultiplexer` for connecting to the cache provider. It also uses an `AsyncPolicyWrap<object>` to define a policy for handling exceptions when accessing the cache. This policy includes a retry policy, which retries a specified number of times with a delay, and a fallback policy, which executes a fallback action if an exception is thrown. The class provides asynchronous operations for retrieving, adding, and removing data from the cache.
-
-## Usage
-
-Once you have an instance of the `CacheProvider` class, you can use the `GetFromCacheAsync`, `SetInCacheAsync`, `RemoveFromCacheAsync`, `GetBatchFromCacheAsync`, `SetBatchInCacheAsync`, or `RemoveBatchFromCacheAsync` methods to interact with the cache. Here is an example:
-
-```
-Payload data = new();
-string key = "myKey";
-Payload response = await cacheProvider.GetFromCacheAsync(data, key);
-```
-
-## Prerequisities
-
-- .NET 8.0 SDK
-
-## Dependencies
-
-The project uses the following NuGet packages:
-- Polly ~> 8.3.0
-- StackExchange.Redis ~> 2.7.23
-- Microsoft.EntityFrameworkCore ~> 8.0.2
-- Microsoft.Extensions.Caching.StackExchangeRedis ~> 8.0.2
-- Microsoft.Extensions.DependencyInjection ~> 8.0.0
-- Microsoft.Extensions.Options ~> 8.0.2
 
 ## License
 
