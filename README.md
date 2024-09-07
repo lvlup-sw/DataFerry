@@ -33,37 +33,37 @@ This approach ensures that:
 
 2. **Implement `IRealProvider<T>`**
 
-	```csharp
-	public interface IMyDataProvider : IRealProvider<MyDataModel>
-	```
+   ```csharp
+   public interface IMyDataProvider : IRealProvider<MyDataModel>
+   ```
 
 3. **Inject your Dependencies**
 
-	```csharp
-		// Configure your cache settings
-        services.Configure<CacheSettings>(builder.Configuration.GetSection("CacheSettings"));
+   ```csharp
+   // Configure your cache settings
+   services.Configure<CacheSettings>(builder.Configuration.GetSection("CacheSettings"));
 
-        // Register IConnectionMultiplexer 
-        services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(connectionString));
+   // Register IConnectionMultiplexer 
+   services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(connectionString));
 
-		// Register your IRealProvider
-		builder.Services.AddTransient<IMyDataProvider, MyDataProvider>();
+   // Register your IRealProvider
+   builder.Services.AddTransient<IMyDataProvider, MyDataProvider>();
 
-		// Register CacheProvider
-		builder.Services.AddTransient<ICacheProvider<MyDataModel>>(serviceProvider =>
-			new CacheProvider<MyDataModel>(
-				serviceProvider.GetRequiredService<IConnectionMultiplexer>(),
-				serviceProvider.GetRequiredService<IMyDataProvider>(),
-				serviceProvider.GetRequiredService<IOptions<CacheSettings>>(),
-				serviceProvider.GetRequiredService<ILogger<CacheProvider<MyDataModel>>>()
-			));
-	```
+   // Register CacheProvider
+   builder.Services.AddTransient<ICacheProvider<MyDataModel>>(serviceProvider =>
+      new CacheProvider<MyDataModel>(
+         serviceProvider.GetRequiredService<IConnectionMultiplexer>(),
+         serviceProvider.GetRequiredService<IMyDataProvider>(),
+         serviceProvider.GetRequiredService<IOptions<CacheSettings>>(),
+         serviceProvider.GetRequiredService<ILogger<CacheProvider<MyDataModel>>>()
+      ));
+   ```
 
 4. **Use CacheProvider in your Service**
 
-	```csharp
-	MyDataModel? myData = await _cacheProvider.GetFromCacheAsync(cacheKey);
-	```
+   ```csharp
+   MyDataModel? myData = await _cacheProvider.GetFromCacheAsync(cacheKey);
+   ```
 
 ### Designing your Cache Key
 
