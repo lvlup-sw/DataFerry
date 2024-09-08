@@ -30,7 +30,7 @@ This approach ensures that:
 1. **Install the NuGet package:**
 
    ```bash
-   Install-Package DataFerry
+   Install-Package lvlup.DataFerry
    ```
 
 2. **Implement `IRealProvider<T>`**
