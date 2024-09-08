@@ -25,7 +25,7 @@ namespace DataFerry.Utilities
             ArgumentNullException.ThrowIfNull(logger, nameof(logger));
             ArgumentNullException.ThrowIfNull(settings, nameof(settings));
 
-            return (settings.PollyPolicy) switch
+            return (settings.DesiredPolicy) switch
             {
                 ResiliencyPatterns.Advanced => GetAdvancedPattern(configuredValue),
                 ResiliencyPatterns.Basic => GetBasicPattern(configuredValue),
