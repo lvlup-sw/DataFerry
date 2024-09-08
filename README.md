@@ -87,7 +87,7 @@ private string ConstructCacheKey(MyDataRequest request, string version)
 
 ### Configuring your Resiliency Pattern
 
-DataFerry leverages Polly policies to enhance the reliability of your data access. You can tailor the resilience behavior using the `PollyPolicy` property in `CacheSettings`. Currently supported options include:
+DataFerry leverages Polly policies to enhance the reliability of your data access. You can tailor the resilience behavior using the `DesirePolicy` property in `CacheSettings`. Currently supported options include:
 
 1. **Default:** A basic timeout and fallback policy.
 2. **Basic:** Adds automatic retries with configurable intervals and retry counts.
