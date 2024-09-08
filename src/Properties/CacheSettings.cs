@@ -29,9 +29,14 @@
         public bool UseExponentialBackoff { get; set; }
 
         /// <summary>
-        /// Retrieves or sets the expiration of the cache in minutes.
+        /// Retrieves or sets the expiration of the cache in hours.
         /// </summary>
         public int AbsoluteExpiration { get; set; }
+
+        /// <summary>
+        /// Retrieves or sets the expiration of the in-memory cache in minutes.
+        /// </summary>
+        public int InMemoryAbsoluteExpiration { get; set; }
 
         /// <summary>
         /// Set to true to use In-Memory Caching.

@@ -8,3 +8,11 @@ global using DataFerry.Providers.Interfaces;
 global using DataFerry.Utilities;
 
 #endregion
+
+#region External
+
+global using PowerUp.Algorithms;
+global using PowerUp.Caching;
+global using PowerUp.Caching.Interfaces;
+
+#endregion

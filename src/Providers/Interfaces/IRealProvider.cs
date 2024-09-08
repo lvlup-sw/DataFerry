@@ -33,8 +33,8 @@ namespace DataFerry.Providers.Interfaces
         /// </summary>
         /// <param name="keys"></param>
         /// <param name="cancellationToken"></param>
-        /// <returns>A <typeparamref name="Dictionary"/> of keys and data.</returns>
-        Task<Dictionary<string, T?>> GetBatchFromSourceAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
+        /// <returns>A <typeparamref name="Dictionary{string, T}"/> of keys and data.</returns>
+        Task<Dictionary<string, T>> GetBatchFromSourceAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Asynchronously sets multiple entries in the data source using specified keys.

@@ -40,7 +40,7 @@
         /// <param name="flags">Flags to configure the behavior of the operation.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>A <typeparamref name="Dictionary"/> of <typeparamref name="string"/> keys and <typeparamref name="T"/> data</returns>
-        Task<IDictionary<string, T?>> GetDataBatchAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, T>> GetDataBatchAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache and data source with the specified keys.
@@ -66,6 +66,6 @@
         /// <summary>
         /// Gets the cache object representation.
         /// </summary>
-        DistributedCache Cache { get; }
+        DistributedCache<T> Cache { get; }
     }
 }

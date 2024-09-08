@@ -14,20 +14,20 @@ namespace DataFerry.Caches
     /// <remarks>
     /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Blob Storage.
     /// </remarks>
-    public class DistributedCache : IDistributedCache
+    public class DistributedCache<T> : IDistributedCache<T> where T : class
     {
         private readonly IConnectionMultiplexer _cache;
-        private IMemoryCache _memCache;
+        private readonly IFastMemCache<string, T> _memCache;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private AsyncPolicyWrap<object> _policy;
 
         /// <summary>
-        /// The primary constructor for the <see cref="DistributedCache"/> class.
+        /// The primary constructor for the <see cref="DistributedCache{T}"/> class.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(IConnectionMultiplexer cache, IMemoryCache memCache, IOptions<CacheSettings> settings, ILogger logger)
+        public DistributedCache(IConnectionMultiplexer cache, IFastMemCache<string, T> memCache, IOptions<CacheSettings> settings, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(memCache);
@@ -48,10 +48,10 @@ namespace DataFerry.Caches
         /// Returns the entry if it exists in the cache, null otherwise.
         /// </remarks>
         /// <param name="key">The key of the record to retrieve.</param>
-        public async Task<T?> GetFromCacheAsync<T>(string key)
+        public async Task<T?> GetFromCacheAsync(string key)
         {
             // Check the _memCache first
-            if (_settings.UseMemoryCache && _memCache.TryGetValue(key, out T? memData))
+            if (_settings.UseMemoryCache && _memCache.TryGet(key, out T? memData))
             {
                 _logger.LogDebug("Retrieved data with key {key} from memory cache.", key);
                 return memData;
@@ -68,8 +68,8 @@ namespace DataFerry.Caches
             }, new Context($"DistributedCache.GetAsync for {key}"));
 
             return result is RedisValue typeResult
-                ? LogAndReturnForGet<T>(typeResult, key)
-                : LogAndReturnForGet<T>(RedisValue.Null, key);
+                ? LogAndReturnForGet(typeResult, key)
+                : LogAndReturnForGet(RedisValue.Null, key);
         }
 
         /// <summary>
@@ -80,12 +80,16 @@ namespace DataFerry.Caches
         /// </remarks>
         /// <param name="key">The key to use for the entry.</param>
         /// <param name="data">The data to add to the cache.</param>
-        public async Task<bool> SetInCacheAsync<T>(string key, T data, TimeSpan? timeSpan = null)
+        public async Task<bool> SetInCacheAsync(string key, T data, TimeSpan? timeSpan = null)
         {
             IDatabase database = _cache.GetDatabase();
             if (_settings.UseMemoryCache)
             {
-                _memCache.Set(key, data);
+                TimeSpan expiration = _settings.InMemoryAbsoluteExpiration != 0
+                    ? TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration)
+                    : TimeSpan.FromMinutes(120);
+
+                _memCache.AddOrUpdate(key, data, expiration);
             }
 
             object result = await _policy.ExecuteAsync(async (context) =>
@@ -131,7 +135,7 @@ namespace DataFerry.Caches
         /// <typeparam name="T">The type of the data to retrieve from the cache.</typeparam>
         /// <param name="keys">The keys associated with the data in the cache.</param>
         /// <returns>A dictionary of the retrieved entries. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
-        public async Task<Dictionary<string, T?>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        public async Task<Dictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
@@ -143,7 +147,7 @@ namespace DataFerry.Caches
                     // We use a dictionary to store the tasks and their associated keys since we need the values
                     // Also, we only want to retrieve the keys that don't exist in the _memCache
                     var tasks = keys
-                        .Where(key => _settings.UseMemoryCache && !_memCache.TryGetValue(key, out _))
+                        .Where(key => _settings.UseMemoryCache && !_memCache.TryGet(key, out _))
                         .ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
 
                     // Execute the batch and wait for all the tasks to complete
@@ -156,7 +160,7 @@ namespace DataFerry.Caches
                         tasks.Select(async task => new
                         {
                             task.Key,
-                            Value = await LogAndReturnForGetBatchAsync<T>(task)
+                            Value = await LogAndReturnForGetBatchAsync(task)
                         })
                     );
                     return results.ToDictionary(result => result.Key, result => result.Value);
@@ -165,7 +169,7 @@ namespace DataFerry.Caches
                 cancellationToken ?? default
             );
 
-            return policyExecutionResult as Dictionary<string, T?> ?? [];
+            return policyExecutionResult as Dictionary<string, T> ?? [];
         }
 
         /// <summary>
@@ -175,7 +179,7 @@ namespace DataFerry.Caches
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the data. If this is null, the default expiration time is used.</param>
         /// <returns>True if all entries were set successfully; otherwise, false.</returns>
-        public async Task<bool> SetBatchInCacheAsync<T>(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null, CancellationToken? cancellationToken = null)
+        public async Task<bool> SetBatchInCacheAsync(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null, CancellationToken? cancellationToken = null)
         {
             TimeSpan absoluteExpiration = absoluteExpireTime ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
             IDatabase database = _cache.GetDatabase();
@@ -201,7 +205,11 @@ namespace DataFerry.Caches
                     // Set items in the memCache
                     if (_settings.UseMemoryCache)
                     {
-                        data.Where(kv => kv.Value is not null).ToList().ForEach(kv => _memCache.Set(kv.Key, kv.Value));
+                        TimeSpan expiration = _settings.InMemoryAbsoluteExpiration != 0
+                            ? TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration)
+                            : TimeSpan.FromMinutes(120);
+
+                        data.Where(kv => kv.Value is not null).ToList().ForEach(kv => _memCache.AddOrUpdate(kv.Key, kv.Value, expiration));
                     }
 
                     // Execute the batch and wait for all the tasks to complete
@@ -291,7 +299,7 @@ namespace DataFerry.Caches
         public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
 
         // Logging Methods to simplify return statements
-        private T? LogAndReturnForGet<T>(RedisValue value, string key)
+        private T? LogAndReturnForGet(RedisValue value, string key)
         {
             bool success = !value.IsNullOrEmpty;
 
@@ -313,9 +321,9 @@ namespace DataFerry.Caches
 
                 return result;
             }
-            catch (JsonException ex)
+            catch (Exception ex)
             {
-                _logger.LogError("Failed to deserialize the object. Exception: {ex}", ex);
+                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the object. Exception: {ex}", ex);
                 return default;
             }
         }
@@ -348,7 +356,7 @@ namespace DataFerry.Caches
             return success;
         }
 
-        private async Task<T?> LogAndReturnForGetBatchAsync<T>(KeyValuePair<string, Task<RedisValue>> task)
+        private async Task<T?> LogAndReturnForGetBatchAsync(KeyValuePair<string, Task<RedisValue>> task)
         {
             RedisValue value = await task.Value.ConfigureAwait(false);
             bool success = !value.IsNullOrEmpty;
@@ -373,18 +381,24 @@ namespace DataFerry.Caches
 
                 return result;
             }
-            catch (JsonException e)
+            catch (Exception ex)
             {
-                _logger.LogError(e, "Failed to deserialize the value retrieved from cache with key {key}.", task.Key);
+                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", task.Key);
                 return default;
             }
         }
 
-        private void UseMemoryCacheIfEnabled<T>(string key, T result)
+        private void UseMemoryCacheIfEnabled(string key, T? result)
         {
+            ArgumentNullException.ThrowIfNull(result, nameof(result));
+
             if (_settings.UseMemoryCache)
             {
-                _memCache.Set(key, result, new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromSeconds(_settings.AbsoluteExpiration)));
+                TimeSpan expiration = _settings.InMemoryAbsoluteExpiration != 0
+                    ? TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration)
+                    : TimeSpan.FromMinutes(120);
+
+                _memCache.AddOrUpdate(key, result, expiration);
             }
         }
     }

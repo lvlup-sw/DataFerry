@@ -1,6 +1,4 @@
-﻿using MemCache = Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Caching.Memory;
-using StackExchange.Redis;
+﻿using StackExchange.Redis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -10,7 +8,7 @@ namespace DataFerry.Providers
     /// CacheProvider is a generic class that implements the <see cref="ICacheProvider{T}"/> interface.
     /// </summary>
     /// <remarks>
-    /// This class makes use of two types of caches: <see cref="MemoryCache"/> and <see cref="DistributedCache"/>.
+    /// This class makes use of two types of caches: <see cref="FastMemCache"/> and <see cref="DistributedCache"/>.
     /// It uses the <see cref="IRealProvider{T}"/> interface to retrieve records from the data source.
     /// </remarks>
     /// <typeparam name="T">The type of object to cache.</typeparam>
@@ -19,7 +17,7 @@ namespace DataFerry.Providers
         private readonly IRealProvider<T> _realProvider;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
-        private readonly DistributedCache _cache;
+        private readonly DistributedCache<T> _cache;
 
         /// <summary>
         /// Primary constructor for the CacheProvider class.
@@ -45,13 +43,13 @@ namespace DataFerry.Providers
             _realProvider = provider;
             _settings = settings.Value;
             _logger = logger;
-            _cache = new DistributedCache(connection, new MemCache.MemoryCache(new MemoryCacheOptions()), settings, logger);
+            _cache = new DistributedCache<T>(connection, new FastMemCache<string, T>(), settings, logger);
         }
 
         /// <summary>
         /// Gets the cache instance.
         /// </summary>
-        public DistributedCache Cache => _cache;
+        public DistributedCache<T> Cache => _cache;
 
         /// <summary>
         /// Gets the data source instance.
@@ -73,7 +71,7 @@ namespace DataFerry.Providers
                 ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
 
                 // Try to get entry from the cache
-                var cached = await _cache.GetFromCacheAsync<T>(key);
+                var cached = await _cache.GetFromCacheAsync(key);
                 if (cached is not null)
                 {
                     _logger.LogDebug("Cached entry with key {key} found in cache.", key);
@@ -209,7 +207,7 @@ namespace DataFerry.Providers
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>A <typeparamref name="Dictionary"/> of <typeparamref name="string"/> keys and <typeparamref name="T"/> data</returns>
         /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="keys"/> is null, an empty string, or contains only white-space characters.</exception>
-        public async Task<IDictionary<string, T?>> GetDataBatchAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
+        public async Task<IDictionary<string, T>> GetDataBatchAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
         {
             try
             {
@@ -219,9 +217,9 @@ namespace DataFerry.Providers
                     ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
                 }
 
-                Dictionary<string, T?> cached = [];
+                Dictionary<string, T> cached = [];
                 // Try to get entries from the cache
-                cached = await _cache.GetBatchFromCacheAsync<T>(keys, cancellationToken);
+                cached = await _cache.GetBatchFromCacheAsync(keys, cancellationToken);
 
                 // Cache hit scenario
                 if (cached.Count > 0)
@@ -238,9 +236,9 @@ namespace DataFerry.Providers
                         var missingData = await _realProvider.GetBatchFromSourceAsync(missingKeys, cancellationToken);
 
                         // Update cache selectively
-                        if (missingData is not null && missingData.Count > 0 && GetFlags.DoNotSetRecordInCache != flags)
+                        if (missingData is not null && missingData.Any() && GetFlags.DoNotSetRecordInCache != flags)
                         {
-                            await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromSeconds(_settings.AbsoluteExpiration), cancellationToken);
+                            await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromHours(_settings.AbsoluteExpiration), cancellationToken);
                             _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", missingData.Keys));
                         }
                         else if (missingData is null || missingData.Count == 0)
@@ -276,7 +274,7 @@ namespace DataFerry.Providers
                 }
 
                 // Set the entries in the cache
-                TimeSpan absoluteExpiration = TimeSpan.FromSeconds(_settings.AbsoluteExpiration);
+                TimeSpan absoluteExpiration = TimeSpan.FromHours(_settings.AbsoluteExpiration);
                 if (GetFlags.DoNotSetRecordInCache != flags && await _cache.SetBatchInCacheAsync(cached, absoluteExpiration, cancellationToken))
                 {
                     _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", keys));
@@ -313,7 +311,7 @@ namespace DataFerry.Providers
                     ArgumentNullException.ThrowIfNullOrEmpty(key);
                 }
 
-                TimeSpan absoluteExpiration = TimeSpan.FromSeconds(_settings.AbsoluteExpiration);
+                TimeSpan absoluteExpiration = TimeSpan.FromHours(_settings.AbsoluteExpiration);
 
                 // Set data in cache
                 var cacheResult = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken);
