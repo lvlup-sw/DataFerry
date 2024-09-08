@@ -1,8 +1,8 @@
-﻿namespace CacheProvider.Properties
+﻿namespace DataFerry.Properties
 {
     public enum GetFlags
     {
         ReturnNullIfNotFoundInCache,
-        DoNotSetCacheEntry
+        DoNotSetRecordInCache
     }
 }

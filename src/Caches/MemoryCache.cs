@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Caching.Memory;
 
-namespace CacheProvider.Caches
+namespace DataFerry.Caches
 {
     /// <summary>
     /// MemoryCache is an in-memory caching implementation.

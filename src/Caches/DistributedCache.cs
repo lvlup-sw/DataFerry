@@ -5,11 +5,8 @@ using Polly;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
-using CacheProvider.Caches.Interfaces;
-using CacheProvider.Properties;
-using Cache.Utilities;
 
-namespace CacheProvider.Caches
+namespace DataFerry.Caches
 {
     /// <summary>
     /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="IDistributedCache"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.

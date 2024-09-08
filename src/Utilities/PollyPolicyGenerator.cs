@@ -2,10 +2,9 @@
 using Polly;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
-using CacheProvider.Properties;
 using StackExchange.Redis;
 
-namespace Cache.Utilities
+namespace DataFerry.Utilities
 {
     public static class PollyPolicyGenerator
     {
@@ -28,8 +27,8 @@ namespace Cache.Utilities
 
             return (settings.PollyPolicy) switch
             {
-                PollyPolicyEnum.Advanced => GetAdvancedPattern(configuredValue),
-                PollyPolicyEnum.Basic => GetBasicPattern(configuredValue),
+                ResiliencyPatterns.Advanced => GetAdvancedPattern(configuredValue),
+                ResiliencyPatterns.Basic => GetBasicPattern(configuredValue),
                 _ => GetDefaultPattern()
             };
         }
@@ -65,7 +64,7 @@ namespace Cache.Utilities
                     onHalfOpen: () => _logger.LogDebug("Circuit breaker half-open.")
                 );
 
-            // Fourth layer: retries
+            // Fourth layer: automatic retries
             var retryPolicy = Policy
                 .Handle<TimeoutException>()
                 .Or<DbUpdateConcurrencyException>()
@@ -105,10 +104,11 @@ namespace Cache.Utilities
                 return GetDefaultPattern();
             }
 
-            // Retry Policy Settings:
-            // + RetryCount: The number of times to retry a cache operation.
-            // + RetryInterval: The interval between cache operation retries.
-            // + UseExponentialBackoff: Set to true to use exponential backoff for cache operation retries.
+            // First layer: timeouts
+            var timeoutPolicy = Policy.TimeoutAsync(
+                TimeSpan.FromSeconds(_settings.TimeoutInterval));
+
+            // Second layer: automatic retries
             var retryPolicy = Policy
                 .Handle<TimeoutException>()
                 .Or<DbUpdateConcurrencyException>()
@@ -119,8 +119,7 @@ namespace Cache.Utilities
                     LogRetryAttempt
                 );
 
-            // Fallback Policy Settings:
-            // + FallbackValue: The value to return if the fallback action is executed.
+            // Last resort: return default value
             var fallbackPolicy = Policy<object>
                 .Handle<Exception>()
                 .FallbackAsync(
@@ -131,14 +130,22 @@ namespace Cache.Utilities
                         return Task.CompletedTask;
                     });
 
+            // Wrap policies in order
+            var combinedPolicy = Policy.WrapAsync(
+                timeoutPolicy,
+                retryPolicy
+            );
+
             return fallbackPolicy.WrapAsync(retryPolicy);
         }
 
         private static AsyncPolicyWrap<object> GetDefaultPattern()
         {
+            // First layer: timeouts
             var timeoutPolicy = Policy.TimeoutAsync(
                 TimeSpan.FromSeconds(30));
 
+            // Last resort: return default value
             var fallbackPolicy = Policy<object>
                 .Handle<Exception>()
                 .FallbackAsync(

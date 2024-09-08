@@ -1,7 +1,4 @@
-﻿using CacheProvider.Caches;
-using CacheProvider.Properties;
-
-namespace CacheProvider.Providers.Interfaces
+﻿namespace DataFerry.Providers.Interfaces
 {
     /// <summary>
     /// An interface for the Cache Provider.

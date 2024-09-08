@@ -1,13 +1,10 @@
 ﻿using MemCache = Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Caching.Memory;
 using StackExchange.Redis;
-using CacheProvider.Caches;
-using CacheProvider.Providers.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using CacheProvider.Properties;
 
-namespace CacheProvider.Providers
+namespace DataFerry.Providers
 {
     /// <summary>
     /// CacheProvider is a generic class that implements the <see cref="ICacheProvider{T}"/> interface.
@@ -93,7 +90,7 @@ namespace CacheProvider.Providers
                 cached = await _realProvider.GetFromSourceAsync(key);
 
                 // Set the entry in the cache (with refinements)
-                if (cached is not null && flag != GetFlags.DoNotSetCacheEntry)
+                if (cached is not null && flag != GetFlags.DoNotSetRecordInCache)
                 {
                     if (await _cache.SetInCacheAsync(key, cached))
                     {
@@ -241,7 +238,7 @@ namespace CacheProvider.Providers
                         var missingData = await _realProvider.GetBatchFromSourceAsync(missingKeys, cancellationToken);
 
                         // Update cache selectively
-                        if (missingData is not null && missingData.Count > 0 && GetFlags.DoNotSetCacheEntry != flags)
+                        if (missingData is not null && missingData.Count > 0 && GetFlags.DoNotSetRecordInCache != flags)
                         {
                             await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromSeconds(_settings.AbsoluteExpiration), cancellationToken);
                             _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", missingData.Keys));
@@ -280,7 +277,7 @@ namespace CacheProvider.Providers
 
                 // Set the entries in the cache
                 TimeSpan absoluteExpiration = TimeSpan.FromSeconds(_settings.AbsoluteExpiration);
-                if (GetFlags.DoNotSetCacheEntry != flags && await _cache.SetBatchInCacheAsync(cached, absoluteExpiration, cancellationToken))
+                if (GetFlags.DoNotSetRecordInCache != flags && await _cache.SetBatchInCacheAsync(cached, absoluteExpiration, cancellationToken))
                 {
                     _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", keys));
                 }
@@ -317,17 +314,33 @@ namespace CacheProvider.Providers
                 }
 
                 TimeSpan absoluteExpiration = TimeSpan.FromSeconds(_settings.AbsoluteExpiration);
-                var result = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken);
-                if (result)
+
+                // Set data in cache
+                var cacheResult = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken);
+
+                if (cacheResult)
                 {
-                    _logger.LogInformation("Entries with keys {keys} set in cache.", string.Join(", ", data.Keys));
+                    _logger.LogDebug("Entries with keys {keys} set in cache.", string.Join(", ", data.Keys));
                 }
                 else
                 {
                     _logger.LogError("Failed to set entries with keys {keys} in cache.", string.Join(", ", data.Keys));
+                    return false;
                 }
 
-                return result;
+                // Set data in the data source
+                var providerResult = await _realProvider.SetBatchInSourceAsync(data);
+
+                if (providerResult)
+                {
+                    _logger.LogDebug("Entries with keys {keys} added to data source.", string.Join(", ", data.Keys));
+                }
+                else
+                {
+                    _logger.LogError("Failed to add entries with keys {keys} to data source.", string.Join(", ", data.Keys));
+                }
+
+                return cacheResult && providerResult;
             }
             catch (Exception ex)
             {
@@ -352,17 +365,31 @@ namespace CacheProvider.Providers
                     ArgumentException.ThrowIfNullOrEmpty(key);
                 }
 
-                var result = await _cache.RemoveBatchFromCacheAsync(keys, cancellationToken);
-                if (result)
+                // Remove data from the cache
+                var cacheResult = await _cache.RemoveBatchFromCacheAsync(keys, cancellationToken);
+                if (cacheResult)
                 {
-                    _logger.LogInformation("Entries with keys {keys} removed from cache.", string.Join(", ", keys));
+                    _logger.LogDebug("Entries with keys {keys} removed from cache.", string.Join(", ", keys));
                 }
                 else
                 {
                     _logger.LogError("Failed to remove entries with keys {keys} from cache.", string.Join(", ", keys));
+                    return false;
                 }
 
-                return result;
+                // Remove data from the real provider
+                var providerResult = await _realProvider.RemoveBatchFromSourceAsync(keys);
+
+                if (providerResult)
+                {
+                    _logger.LogDebug("Entries with keys {keys} added to data source.", string.Join(", ", keys));
+                }
+                else
+                {
+                    _logger.LogError("Failed to add entries with keys {keys} to data source.", string.Join(", ", keys));
+                }
+
+                return cacheResult && providerResult;
             }
             catch (Exception ex)
             {

@@ -1,6 +1,6 @@
 ﻿using Polly.Wrap;
 
-namespace CacheProvider.Providers.Interfaces
+namespace DataFerry.Providers.Interfaces
 {
     /// <summary>
     /// An interface for the data source.

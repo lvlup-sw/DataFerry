@@ -1,6 +1,6 @@
-﻿namespace CacheProvider.Properties
+﻿namespace DataFerry.Properties
 {
-    public enum PollyPolicyEnum
+    public enum ResiliencyPatterns
     {
         None = 0,
         Advanced = 1,

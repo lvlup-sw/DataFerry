@@ -1,7 +1,4 @@
-﻿using CacheProvider.Caches;
-using CacheProvider.Providers;
-
-namespace CacheProvider.Properties
+﻿namespace DataFerry.Properties
 {
     /// <summary>
     /// Cache settings for <see cref="DistributedCache"/>.
@@ -14,7 +11,7 @@ namespace CacheProvider.Properties
         /// <summary>
         /// The resiliency pattern to follow. Determines the Polly policy generated.
         /// </summary>
-        public PollyPolicyEnum PollyPolicy { get; set; }
+        public ResiliencyPatterns PollyPolicy { get; set; }
 
         /// <summary>
         /// Retrieves or sets the number of times to retry a cache operation.
