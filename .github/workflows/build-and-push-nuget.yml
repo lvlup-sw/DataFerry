@@ -35,4 +35,4 @@ jobs:
 
     - name: Push the Package to NuGet
       run: |
-        dotnet nuget push ./bin/Release/lvlup.DataFerry.${{ inputs.version }}.nupkg -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json
+        dotnet nuget push ./src/bin/Release/lvlup.DataFerry.${{ inputs.version }}.nupkg -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json
