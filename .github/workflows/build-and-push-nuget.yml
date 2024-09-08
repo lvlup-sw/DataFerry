@@ -1,0 +1,38 @@
+name: Build and Push to NuGet
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Semantic version number of the package, e.g. 1.0.0'
+        required: true
+        type: string
+        
+env:
+  REPOSITORY_NAME: lvlup-sw/DataFerry
+
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  dotnet_build_and_push:
+    name: 'Dotnet Build and Push to NuGet'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        shell: bash
+        
+    steps:
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Build the Package
+      run: |
+        cd src/
+        dotnet pack -c Release
+
+    - name: Push the Package to NuGet
+      run: |
+        dotnet nuget push ./bin/Release/lvlup.DataFerry.${{ inputs.version }}.nupkg -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json
