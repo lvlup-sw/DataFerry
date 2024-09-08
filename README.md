@@ -64,7 +64,7 @@ This approach ensures that:
 4. **Use CacheProvider in your Service**
 
    ```csharp
-   MyDataModel? myData = await _cacheProvider.GetFromCacheAsync(cacheKey);
+   MyDataModel? myData = await _cacheProvider.GetDataAsync(cacheKey);
    ```
 
 ### Designing your Cache Key
@@ -93,7 +93,7 @@ DataFerry leverages Polly policies to enhance the reliability of your data acces
 2. **Basic:** Adds automatic retries with configurable intervals and retry counts.
 3. **Advanced:** Includes bulkhead isolation and circuit breaker patterns for advanced resilience.
 
-Simply set the `PollyPolicy` property in your configuration to the desired `PollyPolicyEnum` value to apply the corresponding pattern.
+Simply set the `DesirePolicy` property in your configuration to the desired `ResiliencyPatterns` value to apply the corresponding pattern.
 
 ## License
 
