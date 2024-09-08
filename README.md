@@ -1,4 +1,4 @@
-# DataFerry — Seamless Cache Synchronization for .NET Applications
+# DataFerry — Seamless Data Synchronization for .NET Applications
 
 **Simplify data access and boost resiliency with DataFerry, a generic caching solution designed for tight coupling between your cache and database.**
 
