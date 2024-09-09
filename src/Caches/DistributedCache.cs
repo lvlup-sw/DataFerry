@@ -1,5 +1,4 @@
 ﻿using StackExchange.Redis;
-using Microsoft.Extensions.Caching.Memory;
 using Polly.Wrap;
 using Polly;
 using Microsoft.Extensions.Logging;
@@ -63,7 +62,9 @@ namespace DataFerry.Caches
             object result = await _policy.ExecuteAsync(async (context) =>
             {
                 _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
-                RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica);
+                RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica)
+                    .ConfigureAwait(false);
+                
                 return data.HasValue ? data : default;
             }, new Context($"DistributedCache.GetAsync for {key}"));
 
@@ -95,7 +96,8 @@ namespace DataFerry.Caches
             object result = await _policy.ExecuteAsync(async (context) =>
             {
                 _logger.LogDebug("Attempting to add entry with key {key} to cache.", key);
-                return await database.StringSetAsync(key, JsonSerializer.Serialize(data), timeSpan);
+                return await database.StringSetAsync(key, JsonSerializer.Serialize(data), timeSpan)
+                    .ConfigureAwait(false);
             }, new Context($"DistributedCache.SetAsync for {key}"));
 
             return result is bool success
@@ -121,7 +123,7 @@ namespace DataFerry.Caches
             object result = await _policy.ExecuteAsync(async (context) =>
             {
                 _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
-                return await database.KeyDeleteAsync(key);
+                return await database.KeyDeleteAsync(key).ConfigureAwait(false);
             }, new Context($"DistributedCache.RemoveAsync for {key}"));
 
             return result is bool success
@@ -162,7 +164,8 @@ namespace DataFerry.Caches
                             task.Key,
                             Value = await LogAndReturnForGetBatchAsync(task)
                         })
-                    );
+                    ).ConfigureAwait(false);
+
                     return results.ToDictionary(result => result.Key, result => result.Value);
                 },
                 new Context($"DistributedCache.GetBatchAsync for {keys}"),

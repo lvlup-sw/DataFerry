@@ -71,7 +71,7 @@ namespace DataFerry.Providers
                 ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
 
                 // Try to get entry from the cache
-                var cached = await _cache.GetFromCacheAsync(key);
+                var cached = await _cache.GetFromCacheAsync(key).ConfigureAwait(false);
                 if (cached is not null)
                 {
                     _logger.LogDebug("Cached entry with key {key} found in cache.", key);
@@ -85,12 +85,12 @@ namespace DataFerry.Providers
 
                 // If not found, get the entry from the real provider
                 _logger.LogDebug("Cached entry with key {key} not found in cache. Getting entry from real provider.", key);
-                cached = await _realProvider.GetFromSourceAsync(key);
+                cached = await _realProvider.GetFromSourceAsync(key).ConfigureAwait(false);
 
                 // Set the entry in the cache (with refinements)
                 if (cached is not null && flag != GetFlags.DoNotSetRecordInCache)
                 {
-                    if (await _cache.SetInCacheAsync(key, cached))
+                    if (await _cache.SetInCacheAsync(key, cached).ConfigureAwait(false))
                     {
                         _logger.LogDebug("Entry with key {key} received from real provider and set in cache.", key);
                     }
@@ -129,7 +129,7 @@ namespace DataFerry.Providers
                 ArgumentNullException.ThrowIfNull(data);
                 ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
 
-                bool cacheResult = await _cache.SetInCacheAsync(key, data, expiration);
+                bool cacheResult = await _cache.SetInCacheAsync(key, data, expiration).ConfigureAwait(false);
                 if (cacheResult)
                 {
                     _logger.LogDebug("Entry with key {key} set in cache.", key);
@@ -139,7 +139,7 @@ namespace DataFerry.Providers
                     _logger.LogError("Failed to set entry with key {key} in cache.", key);
                 }
 
-                bool providerResult = await _realProvider.SetInSourceAsync(data);
+                bool providerResult = await _realProvider.SetInSourceAsync(data).ConfigureAwait(false);
                 if (providerResult)
                 {
                     _logger.LogDebug("Entry with key {key} added to data source.", key);
@@ -170,7 +170,7 @@ namespace DataFerry.Providers
             {
                 ArgumentNullException.ThrowIfNullOrWhiteSpace(key);
 
-                bool cacheResult = await _cache.RemoveFromCacheAsync(key);
+                bool cacheResult = await _cache.RemoveFromCacheAsync(key).ConfigureAwait(false);
                 if (cacheResult)
                 {
                     _logger.LogDebug("Entry with key {key} removed from cache.", key);
@@ -180,7 +180,7 @@ namespace DataFerry.Providers
                     _logger.LogError("Failed to remove entry with key {key} from cache.", key);
                 }
 
-                bool providerResult = await _realProvider.DeleteFromSourceAsync(key);
+                bool providerResult = await _realProvider.DeleteFromSourceAsync(key).ConfigureAwait(false);
                 if (providerResult)
                 {
                     _logger.LogDebug("Entry with key {key} removed from data source.", key);
@@ -219,7 +219,7 @@ namespace DataFerry.Providers
 
                 Dictionary<string, T> cached = [];
                 // Try to get entries from the cache
-                cached = await _cache.GetBatchFromCacheAsync(keys, cancellationToken);
+                cached = await _cache.GetBatchFromCacheAsync(keys, cancellationToken).ConfigureAwait(false);
 
                 // Cache hit scenario
                 if (cached.Count > 0)
@@ -233,12 +233,17 @@ namespace DataFerry.Providers
                     {
                         _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", missingKeys));
 
-                        var missingData = await _realProvider.GetBatchFromSourceAsync(missingKeys, cancellationToken);
+                        var missingData = await _realProvider.GetBatchFromSourceAsync(missingKeys, cancellationToken)
+                            .ConfigureAwait(false);
 
                         // Update cache selectively
-                        if (missingData is not null && missingData.Any() && GetFlags.DoNotSetRecordInCache != flags)
+                        if (missingData is not null 
+                            && missingData.Any() 
+                            && GetFlags.DoNotSetRecordInCache != flags)
                         {
-                            await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromHours(_settings.AbsoluteExpiration), cancellationToken);
+                            await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromHours(_settings.AbsoluteExpiration), cancellationToken)
+                                .ConfigureAwait(false);
+
                             _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", missingData.Keys));
                         }
                         else if (missingData is null || missingData.Count == 0)
@@ -261,7 +266,8 @@ namespace DataFerry.Providers
                 // Cache miss scenario
                 // Get the entries from the real provider
                 _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", keys));
-                cached = await _realProvider.GetBatchFromSourceAsync(keys, cancellationToken);
+                cached = await _realProvider.GetBatchFromSourceAsync(keys, cancellationToken)
+                    .ConfigureAwait(false);
 
                 if (cached.Count == 0)
                 {
@@ -275,7 +281,9 @@ namespace DataFerry.Providers
 
                 // Set the entries in the cache
                 TimeSpan absoluteExpiration = TimeSpan.FromHours(_settings.AbsoluteExpiration);
-                if (GetFlags.DoNotSetRecordInCache != flags && await _cache.SetBatchInCacheAsync(cached, absoluteExpiration, cancellationToken))
+
+                if (GetFlags.DoNotSetRecordInCache != flags 
+                    && await _cache.SetBatchInCacheAsync(cached, absoluteExpiration, cancellationToken).ConfigureAwait(false))
                 {
                     _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", keys));
                 }
@@ -314,7 +322,7 @@ namespace DataFerry.Providers
                 TimeSpan absoluteExpiration = TimeSpan.FromHours(_settings.AbsoluteExpiration);
 
                 // Set data in cache
-                var cacheResult = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken);
+                var cacheResult = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken).ConfigureAwait(false);
 
                 if (cacheResult)
                 {
@@ -327,7 +335,7 @@ namespace DataFerry.Providers
                 }
 
                 // Set data in the data source
-                var providerResult = await _realProvider.SetBatchInSourceAsync(data);
+                var providerResult = await _realProvider.SetBatchInSourceAsync(data).ConfigureAwait(false);
 
                 if (providerResult)
                 {
@@ -364,7 +372,7 @@ namespace DataFerry.Providers
                 }
 
                 // Remove data from the cache
-                var cacheResult = await _cache.RemoveBatchFromCacheAsync(keys, cancellationToken);
+                var cacheResult = await _cache.RemoveBatchFromCacheAsync(keys, cancellationToken).ConfigureAwait(false);
                 if (cacheResult)
                 {
                     _logger.LogDebug("Entries with keys {keys} removed from cache.", string.Join(", ", keys));
@@ -376,7 +384,7 @@ namespace DataFerry.Providers
                 }
 
                 // Remove data from the real provider
-                var providerResult = await _realProvider.RemoveBatchFromSourceAsync(keys);
+                var providerResult = await _realProvider.RemoveBatchFromSourceAsync(keys).ConfigureAwait(false);
 
                 if (providerResult)
                 {
