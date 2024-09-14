@@ -68,9 +68,7 @@ namespace DataFerry.Caches
                 return data.HasValue ? data : default;
             }, new Context($"DistributedCache.GetAsync for {key}"));
 
-            return result is RedisValue typeResult
-                ? LogAndReturnForGet(typeResult, key)
-                : LogAndReturnForGet(RedisValue.Null, key);
+            return GetDeserializedValue(key, result) ?? default;
         }
 
         /// <summary>
@@ -96,9 +94,8 @@ namespace DataFerry.Caches
                     .ConfigureAwait(false);
             }, new Context($"DistributedCache.SetAsync for {key}"));
 
-            return result is bool success
-                ? LogAndReturnForSet(key, success)
-                : LogAndReturnForSet(key, default);
+            return result as bool?
+                ?? default;
         }
 
         /// <summary>
@@ -119,12 +116,12 @@ namespace DataFerry.Caches
             object result = await _policy.ExecuteAsync(async (context) =>
             {
                 _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
-                return await database.KeyDeleteAsync(key).ConfigureAwait(false);
+                return await database.KeyDeleteAsync(key)
+                    .ConfigureAwait(false);
             }, new Context($"DistributedCache.RemoveAsync for {key}"));
 
-            return result is bool success
-                ? LogAndReturnForRemove(key, success)
-                : LogAndReturnForRemove(key, default);
+            return result as bool? 
+                ?? default;
         }
 
         /// <summary>
@@ -133,8 +130,9 @@ namespace DataFerry.Caches
         /// <typeparam name="T">The type of the data to retrieve from the cache.</typeparam>
         /// <param name="keys">The keys associated with the data in the cache.</param>
         /// <returns>A dictionary of the retrieved entries. If a key does not exist, its value in the dictionary will be default(<typeparamref name="T"/>).</returns>
-        public async Task<Dictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        public async Task<IDictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
+            // Get Redis objects
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
 
@@ -160,7 +158,7 @@ namespace DataFerry.Caches
                     // Fetch missing keys from Redis
                     var redisTasks = missingKeys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
 
-                    // Execute the batch before waiting for all the tasks to complete
+                    // Enqueues all the tasks into a single GET request
                     batch.Execute();
 
                     // Await each task and deserialize the value into a tuple
@@ -207,7 +205,7 @@ namespace DataFerry.Caches
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the data. If this is null, the default expiration time is used.</param>
         /// <returns>True if all entries were set successfully; otherwise, false.</returns>
-        public async Task<bool> SetBatchInCacheAsync(Dictionary<string, T> data, TimeSpan absoluteExpiration, CancellationToken? cancellationToken = null)
+        public async Task<bool> SetBatchInCacheAsync(IDictionary<string, T> data, TimeSpan absoluteExpiration, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
@@ -234,7 +232,7 @@ namespace DataFerry.Caches
                     {
                         data.Where(kv => kv.Value is not null).ToList()
                             .ForEach(kv => _memCache
-                                .AddOrUpdate(kv.Key, kv.Value, absoluteExpiration));
+                                .AddOrUpdate(kv.Key, JsonSerializer.Serialize(kv.Value), absoluteExpiration));
                     }
 
                     // Execute the batch and wait for all the tasks to complete
@@ -245,8 +243,11 @@ namespace DataFerry.Caches
                     // Check each task result and log the outcome
                     var results = tasks.ToDictionary(
                         task => task.Key,
-                        task => LogAndReturnForSet(task.Key, task.Task.Result)
+                        task => task.Task.Result
                     );
+
+                    // TODO:
+                    // We should be returning the KVPs of removals (key + result)
                     return results.Values.All(success => success);
                 },
                 new Context($"DistributedCache.SetBatchAsync for {string.Join(", ", data.Keys)}"),
@@ -293,8 +294,11 @@ namespace DataFerry.Caches
                     // Check each task result and log the outcome
                     var results = tasks.ToDictionary(
                         task => task.Key,
-                        task => LogAndReturnForRemove(task.Key, task.Task.Result)
+                        task => task.Task.Result
                     );
+
+                    // TODO:
+                    // We should be returning the KVPs of removals (key + result)
                     return results.Values.All(success => success);
                 },
                 new Context($"DistributedCache.RemoveBatchAsync for {string.Join(", ", keys)}"),
@@ -323,62 +327,29 @@ namespace DataFerry.Caches
         /// <param name="value"></param>
         public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
 
-        // Logging Methods to simplify return statements
-        private T? LogAndReturnForGet(RedisValue value, string key)
+        // Deserialization helper methods
+        private T? GetDeserializedValue(string key, object value)
         {
-            bool success = !value.IsNullOrEmpty;
-
-            string message = success
-                ? $"GetAsync operation completed for key: {key}"
-                : $"GetAsync operation failed for key: {key}";
-
-            _logger.LogDebug(message);
-
             try
             {
-                T? result = default;
-
-                if (success)
+                if (value is RedisValue redisValue && !redisValue.HasValue)
                 {
-                    result = JsonSerializer.Deserialize<T?>(value.ToString());
-                    UseMemoryCacheIfEnabled(key, result);
+                    T? result = JsonSerializer.Deserialize<T>(redisValue.ToString());
+
+                    if (result is not null)
+                    {
+                        UseMemoryCacheIfEnabled(key, result);
+                        return result;
+                    }
                 }
 
-                return result;
+                return default;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the object. Exception: {ex}", ex);
+                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", key);
                 return default;
             }
-        }
-
-        private bool LogAndReturnForSet(string key, bool success)
-        {
-            string message = success
-                ? $"SetAsync operation completed for key: {key}"
-                : $"SetAsync operation failed for key: {key}";
-
-            if (success)
-                _logger.LogDebug(message);
-            else
-                _logger.LogWarning(message);
-
-            return success;
-        }
-
-        private bool LogAndReturnForRemove(string key, bool success)
-        {
-            string message = success
-                ? $"RemoveAsync operation completed for key: {key}"
-                : $"RemoveAsync operation failed for key: {key}";
-
-            if (success)
-                _logger.LogDebug(message);
-            else
-                _logger.LogWarning(message);
-
-            return success;
         }
 
         private T? GetDeserializedValue(KeyValuePair<string, string> kvp)
@@ -386,6 +357,7 @@ namespace DataFerry.Caches
             try
             {
                 T? result = JsonSerializer.Deserialize<T>(kvp.Value);
+
                 if (result is not null)
                 {
                     UseMemoryCacheIfEnabled(kvp.Key, result);
@@ -401,33 +373,24 @@ namespace DataFerry.Caches
             }
         }
 
-        private async Task<T?> GetDeserializedValue(KeyValuePair<string, Task<RedisValue>> task)
+        private async Task<T?> GetDeserializedValue(KeyValuePair<string, Task<RedisValue>> kvp)
         {
-            RedisValue value = await task.Value.ConfigureAwait(false);
-            bool success = !value.IsNullOrEmpty;
-
-            string message = success
-                ? $"GetBatchAsync operation completed from cache with key {task.Key}."
-                : $"Nothing found in cache with key {task.Key}.";
-
-            _logger.LogDebug(message);
-
-            // We handle the deserialization here, so we need a try-catch
             try
             {
-                T? result = default;
+                RedisValue value = await kvp.Value.ConfigureAwait(false);
+                T? result = JsonSerializer.Deserialize<T>(value.ToString());
 
-                if (success)
+                if (result is not null)
                 {
-                    result = JsonSerializer.Deserialize<T>(value.ToString());
-                    UseMemoryCacheIfEnabled(task.Key, result);
+                    UseMemoryCacheIfEnabled(kvp.Key, result);
+                    return result;
                 }
 
-                return result;
+                return default;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", task.Key);
+                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", kvp.Key);
                 return default;
             }
         }

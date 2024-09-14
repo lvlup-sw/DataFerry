@@ -25,7 +25,7 @@ namespace DataFerry.Caches.Interfaces
         /// <param name="key">The key to use for the record.</param>
         /// <param name="data">The  to add to the cache.</param>
         /// <param name="expiration">The expiration time for the record.</param>
-        Task<bool> SetInCacheAsync(string key, T data, TimeSpan? expiration);
+        Task<bool> SetInCacheAsync(string key, T data, TimeSpan absoluteExpiration);
 
         /// <summary>
         /// Asynchronously removes the record from the cache using a key.
@@ -41,7 +41,7 @@ namespace DataFerry.Caches.Interfaces
         /// </summary>
         /// <param name="keys">The keys of the records to remove.</param>
         /// <returns>A dictionary of the records associated with the keys, if they exist; otherwise, default(<typeparamref name="T"/>).</returns>
-        Task<Dictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, T>> GetBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache.
@@ -49,7 +49,7 @@ namespace DataFerry.Caches.Interfaces
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the records.</param>
         /// <returns>True if all records were set successfully; otherwise, false.</returns>
-        Task<bool> SetBatchInCacheAsync(Dictionary<string, T> data, TimeSpan? absoluteExpireTime = null, CancellationToken? cancellationToken = null);
+        Task<bool> SetBatchInCacheAsync(IDictionary<string, T> data, TimeSpan absoluteExpiration, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Removes multiple records from the cache.
