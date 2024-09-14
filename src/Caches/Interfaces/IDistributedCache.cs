@@ -49,14 +49,14 @@ namespace DataFerry.Caches.Interfaces
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the records.</param>
         /// <returns>True if all records were set successfully; otherwise, false.</returns>
-        Task<bool> SetBatchInCacheAsync(IDictionary<string, T> data, TimeSpan absoluteExpiration, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, bool>> SetBatchInCacheAsync(IDictionary<string, T> data, TimeSpan absoluteExpiration, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Removes multiple records from the cache.
         /// </summary>
         /// <param name="keys">The keys of the records to remove.</param>
         /// <returns>True if all records were removed successfully; otherwise, false.</returns>
-        Task<bool> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Retrieves an <see cref="IDatabase"/> representation of the cache.

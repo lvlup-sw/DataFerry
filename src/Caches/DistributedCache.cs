@@ -205,7 +205,7 @@ namespace DataFerry.Caches
         /// <param name="data">A dictionary containing the keys and data to store in the cache.</param>
         /// <param name="absoluteExpireTime">The absolute expiration time for the data. If this is null, the default expiration time is used.</param>
         /// <returns>True if all entries were set successfully; otherwise, false.</returns>
-        public async Task<bool> SetBatchInCacheAsync(IDictionary<string, T> data, TimeSpan absoluteExpiration, CancellationToken? cancellationToken = null)
+        public async Task<IDictionary<string, bool>> SetBatchInCacheAsync(IDictionary<string, T> data, TimeSpan absoluteExpiration, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
@@ -235,7 +235,7 @@ namespace DataFerry.Caches
                                 .AddOrUpdate(kv.Key, JsonSerializer.Serialize(kv.Value), absoluteExpiration));
                     }
 
-                    // Execute the batch and wait for all the tasks to complete
+                    // Enqueues all the tasks into a single GET request
                     batch.Execute();
                     // Note we don't capture the sync context here to avoid deadlocks
                     await Task.WhenAll(tasks.Select(t => t.Task)).ConfigureAwait(false);
@@ -246,17 +246,13 @@ namespace DataFerry.Caches
                         task => task.Task.Result
                     );
 
-                    // TODO:
-                    // We should be returning the KVPs of removals (key + result)
-                    return results.Values.All(success => success);
+                    return results;
                 },
                 new Context($"DistributedCache.SetBatchAsync for {string.Join(", ", data.Keys)}"),
                 cancellationToken ?? default
             );
 
-            return policyExecutionResult is bool success
-                ? success
-                : default;
+            return policyExecutionResult as Dictionary<string, bool> ?? [];
         }
 
         /// <summary>
@@ -264,7 +260,7 @@ namespace DataFerry.Caches
         /// </summary>
         /// <param name="keys">The keys associated with the data in the cache.</param>
         /// <returns>True if all entries were removed successfully; otherwise, false.</returns>
-        public async Task<bool> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        public async Task<IDictionary<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
@@ -286,7 +282,7 @@ namespace DataFerry.Caches
                         keys.ToList().ForEach(key => _memCache.Remove(key));
                     }
 
-                    // Execute the batch and wait for all the tasks to complete
+                    // Enqueues all the tasks into a single GET request
                     batch.Execute();
                     // Note we don't capture the sync context here to avoid deadlocks
                     await Task.WhenAll(tasks.Select(t => t.Task)).ConfigureAwait(false);
@@ -299,15 +295,13 @@ namespace DataFerry.Caches
 
                     // TODO:
                     // We should be returning the KVPs of removals (key + result)
-                    return results.Values.All(success => success);
+                    return results;
                 },
                 new Context($"DistributedCache.RemoveBatchAsync for {string.Join(", ", keys)}"),
                 cancellationToken ?? default
             );
 
-            return policyExecutionResult is bool success
-                ? success
-                : default;
+            return policyExecutionResult as Dictionary<string, bool> ?? [];
         }
 
         /// <summary>
@@ -395,6 +389,7 @@ namespace DataFerry.Caches
             }
         }
 
+        // Memory cache helper
         private void UseMemoryCacheIfEnabled(string key, T result)
         {
             if (!_settings.UseMemoryCache) return;

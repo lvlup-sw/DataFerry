@@ -39,16 +39,16 @@
         /// <param name="keys">The keys of the records to retrieve.</param>
         /// <param name="flags">Flags to configure the behavior of the operation.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
-        /// <returns>A <typeparamref name="Dictionary"/> of <typeparamref name="string"/> keys and <typeparamref name="T"/> data</returns>
+        /// <returns>A <typeparamref name="IDictionary"/> of <typeparamref name="string"/> keys and <typeparamref name="T"/> data</returns>
         Task<IDictionary<string, T>> GetDataBatchAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache and data source with the specified keys.
         /// </summary>
-        /// <param name="Dictionary{string, T}">A dictionary containing the keys and data to store in the cache and data source.</param>
+        /// <param name="IDictionary{string, T}">A dictionary containing the keys and data to store in the cache and data source.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>True if all records were set successfully; otherwise, false.</returns>
-        Task<bool> SetDataBatchAsync(Dictionary<string, T> data, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, bool>> SetDataBatchAsync(IDictionary<string, T> data, TimeSpan? expiration = default, CancellationToken ? cancellationToken = null);
 
         /// <summary>
         /// Removes multiple records from the cache and data source with the specified keys.
@@ -56,7 +56,7 @@
         /// <param name="keys">The keys of the records to remove.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>True if all records were removed successfully; otherwise, false.</returns>
-        Task<bool> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, bool>> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Gets the data source object representation.
