@@ -19,7 +19,7 @@ namespace DataFerry.Tests
         /// <summary>
         /// Arbitrary data object: in this case, a list of strings
         /// </summary>
-        public required List<string> Data { get; set; }
+        public required string Data { get; set; }
 
         /// <summary>
         /// Arbitrary property of payload
@@ -30,5 +30,38 @@ namespace DataFerry.Tests
         /// Arbitrary version number of payload
         /// </summary>
         public decimal Version { get; set; }
+
+        // Comparison for tests
+        public bool IsEquivalentTo(Payload other)
+        {
+            if (other is null) return false;
+
+            // Compare primitive properties
+            if (Identifier != other.Identifier ||
+                Property != other.Property ||
+                Version != other.Version)
+            {
+                return false;
+            }
+
+            // Compare the Data lists (ensuring same elements, regardless of order)
+            if (Data.Length != other.Data.Length) return false;
+            return Data.Equals(other.Data);
+        }
+
+        public static bool AreEquivalent(List<Payload> firstList, List<Payload> secondList)
+        {
+            if (firstList == null || secondList == null) return firstList == secondList;
+            if (firstList.Count != secondList.Count) return false;
+
+            bool identical = false;
+            foreach (var item in firstList)
+            {
+                var matched = secondList.FirstOrDefault(item2 => item2.IsEquivalentTo(item));
+                identical = matched is not null;
+            }
+
+            return identical;
+        }
     }
 }

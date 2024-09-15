@@ -293,6 +293,8 @@ namespace DataFerry.Caches
             // Extract missing keys 
             HashSet<string> missingKeys = new(keys.Except(memCacheHits.Keys));
 
+            if (missingKeys.Count is 0) return GetDeserializedDictionary(memCacheHits);
+
             // Fetch missing keys from Redis
             var redisTasks = missingKeys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
 
@@ -316,14 +318,7 @@ namespace DataFerry.Caches
             if (!memCacheHits.Any()) return redisResults;
 
             // Otherwise, we need to build the dict with the memCache results
-            Dictionary<string, T> memResults = memCacheHits
-                .Select(task =>
-                {
-                    var value = GetDeserializedValue(task);
-                    return (task.Key, value);
-                })
-                .Where(kvp => kvp.value is not null)
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
+            Dictionary<string, T> memResults = GetDeserializedDictionary(memCacheHits);
 
             // Concat and return
             return redisResults
@@ -353,6 +348,18 @@ namespace DataFerry.Caches
             .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
 
             return redisResults;
+        }
+
+        private Dictionary<string, T> GetDeserializedDictionary(Dictionary<string, string> serializedDictionary)
+        {
+            return serializedDictionary
+                .Select(task =>
+                {
+                    var value = GetDeserializedValue(task);
+                    return (task.Key, value);
+                })
+                .Where(kvp => kvp.value is not null)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
         }
 
         // Deserialization helper methods

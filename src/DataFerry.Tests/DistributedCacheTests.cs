@@ -1,10 +1,11 @@
-using DataFerry.Properties;
 using DataFerry.Caches;
-using StackExchange.Redis;
-using PowerUp.Caching.Interfaces;
-using Moq;
+using DataFerry.Properties;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Moq;
+using PowerUp.Caching.Interfaces;
+using StackExchange.Redis;
 using System.Text.Json;
 
 namespace DataFerry.Tests
@@ -233,6 +234,90 @@ namespace DataFerry.Tests
             database.Verify(cache => cache.KeyDeleteAsync(key, It.IsAny<CommandFlags>()), Times.Once);
         }
 
+        #endregion
+        #region GET BATCH
+
+        [DataTestMethod]
+        [DataRow(["testKey", "payload123", "levelupsoftware"])]
+        [DataRow(["random1", "random2", "random3"])]
+        [DataRow(["rsalus:854363414", "strobl:912369128", "hmontana:123412412"])]
+        [TestMethod]
+        public async Task GetBatchWithMemCacheAsync_AllKeysInMemCache_ReturnsFromMemCache(IEnumerable<string> cacheKeys)
+        {
+            // Arrange
+            List<Payload> payloads = [];
+            foreach (var key in cacheKeys)
+            {
+                payloads.Add(TestUtils.CreatePayloadWithInput(key));
+            }
+
+            string[] serializedValues = new string[payloads.Count];
+            for (int i = 0; i < payloads.Count; i++)
+            {
+                serializedValues[i] = JsonSerializer.Serialize(payloads.ElementAt(i));
+            }
+
+            Mock<IDatabase> database = new();
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            for (int i = 0; i < payloads.Count; i++)
+            {
+                var key = cacheKeys.ElementAt(i);
+                var value = serializedValues[i];
+                _memCache.Setup(cache => cache.TryGet(key, out value)).Returns(true);
+            }
+
+            // Act
+            var result = await _cache.GetBatchFromCacheAsync(cacheKeys);
+
+            // Assert
+            Assert.IsNotNull(result);
+            Assert.IsTrue(Payload.AreEquivalent(payloads, result.Values.ToList()));
+            CollectionAssert.AreEquivalent(cacheKeys.ToList(), result.Keys.ToList());
+        }
+
+        /*
+            [TestMethod]
+            public async Task GetBatchWithMemCacheAsync_SomeKeysInMemCache_FetchesMissingFromRedis()
+            {
+            // Arrange
+            List<Payload> payloads = [];
+            foreach (var key in cacheKeys)
+            {
+                payloads.Add(TestUtils.CreatePayloadWithInput(key));
+            }
+
+            string[] serializedValues = new string[payloads.Count];
+            for (int i = 0; i < payloads.Count; i++)
+            {
+                serializedValues[i] = JsonSerializer.Serialize(payloads.ElementAt(i));
+            }
+
+            RedisValue[] redisSerializedValues = new RedisValue[serializedValues.Length];
+            for (int i = 0; i < serializedValues.Length; i++)
+            {
+                redisSerializedValues[i] = new RedisValue(serializedValues[i]);
+            }
+
+            Mock<IDatabase> database = new();
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            for (int i = 0; i < payloads.Count; i++)
+            {
+                var key = cacheKeys.ElementAt(i);
+                var value = serializedValues[i];
+                _memCache.Setup(cache => cache.TryGet(key, out value)).Returns(true);
+            }
+
+            // Act
+            var result = await _cache.GetBatchFromCacheAsync(cacheKeys);
+
+            // Assert
+            Assert.IsNotNull(result);
+            Assert.IsTrue(Payload.AreEquivalent(payloads, result.Values.ToList()));
+            CollectionAssert.AreEquivalent(cacheKeys.ToList(), result.Keys.ToList());
+            }
+                */
         #endregion
     }
 }

@@ -6,14 +6,10 @@ namespace DataFerry.Tests
     {
         public static Payload CreatePayloadWithInput(string key)
         {
-            List<string> data = [];
-            while (data.Count < 200)
-                data.Add(GenerateRandomString(100));
-
             Payload payload = new()
             {
                 Identifier = key,
-                Data = data,
+                Data = GenerateRandomString(100),
                 Property = true,
                 Version = 1
             };
@@ -23,14 +19,10 @@ namespace DataFerry.Tests
 
         public static Payload CreatePayloadRandom()
         {
-            List<string> data = [];
-            while (data.Count < 200)
-                data.Add(GenerateRandomString(100));
-
             Payload payload = new()
             {
                 Identifier = GenerateRandomString(10),
-                Data = data,
+                Data = GenerateRandomString(100),
                 Property = true,
                 Version = 1
             };
