@@ -5,7 +5,12 @@ VisualStudioVersion = 17.9.34616.47
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataFerry", "src\DataFerry\DataFerry.csproj", "{DF959F62-01FD-4B43-B497-D7C766A2CFE1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataFerry.Tests", "src\DataFerry.Tests\DataFerry.Tests.csproj", "{A8C006C0-EB1C-4267-BF89-EE3A57D73C58}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DataFerry.Tests", "src\DataFerry.Tests\DataFerry.Tests.csproj", "{A8C006C0-EB1C-4267-BF89-EE3A57D73C58}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{35FE9F62-844F-491E-A399-15507C459CBC}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -74,12 +74,11 @@ namespace DataFerry.Providers
                 var cached = await _cache.GetFromCacheAsync(key).ConfigureAwait(false);
                 if (cached is not null)
                 {
-                    _logger.LogDebug("Cached entry with key {key} found in cache.", key);
                     return cached;
                 }
                 else if (GetFlags.ReturnNullIfNotFoundInCache == flag)
                 {
-                    _logger.LogDebug("Cached entry with key {key} not found in cache.", key);
+                    _logger.LogWarning("Cached entry with key {key} not found in cache.", key);
                     return null;
                 }
 
@@ -87,14 +86,12 @@ namespace DataFerry.Providers
                 _logger.LogDebug("Cached entry with key {key} not found in cache. Getting entry from real provider.", key);
                 cached = await _realProvider.GetFromSourceAsync(key).ConfigureAwait(false);
 
-                // Set the entry in the cache (with refinements)
+                // Set the entry in the cache
                 if (cached is not null && flag != GetFlags.DoNotSetRecordInCache)
                 {
-                    if (await _cache.SetInCacheAsync(key, cached, TimeSpan.FromHours(_settings.AbsoluteExpiration)).ConfigureAwait(false))
-                    {
-                        _logger.LogDebug("Entry with key {key} received from real provider and set in cache.", key);
-                    }
-                    else
+                    bool success = await _cache.SetInCacheAsync(key, cached, TimeSpan.FromHours(_settings.AbsoluteExpiration)).ConfigureAwait(false);
+
+                    if (!success)
                     {
                         _logger.LogWarning("Failed to set entry with key {key} in cache.", key);
                     }
@@ -130,21 +127,13 @@ namespace DataFerry.Providers
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
                 bool cacheResult = await _cache.SetInCacheAsync(key, data, expiration ?? TimeSpan.FromHours(_settings.AbsoluteExpiration)).ConfigureAwait(false);
-                if (cacheResult)
-                {
-                    _logger.LogDebug("Entry with key {key} set in cache.", key);
-                }
-                else
+                if (!cacheResult)
                 {
                     _logger.LogError("Failed to set entry with key {key} in cache.", key);
                 }
 
                 bool providerResult = await _realProvider.SetInSourceAsync(data).ConfigureAwait(false);
-                if (providerResult)
-                {
-                    _logger.LogDebug("Entry with key {key} added to data source.", key);
-                }
-                else
+                if (!providerResult)
                 {
                     _logger.LogError("Failed to add entry with key {key} from data source.", key);
                 }
@@ -171,21 +160,13 @@ namespace DataFerry.Providers
                 ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
                 bool cacheResult = await _cache.RemoveFromCacheAsync(key).ConfigureAwait(false);
-                if (cacheResult)
-                {
-                    _logger.LogDebug("Entry with key {key} removed from cache.", key);
-                }
-                else
+                if (!cacheResult)
                 {
                     _logger.LogError("Failed to remove entry with key {key} from cache.", key);
                 }
 
                 bool providerResult = await _realProvider.DeleteFromSourceAsync(key).ConfigureAwait(false);
-                if (providerResult)
-                {
-                    _logger.LogDebug("Entry with key {key} removed from data source.", key);
-                }
-                else
+                if (!providerResult)
                 {
                     _logger.LogError("Failed to remove entry with key {key} from data source.", key);
                 }
@@ -224,53 +205,43 @@ namespace DataFerry.Providers
                 if (cached.Any())
                 {
                     // Extract missing keys
-                    var cachedKeys = cached.Keys.ToList();
-                    var missingKeys = keys.Except(cachedKeys);
+                    HashSet<string> missingKeys = new(keys.Except(cached.Keys));
+
+                    // Return if there are no missing keys
+                    if (!missingKeys.Any()) return cached;
 
                     // Fetch missing keys from real provider
-                    if (missingKeys.Any())
+                    var missingData = await _realProvider.GetBatchFromSourceAsync(missingKeys, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    // Update cache and merge results efficiently
+                    if (missingData?.Any() == true && GetFlags.DoNotSetRecordInCache != flags)
                     {
-                        _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", missingKeys));
+                        await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromHours(_settings.AbsoluteExpiration), cancellationToken).ConfigureAwait(false);
 
-                        var missingData = await _realProvider.GetBatchFromSourceAsync(missingKeys, cancellationToken)
-                            .ConfigureAwait(false);
-
-                        // Update cache selectively
-                        if (missingData is not null 
-                            && missingData.Any() 
-                            && GetFlags.DoNotSetRecordInCache != flags)
+                        // Add results to Dict
+                        foreach (var kvp in missingData)
                         {
-                            await _cache.SetBatchInCacheAsync(missingData, TimeSpan.FromHours(_settings.AbsoluteExpiration), cancellationToken)
-                                .ConfigureAwait(false);
-
-                            _logger.LogDebug("Entries with keys {keys} received from real provider and set in cache.", string.Join(", ", missingData.Keys));
+                            cached[kvp.Key] = kvp.Value;
                         }
-                        else if (missingData is null || !missingData.Any())
-                        {
-                            _logger.LogWarning("Entries with keys {keys} not received from real provider.", string.Join(", ", missingKeys));
-                        }
-
-                        // Conditionally add missing data to return object
-                        cached = (missingData is not null) switch
-                        {
-                            true => cached.Concat(missingData).ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
-                            false => cached
-                        };
+                    }
+                    else if (missingData == null || !missingData.Any())
+                    {
+                        _logger.LogWarning("Entries with keys {keys} not received from real provider.", string.Join(", ", missingKeys));
                     }
 
-                    _logger.LogDebug("Cached entries with keys {keys} found in cache.", string.Join(", ", cachedKeys));
                     return cached;
                 }
 
-                // Cache miss scenario
-                // Get the entries from the real provider
+                // Cache miss scenario - Get the entries from the real provider
                 _logger.LogDebug("Cached entries with keys {keys} not found in cache. Getting entries from real provider.", string.Join(", ", keys));
-                cached = await _realProvider.GetBatchFromSourceAsync(keys, cancellationToken)
-                    .ConfigureAwait(false);
+                cached = await _realProvider.GetBatchFromSourceAsync(keys, cancellationToken).ConfigureAwait(false);
 
+                // Check if any data was received and log warnings if necessary
                 if (!cached.Any())
                 {
-                    _logger.LogWarning("Entries with keys {keys} not received from real provider.", string.Join(", ", keys));
+                    _logger.LogWarning("No entries received from the real provider for any of the keys: {keys}.", string.Join(", ", keys));
+                    // Return since there's nothing else we can do
                     return cached;
                 }
                 else if (cached.Count < keys.Count())
@@ -278,25 +249,24 @@ namespace DataFerry.Providers
                     _logger.LogWarning("Entries with keys {keys} partially received from real provider.", string.Join(", ", keys));
                 }
 
-                // Set the entries in the cache
                 TimeSpan absoluteExpiration = TimeSpan.FromHours(_settings.AbsoluteExpiration);
-
                 // Early return for flag
                 if (flags == GetFlags.DoNotSetRecordInCache) return cached;
 
+                // Set what we have into the cache
                 var cacheSetResults = await _cache.SetBatchInCacheAsync(cached, absoluteExpiration, cancellationToken).ConfigureAwait(false);
 
-                // Log successful sets
-                cacheSetResults
-                    .Where(kvp => kvp.Value) // Filter for successful operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogDebug("Entry with key {key} set in cache.", kvp.Key));
+                // Return if no failed results
+                if (cacheSetResults.Count == cached.Count) return cached;
 
                 // Log failed sets
-                cacheSetResults
-                    .Where(kvp => !kvp.Value) // Filter for failed operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogWarning("Failed to set entry with key {key} in cache.", kvp.Key));
+                foreach (var kvp in cacheSetResults)
+                {
+                    if (!kvp.Value)
+                    {
+                        _logger.LogWarning("Failed to set entry with key {key} in cache.", kvp.Key);
+                    }
+                }
 
                 return cached;
             }
@@ -315,7 +285,7 @@ namespace DataFerry.Providers
         /// <returns>True if all records were set successfully; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="string"/> is null, an empty string, or contains only white-space characters.</exception>
         /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="T"/> is null.</exception>
-        public async Task<IDictionary<string, bool>> SetDataBatchAsync(IDictionary<string, T> data, TimeSpan? expiration = default, CancellationToken? cancellationToken = null)
+        public async Task<bool> SetDataBatchAsync(IDictionary<string, T> data, TimeSpan? expiration = default, CancellationToken? cancellationToken = null)
         {
             try
             {
@@ -330,35 +300,36 @@ namespace DataFerry.Providers
                 // Set data in cache
                 var cacheSetResults = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken).ConfigureAwait(false);
 
-                // Log successful sets
-                cacheSetResults
-                    .Where(kvp => kvp.Value) // Filter for successful operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogDebug("Entry with key {key} set in cache.", kvp.Key));
-
                 // Log failed sets
-                cacheSetResults
-                    .Where(kvp => !kvp.Value) // Filter for failed operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogWarning("Failed to set entry with key {key} in cache.", kvp.Key));
+                if (cacheSetResults.Count != data.Count)
+                {
+                    foreach (var kvp in cacheSetResults)
+                    {
+                        if (!kvp.Value)
+                        {
+                            _logger.LogWarning("Failed to set entry with key {key} in cache.", kvp.Key);
+                        }
+                    }
+                }
 
                 // Set data in cache
-                var providerSetResults = await _cache.SetBatchInCacheAsync(data, absoluteExpiration, cancellationToken).ConfigureAwait(false);
-
-                // Log successful sets
-                providerSetResults
-                    .Where(kvp => kvp.Value) // Filter for successful operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogDebug("Entry with key {key} set in real provider.", kvp.Key));
+                var providerSetResults = await _realProvider.SetBatchInSourceAsync(data, cancellationToken).ConfigureAwait(false);
 
                 // Log failed sets
-                providerSetResults
-                    .Where(kvp => !kvp.Value) // Filter for failed operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogWarning("Failed to set entry with key {key} in cache.", kvp.Key));
+                if (providerSetResults.Count != data.Count)
+                {
+                    foreach (var kvp in providerSetResults)
+                    {
+                        if (!kvp.Value)
+                        {
+                            _logger.LogWarning("Failed to set entry with key {key} in real provider.", kvp.Key);
+                        }
+                    }
+                }
 
-                return cacheSetResults.Concat(providerSetResults)
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                // Return single result
+                return cacheSetResults.All(kvp => kvp.Value) 
+                    && providerSetResults.All(kvp => kvp.Value);
             }
             catch (Exception ex)
             {
@@ -374,7 +345,7 @@ namespace DataFerry.Providers
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>True if all records were removed successfully; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the <typeparamref name="keys"/> is null, an empty string, or contains only white-space characters.</exception> 
-        public async Task<IDictionary<string, bool>> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
+        public async Task<bool> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null)
         {
             try
             {
@@ -386,35 +357,36 @@ namespace DataFerry.Providers
                 // Set data in cache
                 var cacheSetResults = await _cache.RemoveBatchFromCacheAsync(keys, cancellationToken).ConfigureAwait(false);
 
-                // Log successful sets
-                cacheSetResults
-                    .Where(kvp => kvp.Value) // Filter for successful operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogDebug("Entry with key {key} removed from cache.", kvp.Key));
-
                 // Log failed sets
-                cacheSetResults
-                    .Where(kvp => !kvp.Value) // Filter for failed operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogWarning("Failed to set entry with key {key} in cache.", kvp.Key));
+                if (cacheSetResults.Count != keys.Count())
+                {
+                    foreach (var kvp in cacheSetResults)
+                    {
+                        if (!kvp.Value)
+                        {
+                            _logger.LogWarning("Failed to set entry with key {key} in cache.", kvp.Key);
+                        }
+                    }
+                }
 
                 // Set data in cache
                 var providerSetResults = await _cache.RemoveBatchFromCacheAsync(keys, cancellationToken).ConfigureAwait(false);
 
-                // Log successful sets
-                providerSetResults
-                    .Where(kvp => kvp.Value) // Filter for successful operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogDebug("Entry with key {key} removed from real provider.", kvp.Key));
-
                 // Log failed sets
-                providerSetResults
-                    .Where(kvp => !kvp.Value) // Filter for failed operations
-                    .ToList()
-                    .ForEach(kvp => _logger.LogWarning("Failed to set entry with key {key} in real provider.", kvp.Key));
+                if (providerSetResults.Count != keys.Count())
+                {
+                    foreach (var kvp in providerSetResults)
+                    {
+                        if (!kvp.Value)
+                        {
+                            _logger.LogWarning("Failed to set entry with key {key} in real provider.", kvp.Key);
+                        }
+                    }
+                }
 
-                return cacheSetResults.Concat(providerSetResults)
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                // Return single result
+                return cacheSetResults.All(kvp => kvp.Value)
+                    && providerSetResults.All(kvp => kvp.Value);
             }
             catch (Exception ex)
             {

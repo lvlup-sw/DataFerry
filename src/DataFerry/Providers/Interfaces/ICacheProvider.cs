@@ -48,7 +48,7 @@
         /// <param name="IDictionary{string, T}">A dictionary containing the keys and data to store in the cache and data source.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>True if all records were set successfully; otherwise, false.</returns>
-        Task<IDictionary<string, bool>> SetDataBatchAsync(IDictionary<string, T> data, TimeSpan? expiration = default, CancellationToken ? cancellationToken = null);
+        Task<bool> SetDataBatchAsync(IDictionary<string, T> data, TimeSpan? expiration = default, CancellationToken ? cancellationToken = null);
 
         /// <summary>
         /// Removes multiple records from the cache and data source with the specified keys.
@@ -56,7 +56,7 @@
         /// <param name="keys">The keys of the records to remove.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>True if all records were removed successfully; otherwise, false.</returns>
-        Task<IDictionary<string, bool>> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
+        Task<bool> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Gets the data source object representation.

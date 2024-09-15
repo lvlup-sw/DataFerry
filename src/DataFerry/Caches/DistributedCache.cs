@@ -142,8 +142,8 @@ namespace DataFerry.Caches
                 {
                     return (_settings.UseMemoryCache) switch
                     {
-                        true  => await GetBatchWithMemCacheAsync(keys, batch, cancellationToken),
-                        false => await GetBatchWithRedisOnlyAsync(keys, batch, cancellationToken),
+                        true  => await GetBatchWithMemCacheAsync(keys, batch),
+                        false => await GetBatchWithRedisOnlyAsync(keys, batch),
                     };
                 },
                 new Context($"DistributedCache.GetBatchAsync for {keys}"),
@@ -278,7 +278,7 @@ namespace DataFerry.Caches
         public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
 
         // GetBatch helper methods
-        private async Task<Dictionary<string, T>> GetBatchWithMemCacheAsync(IEnumerable<string> keys, IBatch batch, CancellationToken? cancellationToken = null)
+        private async Task<Dictionary<string, T>> GetBatchWithMemCacheAsync(IEnumerable<string> keys, IBatch batch)
         {
             // Extract matching keys from memCache in one pass
             // We use a dictionary to store the tasks and their associated keys since we need the values
@@ -331,7 +331,7 @@ namespace DataFerry.Caches
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        private async Task<Dictionary<string, T>> GetBatchWithRedisOnlyAsync(IEnumerable<string> keys, IBatch batch, CancellationToken? cancellationToken = null)
+        private async Task<Dictionary<string, T>> GetBatchWithRedisOnlyAsync(IEnumerable<string> keys, IBatch batch)
         {
             // Fetch missing keys from Redis
             var redisTasks = keys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
