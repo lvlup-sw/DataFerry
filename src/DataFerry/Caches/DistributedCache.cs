@@ -140,56 +140,11 @@ namespace DataFerry.Caches
             object policyExecutionResult = await _policy.ExecuteAsync(
                 async (c, ct) =>
                 {
-                    // Extract matching keys from memCache in one pass
-                    // We use a dictionary to store the tasks and their associated keys since we need the values
-                    var memCacheHits = _settings.UseMemoryCache
-                        ? keys
-                            .Select(key =>
-                            {
-                                _memCache.TryGet(key, out var value);
-                                return (key, value);
-                            })
-                            .ToDictionary(tuple => tuple.key, tuple => tuple.value)
-                        : [];
-
-                    // Extract missing keys 
-                    var missingKeys = keys.Except(memCacheHits.Keys).ToList();
-
-                    // Fetch missing keys from Redis
-                    var redisTasks = missingKeys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
-
-                    // Enqueues all the tasks into a single GET request
-                    batch.Execute();
-
-                    // Await each task and deserialize the value into a tuple
-                    // Then filter out the null results before extracting to a dict
-                    // Note we don't capture the sync context here to avoid deadlocks
-                    Dictionary<string, T> redisResults = (await Task.WhenAll(
-                        redisTasks.Select(async task =>
-                        {
-                            var value = await GetDeserializedValue(task);
-                            return (task.Key, value);
-                        })
-                    ).ConfigureAwait(false))
-                    .Where(kvp => kvp.value is not null)
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
-
-                    // Perform a similar, synchronous operation with memCacheHits
-                    Dictionary<string, T> memResults = memCacheHits.Any()
-                        ? memCacheHits
-                            .Select(task =>
-                            {
-                                var value = GetDeserializedValue(task);
-                                return (task.Key, value);
-                            })
-                            .Where(kvp => kvp.value is not null)
-                            .ToDictionary(kvp => kvp.Key, kvp => kvp.value!)
-                        : [];
-
-                    // Concat and return
-                    return redisResults
-                        .Concat(memResults)
-                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                    return (_settings.UseMemoryCache) switch
+                    {
+                        true  => await GetBatchWithMemCacheAsync(keys, batch, cancellationToken),
+                        false => await GetBatchWithRedisOnlyAsync(keys, batch, cancellationToken),
+                    };
                 },
                 new Context($"DistributedCache.GetBatchAsync for {keys}"),
                 cancellationToken ?? default
@@ -214,39 +169,40 @@ namespace DataFerry.Caches
             object policyExecutionResult = await _policy.ExecuteAsync(
                 async (c, ct) =>
                 {
-                    // We use a list to store the tasks since we're just adding bools
-                    var tasks = data
-                        .Where(kv => kv.Value is not null) // Exclude null values
-                        .Select(kv => new
-                        {
-                            kv.Key,
-                            Task = batch.StringSetAsync(
-                                kv.Key,
-                                JsonSerializer.Serialize(kv.Value),
-                                absoluteExpiration
-                            )
-                        }).ToList();
+                    // Pre-serialize values
+                    var serializedValues = data.ToDictionary(kv => kv.Key, kv => JsonSerializer.Serialize(kv.Value));
 
                     // Set items in the memCache
                     if (_settings.UseMemoryCache)
                     {
-                        data.Where(kv => kv.Value is not null).ToList()
-                            .ForEach(kv => _memCache
-                                .AddOrUpdate(kv.Key, JsonSerializer.Serialize(kv.Value), absoluteExpiration));
+                        foreach (var kvp in serializedValues)
+                        {
+                            _memCache.AddOrUpdate(kvp.Key, kvp.Value, absoluteExpiration);
+                        }
                     }
+
+                    // Create tasks for each item
+                    var tasks = serializedValues
+                        .Select(kvp => 
+                        (
+                            kvp.Key, 
+                            Task: batch.StringSetAsync(
+                                kvp.Key, 
+                                kvp.Value, 
+                                absoluteExpiration
+                            )
+                        ));
 
                     // Enqueues all the tasks into a single GET request
                     batch.Execute();
                     // Note we don't capture the sync context here to avoid deadlocks
                     await Task.WhenAll(tasks.Select(t => t.Task)).ConfigureAwait(false);
 
-                    // Check each task result and log the outcome
-                    var results = tasks.ToDictionary(
+                    // Add each task result to a dict and return
+                    return tasks.ToDictionary(
                         task => task.Key,
                         task => task.Task.Result
                     );
-
-                    return results;
                 },
                 new Context($"DistributedCache.SetBatchAsync for {string.Join(", ", data.Keys)}"),
                 cancellationToken ?? default
@@ -269,17 +225,21 @@ namespace DataFerry.Caches
             object policyExecutionResult = await _policy.ExecuteAsync(
                 async (c, ct) =>
                 {
-                    // We use a list to store the tasks since we're just adding bools
-                    var tasks = keys.Select(key => new
-                    {
-                        Key = key,
-                        Task = batch.KeyDeleteAsync(key)
-                    }).ToList();
+                    // Create tasks for each item
+                    var tasks = keys
+                        .Select(key => 
+                        (
+                            Key: key, 
+                            Task: batch.KeyDeleteAsync(key)
+                        ));
 
-                    // Remove items from the memCache
+                    // Remove items from memCache
                     if (_settings.UseMemoryCache)
                     {
-                        keys.ToList().ForEach(key => _memCache.Remove(key));
+                        foreach (var key in keys)
+                        {
+                            _memCache.Remove(key);
+                        }
                     }
 
                     // Enqueues all the tasks into a single GET request
@@ -287,15 +247,11 @@ namespace DataFerry.Caches
                     // Note we don't capture the sync context here to avoid deadlocks
                     await Task.WhenAll(tasks.Select(t => t.Task)).ConfigureAwait(false);
 
-                    // Check each task result and log the outcome
-                    var results = tasks.ToDictionary(
+                    // Add each task result to a dict and return
+                    return tasks.ToDictionary(
                         task => task.Key,
                         task => task.Task.Result
                     );
-
-                    // TODO:
-                    // We should be returning the KVPs of removals (key + result)
-                    return results;
                 },
                 new Context($"DistributedCache.RemoveBatchAsync for {string.Join(", ", keys)}"),
                 cancellationToken ?? default
@@ -320,6 +276,84 @@ namespace DataFerry.Caches
         /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
         /// <param name="value"></param>
         public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
+
+        // GetBatch helper methods
+        private async Task<Dictionary<string, T>> GetBatchWithMemCacheAsync(IEnumerable<string> keys, IBatch batch, CancellationToken? cancellationToken = null)
+        {
+            // Extract matching keys from memCache in one pass
+            // We use a dictionary to store the tasks and their associated keys since we need the values
+            var memCacheHits = keys
+                .Select(key =>
+                {
+                    _memCache.TryGet(key, out var value);
+                    return (key, value);
+                })
+                .ToDictionary(tuple => tuple.key, tuple => tuple.value);
+
+            // Extract missing keys 
+            HashSet<string> missingKeys = new(keys.Except(memCacheHits.Keys));
+
+            // Fetch missing keys from Redis
+            var redisTasks = missingKeys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
+
+            // Enqueues all the tasks into a single GET request
+            batch.Execute();
+
+            // Await each task and deserialize the value into a tuple
+            // Then filter out the null results before extracting to a dict
+            // Note we don't capture the sync context here to avoid deadlocks
+            Dictionary<string, T> redisResults = (await Task.WhenAll(
+                redisTasks.Select(async task =>
+                {
+                    var value = await GetDeserializedValue(task);
+                    return (task.Key, value);
+                })
+            ).ConfigureAwait(false))
+            .Where(kvp => kvp.value is not null)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
+
+            // Return if we don't have any memCache results
+            if (!memCacheHits.Any()) return redisResults;
+
+            // Otherwise, we need to build the dict with the memCache results
+            Dictionary<string, T> memResults = memCacheHits
+                .Select(task =>
+                {
+                    var value = GetDeserializedValue(task);
+                    return (task.Key, value);
+                })
+                .Where(kvp => kvp.value is not null)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
+
+            // Concat and return
+            return redisResults
+                .Concat(memResults)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        }
+
+        private async Task<Dictionary<string, T>> GetBatchWithRedisOnlyAsync(IEnumerable<string> keys, IBatch batch, CancellationToken? cancellationToken = null)
+        {
+            // Fetch missing keys from Redis
+            var redisTasks = keys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
+
+            // Enqueues all the tasks into a single GET request
+            batch.Execute();
+
+            // Await each task and deserialize the value into a tuple
+            // Then filter out the null results before extracting to a dict
+            // Note we don't capture the sync context here to avoid deadlocks
+            Dictionary<string, T> redisResults = (await Task.WhenAll(
+                redisTasks.Select(async task =>
+                {
+                    var value = await GetDeserializedValue(task);
+                    return (task.Key, value);
+                })
+            ).ConfigureAwait(false))
+            .Where(kvp => kvp.value is not null)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
+
+            return redisResults;
+        }
 
         // Deserialization helper methods
         private T? GetDeserializedValue(string key, object value)
