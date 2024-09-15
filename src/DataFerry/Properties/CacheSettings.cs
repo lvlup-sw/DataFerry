@@ -36,7 +36,7 @@
         /// <summary>
         /// Retrieves or sets the expiration of the memory cache in minutes.
         /// </summary>
-        public int MemCacheAbsoluteExpiration { get; set; }
+        public int InMemoryAbsoluteExpiration { get; set; }
 
         /// <summary>
         /// Set to true to use In-Memory Caching.

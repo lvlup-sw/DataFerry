@@ -84,7 +84,7 @@ namespace DataFerry.Caches
             IDatabase database = _cache.GetDatabase();
             if (_settings.UseMemoryCache)
             {
-                _memCache.AddOrUpdate(key, JsonSerializer.Serialize(data), absoluteExpiration);
+                _memCache.AddOrUpdate(key, JsonSerializer.Serialize(data), TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
             }
 
             object result = await _policy.ExecuteAsync(async (context) =>
@@ -177,7 +177,7 @@ namespace DataFerry.Caches
                     {
                         foreach (var kvp in serializedValues)
                         {
-                            _memCache.AddOrUpdate(kvp.Key, kvp.Value, absoluteExpiration);
+                            _memCache.AddOrUpdate(kvp.Key, kvp.Value, TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
                         }
                     }
 
@@ -360,7 +360,7 @@ namespace DataFerry.Caches
         {
             try
             {
-                if (value is RedisValue redisValue && !redisValue.HasValue)
+                if (value is RedisValue redisValue && redisValue.HasValue)
                 {
                     T? result = JsonSerializer.Deserialize<T>(redisValue.ToString());
 
@@ -434,7 +434,7 @@ namespace DataFerry.Caches
             _memCache.AddOrUpdate(
                 key, 
                 JsonSerializer.Serialize(result), 
-                TimeSpan.FromMinutes(_settings.MemCacheAbsoluteExpiration)
+                TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration)
             );
         }
     }
