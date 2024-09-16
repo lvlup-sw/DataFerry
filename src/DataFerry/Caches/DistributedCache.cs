@@ -288,6 +288,7 @@ namespace DataFerry.Caches
                     _memCache.TryGet(key, out var value);
                     return (key, value);
                 })
+                .Where(tuple => tuple.value is not null)
                 .ToDictionary(tuple => tuple.key, tuple => tuple.value);
 
             // Extract missing keys 
