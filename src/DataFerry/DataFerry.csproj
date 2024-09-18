@@ -21,6 +21,7 @@
       <PackagePath>\</PackagePath>
     </None>
     <PackageReference Include="lvlup.PowerUp" Version="1.0.1" />
+    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="3.0.1" />
 	<PackageReference Include="NuGet.Build.Tasks.Pack" Version="6.11.0">
 		<PrivateAssets>all</PrivateAssets>
 		<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>

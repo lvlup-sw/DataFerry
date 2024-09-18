@@ -4,6 +4,7 @@ using Polly;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using DataFerry.Json.Interfaces;
 
 namespace DataFerry.Caches
 {
@@ -17,6 +18,7 @@ namespace DataFerry.Caches
     {
         private readonly IConnectionMultiplexer _cache;
         private readonly IFastMemCache<string, string> _memCache;
+        private readonly IJsonSerializer<T> _serializer;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private AsyncPolicyWrap<object> _policy;
@@ -26,15 +28,17 @@ namespace DataFerry.Caches
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(IConnectionMultiplexer cache, IFastMemCache<string, string> memCache, IOptions<CacheSettings> settings, ILogger logger)
+        public DistributedCache(IConnectionMultiplexer cache, IFastMemCache<string, string> memCache, IJsonSerializer<T> serializer, IOptions<CacheSettings> settings, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(memCache);
+            ArgumentNullException.ThrowIfNull(serializer);
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(logger);
 
             _cache = cache;
             _memCache = memCache;
+            _serializer = serializer;
             _settings = settings.Value;
             _logger = logger;
             _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings);
@@ -370,7 +374,8 @@ namespace DataFerry.Caches
             {
                 if (value is RedisValue redisValue && redisValue.HasValue)
                 {
-                    T? result = JsonSerializer.Deserialize<T>(redisValue.ToString());
+                    // We know we have a valid value
+                    T? result = JsonSerializer.Deserialize<T>((byte[])redisValue!);
 
                     if (result is not null)
                     {
