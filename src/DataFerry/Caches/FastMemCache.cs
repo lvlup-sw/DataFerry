@@ -67,14 +67,14 @@ namespace DataFerry.Caches
                 // The larger the cache, the greater the benefit from this optimization.
 
                 var currTime = Environment.TickCount64;
-                var keysToRemove = _dict
-                    .Where(p => currTime > p.Value._expirationTicks)
-                    .Select(p => p.Key)
-                    .ToList();
 
-                foreach (var key in keysToRemove)
+                // Use ToList() to avoid modifying the _dict directly
+                foreach (var pair in _dict.ToList())
                 {
-                    _dict.TryRemove(key, out _);
+                    if (currTime > pair.Value._expirationTicks)
+                    {
+                        _dict.TryRemove(pair.Key, out _);
+                    }
                 }
             }
             finally
@@ -123,7 +123,7 @@ namespace DataFerry.Caches
                 // Utilizes atomic conditional removal to eliminate the need for locks, 
                 // ensuring only items matching both key and value are removed.
                 // See: https://devblogs.microsoft.com/pfxteam/little-known-gems-atomic-conditional-removals-from-concurrentdictionary/
-                if (ttlValue != null)
+                if (ttlValue is not null)
                 {
                     _dict.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
                 }
@@ -159,8 +159,7 @@ namespace DataFerry.Caches
         /// <param name="ttl">The time-to-live (TTL) for the item, after which it will expire.</param>
         public TValue GetOrAdd(TKey key, Func<TKey, TValue> valueFactory, TimeSpan ttl)
         {
-            if (TryGet(key, out var value))
-                return value;
+            if (TryGet(key, out var value)) return value;
 
             var ttlValue = new TtlValue(valueFactory(key), ttl);
             return _dict.GetOrAdd(key, ttlValue).Value;
@@ -177,8 +176,7 @@ namespace DataFerry.Caches
         /// <param name="factoryArgument">An argument to pass to the `valueFactory` function.</param>
         public TValue GetOrAdd<TArg>(TKey key, Func<TKey, TArg, TValue> valueFactory, TimeSpan ttl, TArg factoryArgument)
         {
-            if (TryGet(key, out var value))
-                return value;
+            if (TryGet(key, out var value)) return value;
 
             var ttlValue = new TtlValue(valueFactory(key, factoryArgument), ttl);
             return _dict.GetOrAdd(key, ttlValue).Value;
@@ -193,8 +191,7 @@ namespace DataFerry.Caches
         /// <param name="ttl">The time-to-live (TTL) for the item, after which it will expire.</param>
         public TValue GetOrAdd(TKey key, TValue value, TimeSpan ttl)
         {
-            if (TryGet(key, out var existingValue))
-                return existingValue;
+            if (TryGet(key, out var existingValue)) return existingValue;
 
             var ttlValue = new TtlValue(value, ttl);
             return _dict.GetOrAdd(key, ttlValue).Value;

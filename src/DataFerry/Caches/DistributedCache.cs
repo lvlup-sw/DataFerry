@@ -370,18 +370,14 @@ namespace DataFerry.Caches
             try
             {
                 // RedisValue has an implicit string conversion
-                // This is actually the recommended way to handle this
-                var value = (string?)await kvp.Value.ConfigureAwait(false);
-                if (value is null) return default;
+                var value = (string?) await kvp.Value.ConfigureAwait(false);
+                if (string.IsNullOrEmpty(value)) return default;
+
                 T? result = JsonSerializer.Deserialize<T>(value);
+                if (result is null) return default;
 
-                if (result is not null)
-                {
-                    UseMemoryCacheIfEnabled(kvp.Key, value);
-                    return result;
-                }
-
-                return default;
+                UseMemoryCacheIfEnabled(kvp.Key, value);
+                return result;
             }
             catch (Exception ex)
             {
