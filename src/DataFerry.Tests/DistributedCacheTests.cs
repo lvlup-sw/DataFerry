@@ -6,7 +6,6 @@ using Moq;
 using DataFerry.Caches.Interfaces;
 using StackExchange.Redis;
 using System.Text.Json;
-using DataFerry.Json.Interfaces;
 
 namespace DataFerry.Tests
 {
@@ -16,7 +15,6 @@ namespace DataFerry.Tests
         private DistributedCache<Payload> _cache;
         private Mock<IConnectionMultiplexer> _redis;
         private Mock<IFastMemCache<string, string>> _memCache;
-        private Mock<IJsonSerializer<Payload>> _serializer;
         private IOptions<CacheSettings> _settings;
         private Mock<ILogger> _logger;
 
@@ -26,7 +24,6 @@ namespace DataFerry.Tests
             // Mocking dependencies
             _redis = new Mock<IConnectionMultiplexer>();
             _memCache = new Mock<IFastMemCache<string, string>>();
-            _serializer = new Mock<IJsonSerializer<Payload>>();
             _settings = Options.Create(new CacheSettings
             {
                 DesiredPolicy = ResiliencyPatterns.Advanced,
@@ -48,7 +45,6 @@ namespace DataFerry.Tests
             _cache = new DistributedCache<Payload>(
                 _redis.Object,
                 _memCache.Object,
-                _serializer.Object,
                 _settings,
                 _logger.Object
             );
