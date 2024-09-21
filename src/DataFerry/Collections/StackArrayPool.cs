@@ -8,7 +8,7 @@ namespace DataFerry.Collections
     /// An implementation of <see cref="ArrayPool{T}"/> utilizing a thread-local cache.
     /// Resource eviction is handled by <see cref="FastMemCache{TKey, TValue}"/> behind the scenes.
     /// </summary>
-    /// <remarks>This class is designed to be injected into your application as a singleton.</remarks>
+    /// <remarks>This class is designed to be injected into your application as a singleton using <see cref="ArrayPool{T}.Shared"/>.</remarks>
     /// <typeparam name="T"></typeparam>
     public class StackArrayPool<T> : ArrayPool<T>
     {

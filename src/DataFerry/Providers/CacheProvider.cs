@@ -1,7 +1,6 @@
 ﻿using StackExchange.Redis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Buffers;
 
 namespace DataFerry.Providers
 {
@@ -46,41 +45,7 @@ namespace DataFerry.Providers
             _logger = logger;
             _cache = new DistributedCache<T>(
                 connection, 
-                new FastMemCache<string, string>(), 
-                new DefaultSerializer<T>(), 
-                settings, 
-                logger
-            );
-        }
-
-        /// <summary>
-        /// Alternative constructor for the CacheProvider class where serialization uses array pooling.
-        /// </summary>
-        /// <remarks>
-        /// Takes a real provider, array pool, cache type, and cache settings as parameters.
-        /// </remarks>
-        /// <param name="connection">The connection to the Redis server.</param>
-        /// <param name="provider">The real provider to use as a data source in the case of cache misses.</param>
-        /// <param name="settings">The settings for the cache.</param>
-        /// <param name="logger">The logger to use for logging.</param>
-        /// <exception cref="ArgumentNullException"></exception>
-        /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, ArrayPool<byte> arrayPool, IOptions<CacheSettings> settings, ILogger logger)
-        {
-            // Null checks
-            ArgumentNullException.ThrowIfNull(connection);
-            ArgumentNullException.ThrowIfNull(provider);
-            ArgumentNullException.ThrowIfNull(settings);
-            ArgumentNullException.ThrowIfNull(logger);
-
-            // Initializations
-            _realProvider = provider;
-            _settings = settings.Value;
-            _logger = logger;
-            _cache = new DistributedCache<T>(
-                connection, 
-                new FastMemCache<string, string>(), 
-                new ArrayPoolingSerializer<T>(arrayPool), 
+                new FastMemCache<string, string>(),
                 settings, 
                 logger
             );

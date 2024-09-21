@@ -4,12 +4,11 @@ using Polly;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
-using DataFerry.Json.Interfaces;
 
 namespace DataFerry.Caches
 {
     /// <summary>
-    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="IDistributedCache"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.
+    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="IDistributedCache{T}"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.
     /// </summary>
     /// <remarks>
     /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Cache for Redis.
@@ -18,7 +17,6 @@ namespace DataFerry.Caches
     {
         private readonly IConnectionMultiplexer _cache;
         private readonly IFastMemCache<string, string> _memCache;
-        private readonly IJsonSerializer<T> _serializer;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private AsyncPolicyWrap<object> _policy;
@@ -28,17 +26,15 @@ namespace DataFerry.Caches
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public DistributedCache(IConnectionMultiplexer cache, IFastMemCache<string, string> memCache, IJsonSerializer<T> serializer, IOptions<CacheSettings> settings, ILogger logger)
+        public DistributedCache(IConnectionMultiplexer cache, IFastMemCache<string, string> memCache, IOptions<CacheSettings> settings, ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(memCache);
-            ArgumentNullException.ThrowIfNull(serializer);
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(logger);
 
             _cache = cache;
             _memCache = memCache;
-            _serializer = serializer;
             _settings = settings.Value;
             _logger = logger;
             _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings);
@@ -319,16 +315,17 @@ namespace DataFerry.Caches
             .Where(kvp => kvp.value is not null)
             .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
 
-            // Return if we don't have any memCache results
+            // Return if we don't have any mem cache results
             if (!memCacheHits.Any()) return redisResults;
 
-            // Otherwise, we need to build the dict with the memCache results
-            Dictionary<string, T> memResults = GetDeserializedDictionary(memCacheHits);
+            // Add deserialized mem cache values
+            foreach (var kvp in memCacheHits)
+            {
+                var value = GetDeserializedValue(kvp);
+                if (value is not null) redisResults.Add(kvp.Key, value);
+            }
 
-            // Concat and return
-            return redisResults
-                .Concat(memResults)
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            return redisResults;
         }
 
         private async Task<Dictionary<string, T>> GetBatchWithRedisOnlyAsync(IEnumerable<string> keys, IBatch batch)
@@ -355,6 +352,7 @@ namespace DataFerry.Caches
             return redisResults;
         }
 
+        // Deserialization helper methods
         private Dictionary<string, T> GetDeserializedDictionary(Dictionary<string, string> serializedDictionary)
         {
             return serializedDictionary
@@ -367,7 +365,31 @@ namespace DataFerry.Caches
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
         }
 
-        // Deserialization helper methods
+        private async Task<T?> GetDeserializedValue(KeyValuePair<string, Task<RedisValue>> kvp)
+        {
+            try
+            {
+                // RedisValue has an implicit string conversion
+                // This is actually the recommended way to handle this
+                var value = (string?)await kvp.Value.ConfigureAwait(false);
+                if (value is null) return default;
+                T? result = JsonSerializer.Deserialize<T>(value);
+
+                if (result is not null)
+                {
+                    UseMemoryCacheIfEnabled(kvp.Key, value);
+                    return result;
+                }
+
+                return default;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", kvp.Key);
+                return default;
+            }
+        }
+
         private T? GetDeserializedValue(string key, object value)
         {
             try
@@ -375,11 +397,11 @@ namespace DataFerry.Caches
                 if (value is RedisValue redisValue && redisValue.HasValue)
                 {
                     // We know we have a valid value
-                    T? result = JsonSerializer.Deserialize<T>((byte[])redisValue!);
+                    T? result = JsonSerializer.Deserialize<T>(redisValue!);
 
                     if (result is not null)
                     {
-                        UseMemoryCacheIfEnabled(key, result);
+                        UseMemoryCacheIfEnabled(key, (string?)redisValue);
                         return result;
                     }
                 }
@@ -401,29 +423,7 @@ namespace DataFerry.Caches
 
                 if (result is not null)
                 {
-                    UseMemoryCacheIfEnabled(kvp.Key, result);
-                    return result;
-                }
-
-                return default;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", kvp.Key);
-                return default;
-            }
-        }
-
-        private async Task<T?> GetDeserializedValue(KeyValuePair<string, Task<RedisValue>> kvp)
-        {
-            try
-            {
-                RedisValue value = await kvp.Value.ConfigureAwait(false);
-                T? result = JsonSerializer.Deserialize<T>(value.ToString());
-
-                if (result is not null)
-                {
-                    UseMemoryCacheIfEnabled(kvp.Key, result);
+                    UseMemoryCacheIfEnabled(kvp.Key, kvp.Value);
                     return result;
                 }
 
@@ -437,16 +437,16 @@ namespace DataFerry.Caches
         }
 
         // Memory cache helper
-        private void UseMemoryCacheIfEnabled(string key, T result)
+        private void UseMemoryCacheIfEnabled(string key, string? value)
         {
             if (!_settings.UseMemoryCache) return;
 
             ArgumentNullException.ThrowIfNull(key, nameof(key));
-            ArgumentNullException.ThrowIfNull(result, nameof(result));
+            ArgumentNullException.ThrowIfNull(value, nameof(value));
             
             _memCache.AddOrUpdate(
-                key, 
-                JsonSerializer.Serialize(result), 
+                key,
+                value,
                 TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration)
             );
         }

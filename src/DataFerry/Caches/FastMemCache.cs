@@ -5,7 +5,7 @@ namespace DataFerry.Caches
 {
     /// <summary>
     /// FastMemCache is an in-memory caching implementation based on FastCache. 
-    /// It includes resource eviction based on associated Time-to-live (TTL) values.
+    /// It includes resource eviction based on associated Time-To-Live (TTL) values.
     /// </summary>
     /// <remarks>
     /// This class utilizes a <see cref="ConcurrentDictionary{TKey, TValue}"/> behind the scenes.
