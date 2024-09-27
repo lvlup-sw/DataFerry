@@ -96,10 +96,10 @@ DataFerry leverages Polly policies to enhance the reliability of your data acces
 Simply set the `DesiredPolicy` property in your configuration to the desired `ResiliencyPatterns` value to apply the corresponding pattern.
 
 ## Additional Features
-**Sorting Algorithm Extensions:** Benefit from QuickSort, BubbleSort, MergeSort, and BucketSort implemented as extensions of `IList`.
-**ArrayPool<T> Implementation:** Utilize our custom ArrayPool<T> implementation with a tiered caching scheme for superior memory management and reduced allocation overhead in your applications.
-**MurmurHash3 Implementation:** Leverage the included high-performance, non-cryptographic hash function for a variety of needs within your projects.
-**In-Memory Cache with TTL:** Enjoy efficient data storage and retrieval with our sophisticated concurrent in-memory caching solution featuring Time-To-Live (TTL) support for automatic resource eviction.
+* **Sorting Algorithm Extensions:** Benefit from QuickSort, BubbleSort, MergeSort, and BucketSort implemented as extensions of `IList`.
+* **ArrayPool<T> Implementation:** Utilize our custom ArrayPool<T> implementation with a tiered caching scheme for superior memory management and reduced allocation overhead in your applications.
+* **MurmurHash3 Implementation:** Leverage the included high-performance, non-cryptographic hash function for a variety of needs within your projects.
+* **In-Memory Cache with TTL:** Enjoy efficient data storage and retrieval with our sophisticated concurrent in-memory caching solution featuring Time-To-Live (TTL) support for automatic resource eviction.
 
 ## License
 
