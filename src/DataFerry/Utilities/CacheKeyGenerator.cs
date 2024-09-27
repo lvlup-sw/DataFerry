@@ -29,6 +29,22 @@ namespace DataFerry.Utilities
         }
 
         /// <summary>
+        /// Creates a MurmurHash3 of <paramref name="obj"/> represented as <see cref="uint"/>.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="obj"></param>
+        /// <param name="seed"></param>
+        /// <returns><see cref="uint"/></returns>
+        public static uint GenerateHash<T>(T obj, uint seed = 0)
+        {
+            // Serialize the object
+            ReadOnlySpan<byte> serializedObj = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(obj)).AsSpan();
+
+            // Generate the hash
+            return Hash32(ref serializedObj, seed);
+        }
+
+        /// <summary>
         /// Hashes the <paramref name="bytes"/> into a MurmurHash3 as a <see cref="uint"/>.
         /// </summary>
         /// <param name="bytes">The span.</param>
