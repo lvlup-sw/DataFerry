@@ -30,7 +30,7 @@ jobs:
 
     - name: Build the Package
       run: |
-        cd src/
+        cd src/DataFerry/
         dotnet pack -c Release
 
     - name: Push the Package to NuGet
