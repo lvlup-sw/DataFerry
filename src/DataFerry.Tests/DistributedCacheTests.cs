@@ -388,5 +388,17 @@ namespace DataFerry.Tests
         }
 
         #endregion
+        #region SET BATCH
+        [DataTestMethod]
+        [DataRow(["testKey", "payload123", "levelupsoftware"])]
+        [DataRow(["random1", "random2", "random3"])]
+        [DataRow(["rsalus:854363414", "strobl:912369128", "hmontana:123412412"])]
+        [TestMethod]
+        public async Task SetBatchWithMemCacheAsync_NoKeysInMemCacheOrRedis_ReturnsEmptyCollection(IEnumerable<string> cacheKeys)
+        {
+
+        }
+
+        #endregion
     }
 }
