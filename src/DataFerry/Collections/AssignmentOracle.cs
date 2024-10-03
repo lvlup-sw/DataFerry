@@ -2,57 +2,98 @@
 {
     /// <summary>
     /// A generic implementation of the Hungarian algorithm (also known as the Kuhn-Munkres algorithm) for solving the assignment problem. 
-    /// This class finds the optimal assignment of agents to tasks in a way that minimizes the total cost, 
-    /// where the cost of assigning an agent to a task is given by a cost matrix.
+    /// This class finds the optimal assignment of agents to tasks in a way that minimizes the total cost, where the cost
+    /// of assigning an agent to a task is given by a cost matrix. This is also known as combinatorial optimization.
     /// </summary>
     /// <typeparam name="T">The type of the elements in the cost matrix. Must implement <see cref="IComparable{T}"/>.</typeparam>
     public class AssignmentOracle<T> where T : IComparable<T>
     {
         private readonly T[,] _costMatrix;
-        private readonly Func<T, T, T> _minFunc;
         private readonly Func<T, T, T> _subtractFunc;
-        private int[]? _rowAssignments;
-        private int[]? _colAssignments;
+        private readonly Func<T, T, T> _addFunc;
+        private readonly Func<T, T, T> _minFunc;
         private bool[]? _rowsCovered;
         private bool[]? _colsCovered;
-        private bool[,]? _starredZeros;
-        private Location[]? _path;
+        private HashSet<Location>? _starredZeros;
+        private readonly StackArrayPool<bool>? _boolArrayPool;
 
-        public AssignmentOracle(T[,] costMatrix, Func<T, T, T> minFunc, Func<T, T, T> subtractFunc)
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AssignmentOracle{T}"/> class.
+        /// </summary>
+        /// <param name="costMatrix">The cost matrix representing the costs of assigning agents to tasks.</param>
+        /// <param name="subtractFunc">A function that performs subtraction on two values of type <typeparamref name="T"/>.</param>
+        /// <param name="addFunc">A function that performs addition on two values of type <typeparamref name="T"/>.</param>
+        /// <param name="minFunc">A function that returns the minimum of two values of type <typeparamref name="T"/>.</param>
+        /// <param name="boolArrayPool">An optional <see cref="StackArrayPool{T}"/> instance for renting boolean arrays. 
+        /// If not provided, arrays will be allocated directly.</param>
+        /// <exception cref="ArgumentNullException">Thrown if any of the input parameters are null or if the cost matrix is not square.</exception>
+        public AssignmentOracle(
+            T[,] costMatrix, 
+            Func<T, T, T> subtractFunc, 
+            Func<T, T, T> addFunc, 
+            Func<T, T, T> minFunc,
+            StackArrayPool<bool>? boolArrayPool = null)
         {
+            ArgumentNullException.ThrowIfNull(costMatrix);
+            ArgumentNullException.ThrowIfNull(subtractFunc);
+            ArgumentNullException.ThrowIfNull(addFunc);
+            ArgumentNullException.ThrowIfNull(minFunc);
+            ThrowArgumentExceptionIfMatrixNotSquare(costMatrix);
+
             _costMatrix = costMatrix;
-            _minFunc = minFunc;
             _subtractFunc = subtractFunc;
+            _addFunc = addFunc;
+            _minFunc = minFunc;
+            _boolArrayPool = boolArrayPool;
         }
 
+        private struct Location
+        {
+            public int row;
+            public int column;
+
+            public Location(int row, int col)
+            {
+                this.row = row;
+                this.column = col;
+            }
+        }
+
+        /// <summary>
+        /// Finds the optimal assignments of agents to tasks to minimize the total cost.
+        /// </summary>
+        /// <returns>An array where each element represents the task assigned to the corresponding agent. 
+        /// A value of -1 indicates that the agent is not assigned to any task. 
+        /// Returns an empty array if an error occurs during the assignment process.</returns>
         public int[] FindAssignments()
         {
-            /*  EXAMPLE USAGE
-                MyCost[,] costMatrix = { 
-                    { new MyCost(10), new MyCost(19) }, 
-                    { new MyCost(12), new MyCost(17) } 
-                };
+            try
+            {
+                // 1. Initialization
+                Initialize();
 
-                var munkres = new KuhnMunkres<MyCost>(
-                    costMatrix, 
-                    (a, b) => a.CompareTo(b) <= 0 ? a : b,  // Min function
-                    (a, b) => a - b                         // Subtract function
-                );
+                // 2. Row reduction and Column Reduction
+                ReduceRowsAndColumns();
 
-                int[] assignments = munkres.FindAssignments();
-            */
+                // 3. Augmenting path algorithm
+                FindAugmentingPaths();
 
-            // 1. Initialization
-            Initialize();
-
-            // 2. Row reduction and Column Reduction
-            ReduceRowsAndColumns();
-
-            // 3. Augmenting path algorithm
-            FindAugmentingPaths();
-
-            // 4.  Prepare the result
-            return ExtractAssignments();
+                // 4.  Prepare the result
+                return ExtractAssignments();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in FindAssignments: {ex.GetBaseException().Message}");
+                return Array.Empty<int>();
+            }
+            finally
+            {
+                if (_boolArrayPool is not null)
+                {
+                    _boolArrayPool.Return(_rowsCovered!);
+                    _boolArrayPool.Return(_colsCovered!);
+                }
+            }
         }
 
         private void Initialize()
@@ -60,14 +101,18 @@
             int rows = _costMatrix.GetLength(0);
             int cols = _costMatrix.GetLength(1);
 
-            _rowAssignments = new int[rows];
-            _colAssignments = new int[cols];
-            _rowsCovered = new bool[rows];
-            _colsCovered = new bool[cols];
-            _starredZeros = new bool[rows, cols];
-            _path = new Location[rows * cols];
+            _rowsCovered = _boolArrayPool is not null
+                ? _boolArrayPool.Rent(rows)
+                : new bool[rows];
 
-            // ... Initialize other data structures ...
+            _colsCovered = _boolArrayPool is not null
+                ? _boolArrayPool.Rent(cols)
+                : new bool[cols];
+
+            _starredZeros = [];
+
+            // Initialize other arrays to default values (false for bool arrays)
+            Array.Fill(_colsCovered, false);
         }
 
         private void ReduceRowsAndColumns()
@@ -115,22 +160,18 @@
             int rows = _costMatrix.GetLength(0);
             int cols = _costMatrix.GetLength(1);
 
-            // Initialize a priority queue to store uncovered zeros with their costs
-            var uncoveredZeros = new PriorityQueue<Location, T>(); 
+            var uncoveredZeros = new PriorityQueue<Location, T>();
 
             while (true)
             {
-                // Step 1: Cover all columns with starred zeros
                 CoverColumnsWithStars();
 
                 if (AreAllColumnsCovered(cols))
                 {
-                    // Optimal solution found
                     break;
                 }
 
-                // Add all uncovered zeros to the priority queue
-                uncoveredZeros.Clear(); // Reuse the priority queue
+                uncoveredZeros.Clear();
                 for (int i = 0; i < rows; i++)
                 {
                     for (int j = 0; j < cols; j++)
@@ -142,53 +183,64 @@
                     }
                 }
 
-                // Step 2: Find an uncovered zero and prime it (using the priority queue)
                 while (uncoveredZeros.Count > 0)
                 {
                     Location uncoveredZero = uncoveredZeros.Dequeue();
-
-                    PrimeZero(uncoveredZero);
-
-                    // Try to find a starred zero in the same row
                     int starredCol = FindStarInRow(uncoveredZero.row);
+
                     if (starredCol != -1)
                     {
-                        // Cover the row and uncover the column
                         _rowsCovered![uncoveredZero.row] = true;
                         _colsCovered![starredCol] = false;
-
-                        // Remove any zeros in the covered row from the queue
                         uncoveredZeros = new PriorityQueue<Location, T>(uncoveredZeros.UnorderedItems.Where(
-                            item => item.Element.row != uncoveredZero.row)); 
+                            item => item.Element.row != uncoveredZero.row));
                     }
                     else
                     {
-                        // Augmenting path found
                         AugmentPath(uncoveredZero);
-
-                        // Early exit if all rows are assigned
-                        if (AreAllRowsAssigned(rows)) 
+                        if (AreAllRowsAssigned(rows))
                         {
-                            return; 
+                            return;
                         }
-
-                        break; 
+                        break;
                     }
                 }
-                else
-                {
-                    // Step 4: Adjust the cost matrix
-                    AdjustCostMatrix(rows, cols);
-                }
+
+                AdjustCostMatrix(rows, cols);
             }
         }
 
         private int[] ExtractAssignments()
         {
-            // ... Extract and return the final assignments ...
+            int rows = _costMatrix.GetLength(0);
+            int cols = _costMatrix.GetLength(1);
+            int[] result = new int[rows];
+
+            for (int i = 0; i < rows; i++)
+            {
+                result[i] = -1; // Initialize with -1 to indicate no assignment
+                for (int j = 0; j < cols; j++)
+                {
+                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, j)))
+                    {
+                        result[i] = j;
+                        break;
+                    }
+                }
+            }
+
+            return result;
         }
 
-        // ... Helper methods (FindZero, FindStarInRow, etc.) ...
+        // ... Helper methods
+        private static void ThrowArgumentExceptionIfMatrixNotSquare(T[,] costMatrix)
+        {
+            if (costMatrix.GetLength(0) != costMatrix.GetLength(1))
+            {
+                throw new ArgumentException("Cost matrix must be square.", nameof(costMatrix));
+            }
+        }
+
         private bool AreAllRowsAssigned(int rows)
         {
             for (int i = 0; i < rows; i++)
@@ -196,7 +248,7 @@
                 bool assigned = false;
                 for (int j = 0; j < _costMatrix.GetLength(1); j++)
                 {
-                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros![i, j])
+                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, j)))
                     {
                         assigned = true;
                         break;
@@ -219,7 +271,7 @@
             {
                 for (int j = 0; j < cols; j++)
                 {
-                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros![i, j])
+                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, j)))
                     {
                         _colsCovered![j] = true;
                         break;
@@ -240,19 +292,12 @@
             return true;
         }
 
-        private void PrimeZero(Location loc)
-        {
-            // In our simplified representation, priming is implicit
-            // as we're using the presence of a zero for selection.
-            // No explicit action is needed here.
-        }
-
         private int FindStarInRow(int row)
         {
             int cols = _costMatrix.GetLength(1);
             for (int j = 0; j < cols; j++)
             {
-                if (_costMatrix[row, j].CompareTo(default(T)!) == 0 && _starredZeros![row, j])
+                if (_costMatrix[row, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(row, j)))
                 {
                     return j;
                 }
@@ -262,30 +307,118 @@
 
         private void AugmentPath(Location loc)
         {
-            // This involves manipulating our implicit assignments
-            // by modifying the _costMatrix, _rowsCovered, and _colsCovered
-            // based on the augmenting path starting from 'loc'.
-            // Detailed implementation will be provided later.
+            int row = loc.row;
+            int col = loc.column;
+            Location[] path = new Location[_costMatrix.GetLength(0) * _costMatrix.GetLength(1)];
+            int pathLength = 0;
+            path[pathLength++] = loc;
+
+            while (true)
+            {
+                row = FindStarInColumn(col);
+                if (row == -1)
+                {
+                    break;
+                }
+                path[pathLength++] = new Location(row, col);
+                col = FindZeroInRow(row);
+                path[pathLength++] = new Location(row, col);
+            }
+
+            // Invert the path (toggle stars)
+            for (int i = 0; i < pathLength; i++)
+            {
+                Location pathLoc = path[i];
+
+                // Toggle starred status in the HashSet
+                if (!_starredZeros!.Remove(pathLoc))
+                {
+                    _starredZeros.Add(pathLoc);
+                }
+            }
         }
 
         private void AdjustCostMatrix(int rows, int cols)
         {
-            // This involves finding the minimum uncovered value
-            // and updating the _costMatrix based on covered rows/columns.
-            // Detailed implementation will be provided later.
+            // Find the smallest uncovered value
+            T minValue = FindMinimumUncoveredValue(rows, cols);
+
+            // Add minValue to every covered row
+            for (int i = 0; i < rows; i++)
+            {
+                if (_rowsCovered![i])
+                {
+                    for (int j = 0; j < cols; j++)
+                    {
+                        _costMatrix[i, j] = _addFunc(_costMatrix[i, j], minValue);
+                    }
+                }
+            }
+
+            // Subtract minValue from every uncovered column
+            for (int j = 0; j < cols; j++)
+            {
+                if (!_colsCovered![j])
+                {
+                    for (int i = 0; i < rows; i++)
+                    {
+                        _costMatrix[i, j] = _subtractFunc(_costMatrix[i, j], minValue);
+                    }
+                }
+            }
         }
 
-
-        private struct Location
+        private int FindStarInColumn(int col)
         {
-            public int row;
-            public int column;
-
-            public Location(int row, int col)
+            int rows = _costMatrix.GetLength(0);
+            for (int i = 0; i < rows; i++)
             {
-                this.row = row;
-                this.column = col;
+                if (_costMatrix[i, col].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, col)))
+                {
+                    return i;
+                }
             }
+            return -1;
+        }
+
+        private int FindZeroInRow(int row)
+        {
+            int cols = _costMatrix.GetLength(1);
+            for (int j = 0; j < cols; j++)
+            {
+                if (_costMatrix[row, j].CompareTo(default(T)!) == 0)
+                {
+                    return j;
+                }
+            }
+            return -1;
+        }
+
+        private T FindMinimumUncoveredValue(int rows, int cols)
+        {
+            T minValue = default(T)!;
+            bool minValueSet = false;
+
+            for (int i = 0; i < rows; i++)
+            {
+                for (int j = 0; j < cols; j++)
+                {
+                    if (!_rowsCovered![i] && !_colsCovered![j])
+                    {
+                        if (!minValueSet)
+                        {
+                            minValue = _costMatrix[i, j];
+                            minValueSet = true;
+                        }
+                        else
+                        {
+                            minValue = _minFunc(minValue, _costMatrix[i, j]);
+                        }
+                    }
+                }
+            }
+
+            return minValue;
         }
     }
 }
