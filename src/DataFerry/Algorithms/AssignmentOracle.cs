@@ -2,7 +2,7 @@
 //   - Verify functionality (unit tests)
 //   - Benchmark operations
 //   - Introduce optimizations (data structures, LINQ)
-namespace DataFerry.Collections
+namespace DataFerry.Algorithms
 {
     /// <summary>
     /// A generic implementation of the Hungarian algorithm (also known as the Kuhn-Munkres algorithm) for solving the assignment problem. 
@@ -32,9 +32,9 @@ namespace DataFerry.Collections
         /// If not provided, arrays will be allocated directly.</param>
         /// <exception cref="ArgumentNullException">Thrown if any of the input parameters are null or if the cost matrix is not square.</exception>
         public AssignmentOracle(
-            T[,] costMatrix, 
-            Func<T, T, T> subtractFunc, 
-            Func<T, T, T> addFunc, 
+            T[,] costMatrix,
+            Func<T, T, T> subtractFunc,
+            Func<T, T, T> addFunc,
             Func<T, T, T> minFunc,
             StackArrayPool<bool>? boolArrayPool = null)
         {
@@ -225,7 +225,7 @@ namespace DataFerry.Collections
                 result[i] = -1; // Initialize with -1 to indicate no assignment
                 for (int j = 0; j < cols; j++)
                 {
-                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, j)))
+                    if (_costMatrix[i, j].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(i, j)))
                     {
                         result[i] = j;
                         break;
@@ -252,7 +252,7 @@ namespace DataFerry.Collections
                 bool assigned = false;
                 for (int j = 0; j < _costMatrix.GetLength(1); j++)
                 {
-                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, j)))
+                    if (_costMatrix[i, j].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(i, j)))
                     {
                         assigned = true;
                         break;
@@ -275,7 +275,7 @@ namespace DataFerry.Collections
             {
                 for (int j = 0; j < cols; j++)
                 {
-                    if (_costMatrix[i, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, j)))
+                    if (_costMatrix[i, j].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(i, j)))
                     {
                         _colsCovered![j] = true;
                         break;
@@ -301,7 +301,7 @@ namespace DataFerry.Collections
             int cols = _costMatrix.GetLength(1);
             for (int j = 0; j < cols; j++)
             {
-                if (_costMatrix[row, j].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(row, j)))
+                if (_costMatrix[row, j].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(row, j)))
                 {
                     return j;
                 }
@@ -377,7 +377,7 @@ namespace DataFerry.Collections
             int rows = _costMatrix.GetLength(0);
             for (int i = 0; i < rows; i++)
             {
-                if (_costMatrix[i, col].CompareTo(default(T)!) == 0 && _starredZeros!.Contains(new Location(i, col)))
+                if (_costMatrix[i, col].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(i, col)))
                 {
                     return i;
                 }
@@ -390,7 +390,7 @@ namespace DataFerry.Collections
             int cols = _costMatrix.GetLength(1);
             for (int j = 0; j < cols; j++)
             {
-                if (_costMatrix[row, j].CompareTo(default(T)!) == 0)
+                if (_costMatrix[row, j].CompareTo(default!) == 0)
                 {
                     return j;
                 }
@@ -400,7 +400,7 @@ namespace DataFerry.Collections
 
         private T FindMinimumUncoveredValue(int rows, int cols)
         {
-            T minValue = default(T)!;
+            T minValue = default!;
             bool minValueSet = false;
 
             for (int i = 0; i < rows; i++)
