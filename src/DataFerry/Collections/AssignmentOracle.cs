@@ -1,4 +1,8 @@
-﻿namespace DataFerry.Collections
+﻿// TODO:
+//   - Verify functionality (unit tests)
+//   - Benchmark operations
+//   - Introduce optimizations (data structures, LINQ)
+namespace DataFerry.Collections
 {
     /// <summary>
     /// A generic implementation of the Hungarian algorithm (also known as the Kuhn-Munkres algorithm) for solving the assignment problem. 
@@ -47,16 +51,15 @@
             _boolArrayPool = boolArrayPool;
         }
 
-        private struct Location
+        /// <summary>
+        /// Represents a location within the cost matrix, specified by its row and column indices.
+        /// </summary>
+        /// <param name="row">The row index of the location.</param>
+        /// <param name="col">The column index of the location.</param>
+        private struct Location(int row, int col)
         {
-            public int row;
-            public int column;
-
-            public Location(int row, int col)
-            {
-                this.row = row;
-                this.column = col;
-            }
+            public int row = row;
+            public int column = col;
         }
 
         /// <summary>
@@ -88,6 +91,7 @@
             }
             finally
             {
+                // Return the rented buffers
                 if (_boolArrayPool is not null)
                 {
                     _boolArrayPool.Return(_rowsCovered!);
@@ -232,7 +236,7 @@
             return result;
         }
 
-        // ... Helper methods
+        // Helper methods
         private static void ThrowArgumentExceptionIfMatrixNotSquare(T[,] costMatrix)
         {
             if (costMatrix.GetLength(0) != costMatrix.GetLength(1))
