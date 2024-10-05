@@ -1,4 +1,5 @@
 ﻿using System.Security.Cryptography;
+using DataFerry.Tests.TestModels;
 
 namespace DataFerry.Tests
 {

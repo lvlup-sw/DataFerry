@@ -6,6 +6,7 @@ using Moq;
 using DataFerry.Caches.Interfaces;
 using StackExchange.Redis;
 using System.Text.Json;
+using DataFerry.Tests.TestModels;
 
 namespace DataFerry.Tests
 {

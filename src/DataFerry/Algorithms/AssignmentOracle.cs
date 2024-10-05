@@ -72,16 +72,12 @@ namespace DataFerry.Algorithms
         {
             try
             {
-                // 1. Initialization
                 Initialize();
 
-                // 2. Row reduction and Column Reduction
+                // Processing
                 ReduceRowsAndColumns();
-
-                // 3. Augmenting path algorithm
                 FindAugmentingPaths();
 
-                // 4.  Prepare the result
                 return ExtractAssignments();
             }
             catch (Exception ex)
@@ -172,7 +168,7 @@ namespace DataFerry.Algorithms
 
                 if (AreAllColumnsCovered(cols))
                 {
-                    break;
+                    break; // Optimal solution found
                 }
 
                 uncoveredZeros.Clear();
@@ -187,6 +183,9 @@ namespace DataFerry.Algorithms
                     }
                 }
 
+                bool augmentingPathFound = false;
+
+                // This code block is never executed
                 while (uncoveredZeros.Count > 0)
                 {
                     Location uncoveredZero = uncoveredZeros.Dequeue();
@@ -202,15 +201,15 @@ namespace DataFerry.Algorithms
                     else
                     {
                         AugmentPath(uncoveredZero);
-                        if (AreAllRowsAssigned(rows))
-                        {
-                            return;
-                        }
+                        augmentingPathFound = true; // Set the flag to true
                         break;
                     }
                 }
 
-                AdjustCostMatrix(rows, cols);
+                if (!augmentingPathFound)  // If no augmenting path was found in this iteration
+                {
+                    AdjustCostMatrix(rows, cols);
+                }
             }
         }
 
@@ -334,12 +333,16 @@ namespace DataFerry.Algorithms
             {
                 Location pathLoc = path[i];
 
+                Console.WriteLine($"Toggling starred status for location ({pathLoc.row}, {pathLoc.column})");
+
                 // Toggle starred status in the HashSet
                 if (!_starredZeros!.Remove(pathLoc))
                 {
                     _starredZeros.Add(pathLoc);
                 }
             }
+
+            Console.WriteLine($"Starred zeros after AugmentPath: {_starredZeros?.Count}");
         }
 
         private void AdjustCostMatrix(int rows, int cols)
