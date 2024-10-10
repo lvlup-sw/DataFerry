@@ -227,7 +227,7 @@ namespace DataFerry.Caches
         /// <summary>
         /// Represents a value with an associated time-to-live (TTL) for expiration.
         /// </summary>
-        private class TtlValue
+        private sealed class TtlValue
         {
             /// <summary>
             /// The stored value.

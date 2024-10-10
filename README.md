@@ -101,6 +101,9 @@ Simply set the `DesiredPolicy` property in your configuration to the desired `Re
 * **MurmurHash3 Implementation:** Leverage the included high-performance, non-cryptographic hash function for a variety of needs within your projects.
 * **In-Memory Cache with TTL:** Enjoy efficient data storage and retrieval with our sophisticated concurrent in-memory caching solution featuring Time-To-Live (TTL) support for automatic resource eviction.
 
+# Contributing
+Contributions are welcome.
+
 ## License
 
 DataFerry is licensed under the [MIT License](https://opensource.org/licenses/MIT).

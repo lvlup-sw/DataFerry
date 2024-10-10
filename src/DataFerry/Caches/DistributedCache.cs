@@ -4,6 +4,9 @@ using Polly;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
+using System.Buffers;
+using System.Text;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
 
 namespace DataFerry.Caches
 {
@@ -17,6 +20,7 @@ namespace DataFerry.Caches
     {
         private readonly IConnectionMultiplexer _cache;
         private readonly IFastMemCache<string, string> _memCache;
+        private readonly ArrayPool<byte>? _arrayPool;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private AsyncPolicyWrap<object> _policy;
@@ -39,6 +43,45 @@ namespace DataFerry.Caches
             _logger = logger;
             _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings);
         }
+
+        /// <summary>
+        /// Alternative constructor for the <see cref="DistributedCache{T}"/> class
+        /// which includes an <see cref="ArrayPool{T}"/> instance for deserialization operations.
+        /// </summary>
+        /// <param name="settings">The settings for the cache.</param>
+        /// <exception cref="ArgumentNullException"></exception>""
+        public DistributedCache(IConnectionMultiplexer cache, IFastMemCache<string, string> memCache, ArrayPool<byte> arrayPool, IOptions<CacheSettings> settings, ILogger logger)
+        {
+            ArgumentNullException.ThrowIfNull(cache);
+            ArgumentNullException.ThrowIfNull(memCache);
+            ArgumentNullException.ThrowIfNull(arrayPool);
+            ArgumentNullException.ThrowIfNull(settings);
+            ArgumentNullException.ThrowIfNull(logger);
+
+            _cache = cache;
+            _memCache = memCache;
+            _arrayPool = arrayPool;
+            _settings = settings.Value;
+            _logger = logger;
+            _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings);
+        }
+
+        /// <summary>
+        /// Retrieves an <see cref="IDatabase"/> representation of the cache.
+        /// </summary>
+        public IDatabase GetCacheConnection() => _cache.GetDatabase();
+
+        /// <summary>
+        /// Get the configured Polly policy.
+        /// </summary>
+        public AsyncPolicyWrap<object> GetPollyPolicy() => _policy;
+
+        /// <summary>
+        /// Set the fallback value for the polly retry policy.
+        /// </summary>
+        /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
+        /// <param name="value"></param>
+        public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
 
         /// <summary>
         /// Asynchronously retrieves an entry from the cache using a key.
@@ -68,7 +111,7 @@ namespace DataFerry.Caches
                 return data.HasValue ? data : default;
             }, new Context($"DistributedCache.GetAsync for {key}"));
 
-            return GetDeserializedValue(key, result) ?? default;
+            return await GetDeserializedValue(key, result) ?? default;
         }
 
         /// <summary>
@@ -260,23 +303,6 @@ namespace DataFerry.Caches
             return policyExecutionResult as Dictionary<string, bool> ?? [];
         }
 
-        /// <summary>
-        /// Retrieves an <see cref="IDatabase"/> representation of the cache.
-        /// </summary>
-        public IDatabase GetCacheConnection() => _cache.GetDatabase();
-
-        /// <summary>
-        /// Get the configured Polly policy.
-        /// </summary>
-        public AsyncPolicyWrap<object> GetPollyPolicy() => _policy;
-
-        /// <summary>
-        /// Set the fallback value for the polly retry policy.
-        /// </summary>
-        /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
-        /// <param name="value"></param>
-        public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
-
         // GetBatch helper methods
         private async Task<Dictionary<string, T>> GetBatchWithMemCacheAsync(IEnumerable<string> keys, IBatch batch)
         {
@@ -321,7 +347,7 @@ namespace DataFerry.Caches
             // Add deserialized mem cache values
             foreach (var kvp in memCacheHits)
             {
-                var value = GetDeserializedValue(kvp);
+                var value = await GetDeserializedValue(kvp);
                 if (value is not null) redisResults.Add(kvp.Key, value);
             }
 
@@ -356,67 +382,113 @@ namespace DataFerry.Caches
         private Dictionary<string, T> GetDeserializedDictionary(Dictionary<string, string> serializedDictionary)
         {
             return serializedDictionary
-                .Select(task =>
+                .Select(async task =>
                 {
-                    var value = GetDeserializedValue(task);
+                    var value = await GetDeserializedValue(task);
                     return (task.Key, value);
                 })
-                .Where(kvp => kvp.value is not null)
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.value!);
+                .Where(kvp => kvp.Result.value is not null)
+                .ToDictionary(kvp => kvp.Result.Key, kvp => kvp.Result.value!);
         }
 
         private async Task<T?> GetDeserializedValue(KeyValuePair<string, Task<RedisValue>> kvp)
         {
+            // RedisValue has an implicit string conversion
+            string? value = (string?) await kvp.Value.ConfigureAwait(false);
+            if (string.IsNullOrEmpty(value)) return default;
+
+            // Estimate the size of the byte array needed
+            int estimatedSize = Encoding.UTF8.GetByteCount(value);
+            byte[] rentedArray = _arrayPool is not null
+                ? _arrayPool.Rent(estimatedSize)
+                : new byte[estimatedSize];
+
             try
             {
-                // RedisValue has an implicit string conversion
-                var value = (string?) await kvp.Value.ConfigureAwait(false);
-                if (string.IsNullOrEmpty(value)) return default;
+                // Setup the stream
+                int bytesWritten = Encoding.UTF8.GetBytes(value, 0, value.Length, rentedArray, 0);
+                using var memoryStream = new MemoryStream(rentedArray, 0, bytesWritten);
 
-                T? result = JsonSerializer.Deserialize<T>(value);
-                if (result is null) return default;
-
-                UseMemoryCacheIfEnabled(kvp.Key, value);
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", kvp.Key);
-                return default;
-            }
-        }
-
-        private T? GetDeserializedValue(string key, object value)
-        {
-            try
-            {
-                if (value is RedisValue redisValue && redisValue.HasValue)
+                // Deserialize
+                var result = await JsonSerializer.DeserializeAsync<T>(memoryStream);
+                if (result is not null)
                 {
-                    // We know we have a valid value
-                    T? result = JsonSerializer.Deserialize<T>(redisValue!);
-
-                    if (result is not null)
-                    {
-                        UseMemoryCacheIfEnabled(key, (string?)redisValue);
-                        return result;
-                    }
+                    UseMemoryCacheIfEnabled(kvp.Key, value);
+                    return result;
                 }
 
                 return default;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", key);
+                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", kvp.Key);
+                return default;
+            }
+            finally
+            {
+                _arrayPool?.Return(rentedArray);
+            }
+        }
+
+        private async Task<T?> GetDeserializedValue(string key, object value)
+        {
+            if (value is RedisValue redisValue && redisValue.HasValue)
+            {
+                // Estimate the size of the byte array needed
+                string json = redisValue.ToString();
+                int estimatedSize = Encoding.UTF8.GetByteCount(json);
+                byte[] rentedArray = _arrayPool is not null
+                    ? _arrayPool.Rent(estimatedSize)
+                    : new byte[estimatedSize];
+
+                try
+                {
+                    // Setup the stream
+                    int bytesWritten = Encoding.UTF8.GetBytes(json, 0, json.Length, rentedArray, 0);
+                    using var memoryStream = new MemoryStream(rentedArray, 0, bytesWritten);
+
+                    // Deserialize
+                    var result = await JsonSerializer.DeserializeAsync<T>(memoryStream);
+                    if (result is not null)
+                    {
+                        UseMemoryCacheIfEnabled(key, json);
+                        return result;
+                    }
+
+                    return default;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", key);
+                    return default;
+                }
+                finally
+                {
+                    _arrayPool?.Return(rentedArray);
+                }
+            }
+            else
+            {
                 return default;
             }
         }
 
-        private T? GetDeserializedValue(KeyValuePair<string, string> kvp)
+        private async Task<T?> GetDeserializedValue(KeyValuePair<string, string> kvp)
         {
+            // Estimate the size of the byte array needed
+            int estimatedSize = Encoding.UTF8.GetByteCount(kvp.Value);
+            byte[] rentedArray = _arrayPool is not null
+                ? _arrayPool.Rent(estimatedSize)
+                : new byte[estimatedSize];
+
             try
             {
-                T? result = JsonSerializer.Deserialize<T>(kvp.Value);
-
+                // Setup the stream
+                int bytesWritten = Encoding.UTF8.GetBytes(kvp.Value, 0, kvp.Value.Length, rentedArray, 0);
+                using var memoryStream = new MemoryStream(rentedArray, 0, bytesWritten);
+                
+                // Deserialize
+                var result = await JsonSerializer.DeserializeAsync<T>(memoryStream);
                 if (result is not null)
                 {
                     UseMemoryCacheIfEnabled(kvp.Key, kvp.Value);
@@ -429,6 +501,10 @@ namespace DataFerry.Caches
             {
                 _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value retrieved from cache with key {key}.", kvp.Key);
                 return default;
+            }
+            finally
+            {
+                _arrayPool?.Return(rentedArray);
             }
         }
 

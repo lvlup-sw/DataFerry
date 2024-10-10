@@ -1,6 +1,7 @@
 ﻿using StackExchange.Redis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Buffers;
 
 namespace DataFerry.Providers
 {
@@ -18,6 +19,7 @@ namespace DataFerry.Providers
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private readonly DistributedCache<T> _cache;
+        private readonly ArrayPool<byte>? _arrayPool;
 
         /// <summary>
         /// Primary constructor for the CacheProvider class.
@@ -47,6 +49,43 @@ namespace DataFerry.Providers
                 connection, 
                 new FastMemCache<string, string>(),
                 settings, 
+                logger
+            );
+        }
+
+        /// <summary>
+        /// Alternative constructor for the CacheProvider class which
+        /// includes an <see cref="ArrayPool{T}"/> instance for deserialization operations.
+        /// </summary>
+        /// <remarks>
+        /// Takes a real provider, array pool, cache type, and cache settings as parameters.
+        /// </remarks>
+        /// <param name="connection">The connection to the Redis server.</param>
+        /// <param name="provider">The real provider to use as a data source in the case of cache misses.</param>
+        /// <param name="arrayPool">The array pool singleton.</param>
+        /// <param name="settings">The settings for the cache.</param>
+        /// <param name="logger">The logger to use for logging.</param>
+        /// <exception cref="ArgumentNullException"></exception>
+        /// <exception cref="InvalidOperationException"></exception>
+        public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, ArrayPool<byte> arrayPool, IOptions<CacheSettings> settings, ILogger logger)
+        {
+            // Null checks
+            ArgumentNullException.ThrowIfNull(connection);
+            ArgumentNullException.ThrowIfNull(provider);
+            ArgumentNullException.ThrowIfNull(arrayPool);
+            ArgumentNullException.ThrowIfNull(settings);
+            ArgumentNullException.ThrowIfNull(logger);
+
+            // Initializations
+            _realProvider = provider;
+            _arrayPool = arrayPool;
+            _settings = settings.Value;
+            _logger = logger;
+            _cache = new DistributedCache<T>(
+                connection,
+                new FastMemCache<string, string>(),
+                arrayPool,
+                settings,
                 logger
             );
         }

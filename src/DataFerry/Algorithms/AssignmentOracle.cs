@@ -2,6 +2,7 @@
 //   - Verify functionality (unit tests)
 //   - Benchmark operations
 //   - Introduce optimizations (data structures, LINQ)
+
 namespace DataFerry.Algorithms
 {
     /// <summary>
@@ -96,10 +97,14 @@ namespace DataFerry.Algorithms
             }
         }
 
+        /// <summary>
+        /// Initializes the buffers with default values.
+        /// </summary>
+        /// <remarks>We rent buffers if possible.</remarks>
         private void Initialize()
         {
-            int rows = _costMatrix.GetLength(0);
-            int cols = _costMatrix.GetLength(1);
+            int rows = GetMatrixRows();
+            int cols = GetMatrixColumns();
 
             _rowsCovered = _boolArrayPool is not null
                 ? _boolArrayPool.Rent(rows)
@@ -115,22 +120,45 @@ namespace DataFerry.Algorithms
             Array.Fill(_colsCovered, false);
         }
 
-        private void ReduceRowsAndColumns()
+        /// <summary>
+        /// Returns a reference to the internal cost matrix.
+        /// </summary>
+        /// <returns><see cref="T[,]"/></returns>
+        public T[,] GetMatrix() => _costMatrix;
+
+        /// <summary>
+        /// Returns the rows within the loaded matrix.
+        /// </summary>
+        /// <returns><see cref="int"/></returns>
+        public int GetMatrixRows() => _costMatrix.GetLength(0);
+
+        /// <summary>
+        /// Returns the columns within the loaded matrix.
+        /// </summary>
+        /// <returns><see cref="int"/></returns>
+        public int GetMatrixColumns() => _costMatrix.GetLength(1);
+
+        /// <summary>
+        /// Finds the minimum value in each row and subtracts it from all elements in that row.
+        /// Finds the minimum value in each column and subtracts it from all elements in that column.
+        /// </summary>
+        internal void ReduceRowsAndColumns()
         {
-            int rows = _costMatrix.GetLength(0);
-            int cols = _costMatrix.GetLength(1);
+            int rows = GetMatrixRows();
+            int cols = GetMatrixColumns();
 
             // Row reduction
             for (int i = 0; i < rows; i++)
             {
-                // Find the minimum element in row i
-                T rowMin = _costMatrix[i, 0];
-                for (int j = 1; j < cols; j++)
-                {
-                    rowMin = _minFunc(rowMin, _costMatrix[i, j]);
-                }
+                // Get the column indices of current row
+                // Then project each index to their associated value
+                // to get a sequence of all values in the current row
+                // Finally, find the min value in the sequence
+                T rowMin = Enumerable.Range(0, cols)
+                    .Select(j => _costMatrix[i, j])
+                    .Aggregate(_minFunc);
 
-                // Subtract the minimum from all elements in row i
+                // Subtract the min from each element in the row
                 for (int j = 0; j < cols; j++)
                 {
                     _costMatrix[i, j] = _subtractFunc(_costMatrix[i, j], rowMin);
@@ -140,14 +168,15 @@ namespace DataFerry.Algorithms
             // Column reduction
             for (int j = 0; j < cols; j++)
             {
-                // Find the minimum element in column j
-                T colMin = _costMatrix[0, j];
-                for (int i = 1; i < rows; i++)
-                {
-                    colMin = _minFunc(colMin, _costMatrix[i, j]);
-                }
+                // Get the row indices of current column
+                // Then project each index to their associated value
+                // to get a sequence of all values in the current column
+                // Finally, find the min value in the sequence
+                T colMin = Enumerable.Range(0, rows)
+                    .Select(i => _costMatrix[i, j])
+                    .Aggregate(_minFunc);
 
-                // Subtract the minimum from all elements in column j
+                // Subtract the min from each element in the column
                 for (int i = 0; i < rows; i++)
                 {
                     _costMatrix[i, j] = _subtractFunc(_costMatrix[i, j], colMin);
@@ -157,8 +186,8 @@ namespace DataFerry.Algorithms
 
         private void FindAugmentingPaths()
         {
-            int rows = _costMatrix.GetLength(0);
-            int cols = _costMatrix.GetLength(1);
+            int rows = GetMatrixRows();
+            int cols = GetMatrixColumns();
 
             var uncoveredZeros = new PriorityQueue<Location, T>();
 
@@ -215,8 +244,8 @@ namespace DataFerry.Algorithms
 
         private int[] ExtractAssignments()
         {
-            int rows = _costMatrix.GetLength(0);
-            int cols = _costMatrix.GetLength(1);
+            int rows = GetMatrixRows();
+            int cols = GetMatrixColumns();
             int[] result = new int[rows];
 
             for (int i = 0; i < rows; i++)
@@ -249,7 +278,7 @@ namespace DataFerry.Algorithms
             for (int i = 0; i < rows; i++)
             {
                 bool assigned = false;
-                for (int j = 0; j < _costMatrix.GetLength(1); j++)
+                for (int j = 0; j < GetMatrixColumns(); j++)
                 {
                     if (_costMatrix[i, j].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(i, j)))
                     {
@@ -267,8 +296,8 @@ namespace DataFerry.Algorithms
 
         private void CoverColumnsWithStars()
         {
-            int rows = _costMatrix.GetLength(0);
-            int cols = _costMatrix.GetLength(1);
+            int rows = GetMatrixRows();
+            int cols = GetMatrixColumns();
 
             for (int i = 0; i < rows; i++)
             {
@@ -297,7 +326,7 @@ namespace DataFerry.Algorithms
 
         private int FindStarInRow(int row)
         {
-            int cols = _costMatrix.GetLength(1);
+            int cols = GetMatrixColumns();
             for (int j = 0; j < cols; j++)
             {
                 if (_costMatrix[row, j].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(row, j)))
@@ -312,7 +341,7 @@ namespace DataFerry.Algorithms
         {
             int row = loc.row;
             int col = loc.column;
-            Location[] path = new Location[_costMatrix.GetLength(0) * _costMatrix.GetLength(1)];
+            Location[] path = new Location[GetMatrixRows() * GetMatrixColumns()];
             int pathLength = 0;
             path[pathLength++] = loc;
 
@@ -377,7 +406,7 @@ namespace DataFerry.Algorithms
 
         private int FindStarInColumn(int col)
         {
-            int rows = _costMatrix.GetLength(0);
+            int rows = GetMatrixRows();
             for (int i = 0; i < rows; i++)
             {
                 if (_costMatrix[i, col].CompareTo(default!) == 0 && _starredZeros!.Contains(new Location(i, col)))
@@ -390,7 +419,7 @@ namespace DataFerry.Algorithms
 
         private int FindZeroInRow(int row)
         {
-            int cols = _costMatrix.GetLength(1);
+            int cols = GetMatrixColumns();
             for (int j = 0; j < cols; j++)
             {
                 if (_costMatrix[row, j].CompareTo(default!) == 0)
