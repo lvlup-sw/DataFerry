@@ -1,7 +1,7 @@
-﻿using Newtonsoft.Json;
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using static System.Numerics.BitOperations;
 
 namespace DataFerry.Utilities
@@ -19,7 +19,7 @@ namespace DataFerry.Utilities
         public static string GenerateCacheKey<T>(T obj, string prefix = "1.0.0.0", uint seed = 0)
         {
             // Serialize the object
-            ReadOnlySpan<byte> serializedObj = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(obj)).AsSpan();
+            ReadOnlySpan<byte> serializedObj = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj)).AsSpan();
 
             // Generate the hash
             var hash = Hash32(ref serializedObj, seed);
@@ -38,7 +38,7 @@ namespace DataFerry.Utilities
         public static uint GenerateHash<T>(T obj, uint seed = 0)
         {
             // Serialize the object
-            ReadOnlySpan<byte> serializedObj = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(obj)).AsSpan();
+            ReadOnlySpan<byte> serializedObj = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj)).AsSpan();
 
             // Generate the hash
             return Hash32(ref serializedObj, seed);
