@@ -111,7 +111,7 @@ namespace DataFerry.Caches
                 return data.HasValue ? data : default;
             }, new Context($"DistributedCache.GetAsync for {key}"));
 
-            return await GetDeserializedValue(key, result) ?? default;
+            return await GetDeserializedValueAsync(key, result) ?? default;
         }
 
         /// <summary>
@@ -334,7 +334,7 @@ namespace DataFerry.Caches
             Dictionary<string, T> redisResults = (await Task.WhenAll(
                 redisTasks.Select(async task =>
                 {
-                    var value = await GetDeserializedValue(task);
+                    var value = await GetDeserializedValueAsync(task);
                     return (task.Key, value);
                 })
             ).ConfigureAwait(false))
@@ -347,7 +347,7 @@ namespace DataFerry.Caches
             // Add deserialized mem cache values
             foreach (var kvp in memCacheHits)
             {
-                var value = await GetDeserializedValue(kvp);
+                var value = await GetDeserializedValueAsync(kvp);
                 if (value is not null) redisResults.Add(kvp.Key, value);
             }
 
@@ -368,7 +368,7 @@ namespace DataFerry.Caches
             Dictionary<string, T> redisResults = (await Task.WhenAll(
                 redisTasks.Select(async task =>
                 {
-                    var value = await GetDeserializedValue(task);
+                    var value = await GetDeserializedValueAsync(task);
                     return (task.Key, value);
                 })
             ).ConfigureAwait(false))
@@ -384,14 +384,14 @@ namespace DataFerry.Caches
             return serializedDictionary
                 .Select(async task =>
                 {
-                    var value = await GetDeserializedValue(task);
+                    var value = await GetDeserializedValueAsync(task);
                     return (task.Key, value);
                 })
                 .Where(kvp => kvp.Result.value is not null)
                 .ToDictionary(kvp => kvp.Result.Key, kvp => kvp.Result.value!);
         }
 
-        private async Task<T?> GetDeserializedValue(KeyValuePair<string, Task<RedisValue>> kvp)
+        private async Task<T?> GetDeserializedValueAsync(KeyValuePair<string, Task<RedisValue>> kvp)
         {
             // RedisValue has an implicit string conversion
             string? value = (string?) await kvp.Value.ConfigureAwait(false);
@@ -430,7 +430,7 @@ namespace DataFerry.Caches
             }
         }
 
-        private async Task<T?> GetDeserializedValue(string key, object value)
+        private async Task<T?> GetDeserializedValueAsync(string key, object value)
         {
             if (value is RedisValue redisValue && redisValue.HasValue)
             {
@@ -473,7 +473,7 @@ namespace DataFerry.Caches
             }
         }
 
-        private async Task<T?> GetDeserializedValue(KeyValuePair<string, string> kvp)
+        private async Task<T?> GetDeserializedValueAsync(KeyValuePair<string, string> kvp)
         {
             // Estimate the size of the byte array needed
             int estimatedSize = Encoding.UTF8.GetByteCount(kvp.Value);
