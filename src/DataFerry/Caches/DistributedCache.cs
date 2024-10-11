@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 using System.Buffers;
 using System.Text;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using Microsoft.Extensions.Caching.Hybrid;
 
 namespace DataFerry.Caches
 {
