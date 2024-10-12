@@ -4,17 +4,17 @@
 
 ## Features
 
-* **Generic Caching:** Works with any data type and data provider through the `IRealProvider<T>` interface.
+* **Generic Caching:** Works with any data type and data provider through the `IDataSource<T>` interface.
 * **Redis Integration:** Leverages the high-performance and robustness of the [StackExchange.Redis](https://stackexchange.github.io/StackExchange.Redis/) library.
 * **Built-in Resilience:** Implements [Polly](https://www.pollydocs.org) policies for automatic retry, circuit breakers, and other resiliency patterns, enhancing the reliability of your transactions.
-* **Easy Configuration:** Inject the `IConnectionMultiplexer` and your `IRealProvider<T>` implementation, and you're ready to go.
+* **Easy Configuration:** Inject the `IConnectionMultiplexer` and your `IDataSource<T>` implementation, and you're ready to go.
 
 ## Overview
 
-DataFerry's `CacheProvider` class acts as a bridge between your application and your data sources. When you request data:
+DataFerry's `DataFerry` class acts as a bridge between your application and your data sources. When you request data:
 
 1. **Cache Check:** It first checks your Redis cache for the data.
-2. **Database Fetch (if needed):** If the data is not found in the cache, it fetches it from your database using your `IRealProvider<T>` implementation.
+2. **Database Fetch (if needed):** If the data is not found in the cache, it fetches it from your database using your `IDataSource<T>` implementation.
 3. **Cache Update:** The fetched data is then stored in the cache for future requests.
 
 This approach ensures that:
@@ -23,7 +23,7 @@ This approach ensures that:
 * **You avoid redundant database calls, improving performance.**
 * **Your application handles transient errors gracefully, increasing reliability.**
 
-`CacheProvider` offers a complete set of tools for managing your cached data. It supports all fundamental CRUD operations, as well as optimized batch versions for handling multiple records efficiently. Create and update functionality is combined into a single upsert via the `SetData` and `SetDataBatch` methods.
+`DataFerry` offers a complete set of tools for managing your cached data. It supports all fundamental CRUD operations, as well as optimized batch versions for handling multiple records efficiently. Create and update functionality is combined into a single upsert via the `SetData` and `SetDataBatch` methods.
 
 ## Getting Started
 
@@ -33,10 +33,10 @@ This approach ensures that:
    Install-Package lvlup.DataFerry
    ```
 
-2. **Implement `IRealProvider<T>`**
+2. **Implement `IDataSource<T>`**
 
    ```csharp
-   public interface IMyDataProvider : IRealProvider<MyDataModel>
+   public interface IMyDataProvider : IDataSource<MyDataModel>
    ```
 
 3. **Inject your Dependencies**
@@ -48,31 +48,31 @@ This approach ensures that:
    // Register IConnectionMultiplexer 
    services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(connectionString));
 
-   // Register your IRealProvider
+   // Register your IDataSource
    builder.Services.AddTransient<IMyDataProvider, MyDataProvider>();
 
-   // Register CacheProvider
-   builder.Services.AddTransient<ICacheProvider<MyDataModel>>(serviceProvider =>
-      new CacheProvider<MyDataModel>(
+   // Register DataFerry
+   builder.Services.AddTransient<IDataFerry<MyDataModel>>(serviceProvider =>
+      new DataFerry<MyDataModel>(
          serviceProvider.GetRequiredService<IConnectionMultiplexer>(),
          serviceProvider.GetRequiredService<IMyDataProvider>(),
          serviceProvider.GetRequiredService<IOptions<CacheSettings>>(),
-         serviceProvider.GetRequiredService<ILogger<CacheProvider<MyDataModel>>>()
+         serviceProvider.GetRequiredService<ILogger<DataFerry<MyDataModel>>>()
       ));
    ```
 
-4. **Use CacheProvider in your Service**
+4. **Use DataFerry in your Service**
 
    ```csharp
-   MyDataModel? myData = await _cacheProvider.GetDataAsync(cacheKey);
+   MyDataModel? myData = await _DataFerry.GetDataAsync(cacheKey);
    ```
 
 ### Designing your Cache Key
 
 When designing your cache key, it's important to consider how they'll be used both in the cache and when interacting with your database. Since your cache key serves as the database query key as well, you have two main options for handling the information encoded within it:
 
-1. **Extract the information directly from the key.** This works well if your key has a clear structure that your `IRealProvider<T>` implementation can easily parse.
-2. **Deserialize the key if it's a hash.** If you use hashing to generate your cache keys, you'll need to deserialize them within your `IRealProvider<T>` implementation to extract the necessary lookup information.
+1. **Extract the information directly from the key.** This works well if your key has a clear structure that your `IDataSource<T>` implementation can easily parse.
+2. **Deserialize the key if it's a hash.** If you use hashing to generate your cache keys, you'll need to deserialize them within your `IDataSource<T>` implementation to extract the necessary lookup information.
 
 A common and effective pattern is to include versioning information and the actual lookup key as a prefix to the hash. This approach gives you built-in version control for your cached data and a straightforward way to access the primary lookup value for database queries. EX:
 

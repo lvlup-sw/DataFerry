@@ -4,7 +4,7 @@
     /// Cache settings for <see cref="DistributedCache{T}"/>.
     /// </summary>
     /// <remarks>
-    /// You need to pass an instance of this class to the <see cref="CacheProvider{T}"/>.
+    /// You need to pass an instance of this class to the <see cref="DataFerry{T}"/>.
     /// </remarks>
     public class CacheSettings
     {

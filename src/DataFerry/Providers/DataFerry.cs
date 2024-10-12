@@ -6,23 +6,23 @@ using System.Buffers;
 namespace DataFerry.Providers
 {
     /// <summary>
-    /// CacheProvider is a generic class that implements the <see cref="ICacheProvider{T}"/> interface.
+    /// DataFerry is a generic class that implements the <see cref="IDataFerry{T}"/> interface.
     /// </summary>
     /// <remarks>
     /// This class makes use of two types of caches: <see cref="FastMemCache{TKey, TValue}"/> and <see cref="DistributedCache{T}"/>.
-    /// It uses the <see cref="IRealProvider{T}"/> interface to retrieve records from the data source.
+    /// It uses the <see cref="IDataSource{T}"/> interface to retrieve records from the data source.
     /// </remarks>
     /// <typeparam name="T">The type of object to cache.</typeparam>
-    public class CacheProvider<T> : ICacheProvider<T> where T : class
+    public class DataFerry<T> : IDataFerry<T> where T : class
     {
-        private readonly IRealProvider<T> _realProvider;
+        private readonly IDataSource<T> _realProvider;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private readonly DistributedCache<T> _cache;
         private readonly ArrayPool<byte>? _arrayPool;
 
         /// <summary>
-        /// Primary constructor for the CacheProvider class.
+        /// Primary constructor for the DataFerry class.
         /// </summary>
         /// <remarks>
         /// Takes a real provider, cache type, and cache settings as parameters.
@@ -33,7 +33,7 @@ namespace DataFerry.Providers
         /// <param name="logger">The logger to use for logging.</param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, IOptions<CacheSettings> settings, ILogger logger)
+        public DataFerry(IConnectionMultiplexer connection, IDataSource<T> provider, IOptions<CacheSettings> settings, ILogger logger)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(connection);
@@ -54,7 +54,7 @@ namespace DataFerry.Providers
         }
 
         /// <summary>
-        /// Alternative constructor for the CacheProvider class which
+        /// Alternative constructor for the DataFerry class which
         /// includes an <see cref="ArrayPool{T}"/> instance for deserialization operations.
         /// </summary>
         /// <remarks>
@@ -67,7 +67,7 @@ namespace DataFerry.Providers
         /// <param name="logger">The logger to use for logging.</param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public CacheProvider(IConnectionMultiplexer connection, IRealProvider<T> provider, ArrayPool<byte> arrayPool, IOptions<CacheSettings> settings, ILogger logger)
+        public DataFerry(IConnectionMultiplexer connection, IDataSource<T> provider, ArrayPool<byte> arrayPool, IOptions<CacheSettings> settings, ILogger logger)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(connection);
@@ -98,7 +98,7 @@ namespace DataFerry.Providers
         /// <summary>
         /// Gets the data source instance.
         /// </summary>
-        public IRealProvider<T> RealProvider => _realProvider;
+        public IDataSource<T> RealProvider => _realProvider;
 
         /// <summary>
         /// Gets the record from the cache and data source with a specified key.

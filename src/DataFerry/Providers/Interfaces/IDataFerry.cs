@@ -7,7 +7,7 @@
     /// The main benefit of this class is how it tightly couples
     /// the database and cache, ensuring synchronous behavior.
     /// </remarks>
-    public interface ICacheProvider<T> where T : class
+    public interface IDataFerry
     {
         /// <summary>
         /// Gets the record from the cache and data source with a specified key.
@@ -15,7 +15,7 @@
         /// <param name="key">The key of the record to retrieve.</param>
         /// <param name="flags">Flags to configure the behavior of the operation.</param>
         /// <returns>The data <typeparamref name="T"/></returns>
-        Task<T?> GetDataAsync(string key, GetFlags? flags = null);
+        Task<T?> GetDataAsync<T>(string key, GetFlags? flags = null);
 
         /// <summary>
         /// Adds a record to the cache and data source with a specified key.
@@ -24,7 +24,7 @@
         /// <param name="data">The data to add to the cache.</param>
         /// <param name="expiration">The expiration time for the record.</param>
         /// <returns>True if the operation is successful; otherwise, false.</returns>
-        Task<bool> SetDataAsync(string key, T data, TimeSpan? expiration = default);
+        Task<bool> SetDataAsync<T>(string key, T data, TimeSpan? expiration = default);
 
         /// <summary>
         /// Removes a record from the cache and data source with a specified key.
@@ -40,7 +40,7 @@
         /// <param name="flags">Flags to configure the behavior of the operation.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>A <typeparamref name="IDictionary"/> of <typeparamref name="string"/> keys and <typeparamref name="T"/> data</returns>
-        Task<IDictionary<string, T>> GetDataBatchAsync(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
+        Task<IDictionary<string, T>> GetDataBatchAsync<T>(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null);
 
         /// <summary>
         /// Sets multiple records in the cache and data source with the specified keys.
@@ -48,7 +48,7 @@
         /// <param name="IDictionary{string, T}">A dictionary containing the keys and data to store in the cache and data source.</param>
         /// <param name="cancellationToken">Cancellation token to stop the operation.</param>
         /// <returns>True if all records were set successfully; otherwise, false.</returns>
-        Task<bool> SetDataBatchAsync(IDictionary<string, T> data, TimeSpan? expiration = default, CancellationToken ? cancellationToken = null);
+        Task<bool> SetDataBatchAsync<T>(IDictionary<string, T> data, TimeSpan? expiration = default, CancellationToken ? cancellationToken = null);
 
         /// <summary>
         /// Removes multiple records from the cache and data source with the specified keys.
@@ -59,13 +59,13 @@
         Task<bool> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
-        /// Gets the data source object representation.
+        /// Gets the data source reference.
         /// </summary>
-        IRealProvider<T> RealProvider { get; }
+        IDataSource DataSource { get; }
 
         /// <summary>
-        /// Gets the cache object representation.
+        /// Gets the distributed cache reference.
         /// </summary>
-        DistributedCache<T> Cache { get; }
+        DistributedCache Cache { get; }
     }
 }

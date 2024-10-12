@@ -6,7 +6,6 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 using System.Buffers;
 using System.Text;
-using Microsoft.Extensions.Caching.Hybrid;
 
 namespace DataFerry.Caches
 {
@@ -16,7 +15,7 @@ namespace DataFerry.Caches
     /// <remarks>
     /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Cache for Redis.
     /// </remarks>
-    public class DistributedCache<T> : IDistributedCache<T> where T : class
+    public class DistributedCache<T> where T : class
     {
         private readonly IConnectionMultiplexer _cache;
         private readonly IFastMemCache<string, string> _memCache;
