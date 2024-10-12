@@ -1,4 +1,4 @@
-﻿namespace DataFerry.Tests.TestModels
+﻿namespace lvlup.DataFerry.Tests.TestModels
 {
     public struct MyCost : IComparable<MyCost>
     {

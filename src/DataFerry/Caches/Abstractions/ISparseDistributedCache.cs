@@ -1,8 +1,9 @@
 ﻿using Microsoft.Extensions.Caching.Distributed;
+using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
 
-namespace DataFerry.Caches.Interfaces
+namespace lvlup.DataFerry.Caches.Abstractions
 {
     /// <summary>
     /// A contract for interacting with a distributed cache of serialized values that supports low allocation data transfers.
@@ -41,7 +42,7 @@ namespace DataFerry.Caches.Interfaces
         bool RefreshInCache(string key);
 
         /// <summary>
-        /// Removes the value with the given key synchronously.
+        /// Removes the value with the given key synchronously from the cache.
         /// </summary>
         /// <param name="key">A string identifying the requested value.</param>
         /// <returns><c>true</c> if the cache item is removed successfully, <c>false</c> otherwise.</returns>
@@ -87,7 +88,7 @@ namespace DataFerry.Caches.Interfaces
         ValueTask<bool> RefreshInCacheAsync(string key, CancellationToken token = default);
 
         /// <summary>
-        /// Asynchronously removes the value with the given key.
+        /// Asynchronously removes the value with the given key from the cache.
         /// </summary>
         /// <param name="key">A string identifying the requested value.</param>
         /// <param name="token">The  
@@ -137,5 +138,17 @@ namespace DataFerry.Caches.Interfaces
         /// Retrieves an <see cref="IDatabase"/> representation of the cache.
         /// </summary>
         IDatabase GetCacheConnection();
+
+        /// <summary>
+        /// Get the configured Polly policy.
+        /// </summary>
+        AsyncPolicyWrap<object> GetPollyPolicy();
+
+        /// <summary>
+        /// Set the fallback value for the polly retry policy.
+        /// </summary>
+        /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
+        /// <param name="value"></param>
+        void SetFallbackValue(object value);
     }
 }

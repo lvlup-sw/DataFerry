@@ -2,7 +2,7 @@
 using System.Collections.Concurrent;
 using System.Numerics;
 
-namespace DataFerry.Collections
+namespace lvlup.DataFerry.Collections
 {
     /// <summary>
     /// An implementation of <see cref="ArrayPool{T}"/> utilizing a thread-local cache.

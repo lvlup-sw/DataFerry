@@ -1,4 +1,4 @@
-﻿namespace DataFerry.Caches.Interfaces
+﻿namespace lvlup.DataFerry.Caches.Abstractions
 {
     /// <summary>
     /// A contract for interacting with an in-memory cache with time-to-live (TTL) support.

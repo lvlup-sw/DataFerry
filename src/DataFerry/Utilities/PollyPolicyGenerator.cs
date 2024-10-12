@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
-namespace DataFerry.Utilities
+namespace lvlup.DataFerry.Utilities
 {
     public static class PollyPolicyGenerator
     {

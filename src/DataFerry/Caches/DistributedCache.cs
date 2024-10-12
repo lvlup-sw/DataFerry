@@ -7,10 +7,10 @@ using System.Text.Json;
 using System.Buffers;
 using System.Text;
 
-namespace DataFerry.Caches
+namespace lvlup.DataFerry.Caches
 {
     /// <summary>
-    /// An implementation of <see cref="ConnectionMultiplexer"/> which uses the <see cref="IDistributedCache{T}"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.
+    /// An implementation of <see cref="IConnectionMultiplexer"/> which uses the <see cref="IDistributedCache{T}"/> interface as a base. Polly is integrated overtop for handling exceptions and retries.
     /// </summary>
     /// <remarks>
     /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Cache for Redis.

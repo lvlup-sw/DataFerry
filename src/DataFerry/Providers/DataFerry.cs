@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Buffers;
 
-namespace DataFerry.Providers
+namespace lvlup.DataFerry.Providers
 {
     /// <summary>
     /// DataFerry is a generic class that implements the <see cref="IDataFerry{T}"/> interface.
@@ -13,9 +13,9 @@ namespace DataFerry.Providers
     /// It uses the <see cref="IDataSource{T}"/> interface to retrieve records from the data source.
     /// </remarks>
     /// <typeparam name="T">The type of object to cache.</typeparam>
-    public class DataFerry<T> : IDataFerry<T> where T : class
+    public class DataFerry : IDataFerry
     {
-        private readonly IDataSource<T> _realProvider;
+        private readonly IDataSource _realProvider;
         private readonly CacheSettings _settings;
         private readonly ILogger _logger;
         private readonly DistributedCache<T> _cache;
@@ -33,7 +33,7 @@ namespace DataFerry.Providers
         /// <param name="logger">The logger to use for logging.</param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public DataFerry(IConnectionMultiplexer connection, IDataSource<T> provider, IOptions<CacheSettings> settings, ILogger logger)
+        public DataFerry(IConnectionMultiplexer connection, IDataSource provider, IOptions<CacheSettings> settings, ILogger logger)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(connection);
@@ -46,9 +46,9 @@ namespace DataFerry.Providers
             _settings = settings.Value;
             _logger = logger;
             _cache = new DistributedCache<T>(
-                connection, 
+                connection,
                 new FastMemCache<string, string>(),
-                settings, 
+                settings,
                 logger
             );
         }
@@ -67,7 +67,7 @@ namespace DataFerry.Providers
         /// <param name="logger">The logger to use for logging.</param>
         /// <exception cref="ArgumentNullException"></exception>
         /// <exception cref="InvalidOperationException"></exception>
-        public DataFerry(IConnectionMultiplexer connection, IDataSource<T> provider, ArrayPool<byte> arrayPool, IOptions<CacheSettings> settings, ILogger logger)
+        public DataFerry(IConnectionMultiplexer connection, IDataSource provider, ArrayPool<byte> arrayPool, IOptions<CacheSettings> settings, ILogger logger)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(connection);
@@ -93,12 +93,12 @@ namespace DataFerry.Providers
         /// <summary>
         /// Gets the cache instance.
         /// </summary>
-        public DistributedCache<T> Cache => _cache;
+        public SparseDistributedCache Cache => _cache;
 
         /// <summary>
         /// Gets the data source instance.
         /// </summary>
-        public IDataSource<T> RealProvider => _realProvider;
+        public IDataSource DataSource => _realProvider;
 
         /// <summary>
         /// Gets the record from the cache and data source with a specified key.
@@ -372,7 +372,7 @@ namespace DataFerry.Providers
                 }
 
                 // Return single result
-                return cacheSetResults.All(kvp => kvp.Value) 
+                return cacheSetResults.All(kvp => kvp.Value)
                     && providerSetResults.All(kvp => kvp.Value);
             }
             catch (Exception ex)
@@ -437,6 +437,26 @@ namespace DataFerry.Providers
                 _logger.LogError(ex, "An error occurred while removing from the cache.");
                 throw ex.GetBaseException();
             }
+        }
+
+        public Task<T?> GetDataAsync<T>(string key, GetFlags? flags = null)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<bool> SetDataAsync<T>(string key, T data, TimeSpan? expiration = null)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<IDictionary<string, T>> GetDataBatchAsync<T>(IEnumerable<string> keys, GetFlags? flags = null, CancellationToken? cancellationToken = null)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<bool> SetDataBatchAsync<T>(IDictionary<string, T> data, TimeSpan? expiration = null, CancellationToken? cancellationToken = null)
+        {
+            throw new NotImplementedException();
         }
     }
 }

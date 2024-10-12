@@ -1,7 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Concurrent;
 
-namespace DataFerry.Caches
+namespace lvlup.DataFerry.Caches
 {
     /// <summary>
     /// FastMemCache is an in-memory caching implementation based on FastCache. 

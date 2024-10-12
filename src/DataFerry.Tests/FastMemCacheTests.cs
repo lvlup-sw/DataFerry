@@ -1,6 +1,6 @@
-using DataFerry.Caches;
+using lvlup.DataFerry.Caches;
 
-namespace DataFerry.Tests
+namespace lvlup.DataFerry.Tests
 {
     [TestClass]
     public class FastMemCacheTests

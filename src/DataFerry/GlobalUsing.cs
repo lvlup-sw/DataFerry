@@ -1,12 +1,14 @@
 ﻿#region Internal
 
-global using DataFerry.Algorithms;
-global using DataFerry.Caches;
-global using DataFerry.Caches.Interfaces;
-global using DataFerry.Collections;
-global using DataFerry.Properties;
-global using DataFerry.Providers;
-global using DataFerry.Providers.Interfaces;
-global using DataFerry.Utilities;
+global using lvlup.DataFerry.Algorithms;
+global using lvlup.DataFerry.Caches;
+global using lvlup.DataFerry.Caches.Abstractions;
+global using lvlup.DataFerry.Collections;
+global using lvlup.DataFerry.Properties;
+global using lvlup.DataFerry.Providers;
+global using lvlup.DataFerry.Providers.Abstractions;
+global using lvlup.DataFerry.Serializers;
+global using lvlup.DataFerry.Serializers.Abstractions;
+global using lvlup.DataFerry.Utilities;
 
 #endregion

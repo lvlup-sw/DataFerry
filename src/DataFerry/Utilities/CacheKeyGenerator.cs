@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using static System.Numerics.BitOperations;
 
-namespace DataFerry.Utilities
+namespace lvlup.DataFerry.Utilities
 {
     public static class CacheKeyGenerator
     {

@@ -1,4 +1,4 @@
-﻿namespace DataFerry.Properties
+﻿namespace lvlup.DataFerry.Properties
 {
     /// <summary>
     /// Cache settings for <see cref="DistributedCache{T}"/>.

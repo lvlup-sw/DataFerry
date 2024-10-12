@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DataFerry\DataFerry.csproj" />
+    <ProjectReference Include="..\DataFerry\lvlup.DataFerry.csproj" />
   </ItemGroup>
 
   <ItemGroup>

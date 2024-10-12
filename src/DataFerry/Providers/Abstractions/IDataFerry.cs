@@ -1,4 +1,4 @@
-﻿namespace DataFerry.Providers.Interfaces
+﻿namespace lvlup.DataFerry.Providers.Abstractions
 {
     /// <summary>
     /// An interface for the Cache Provider.

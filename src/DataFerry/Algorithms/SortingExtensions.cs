@@ -1,4 +1,4 @@
-﻿namespace DataFerry.Algorithms
+﻿namespace lvlup.DataFerry.Algorithms
 {
     /// <summary>
     /// Provides extension methods for sorting lists using the BubbleSort, BucketSort, MergeSort, and QuickSort algorithms.

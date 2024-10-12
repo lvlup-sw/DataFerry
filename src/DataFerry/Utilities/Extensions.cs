@@ -1,4 +1,4 @@
-﻿namespace DataFerry.Utilities
+﻿namespace lvlup.DataFerry.Utilities
 {
     internal static class Extensions
     {

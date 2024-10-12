@@ -1,4 +1,4 @@
-﻿namespace DataFerry.Tests.TestModels
+﻿namespace lvlup.DataFerry.Tests.TestModels
 {
     /// <summary>
     /// Class of the arbitrary payload.

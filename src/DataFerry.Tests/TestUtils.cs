@@ -1,7 +1,7 @@
 ﻿using System.Security.Cryptography;
-using DataFerry.Tests.TestModels;
+using lvlup.DataFerry.Tests.TestModels;
 
-namespace DataFerry.Tests
+namespace lvlup.DataFerry.Tests
 {
     internal static class TestUtils
     {

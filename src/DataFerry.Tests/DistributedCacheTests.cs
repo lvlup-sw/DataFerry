@@ -1,14 +1,14 @@
-using DataFerry.Caches;
-using DataFerry.Properties;
+using lvlup.DataFerry.Caches;
+using lvlup.DataFerry.Properties;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
-using DataFerry.Caches.Interfaces;
+using lvlup.DataFerry.Caches.Abstractions;
 using StackExchange.Redis;
 using System.Text.Json;
-using DataFerry.Tests.TestModels;
+using lvlup.DataFerry.Tests.TestModels;
 
-namespace DataFerry.Tests
+namespace lvlup.DataFerry.Tests
 {
     [TestClass]
     public class DistributedCacheTests

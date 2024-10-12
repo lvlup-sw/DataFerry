@@ -151,7 +151,7 @@ public interface IDistributedCacheSerializer<T>
 ```
 #
 ```
-public interface IBatchedDistributedCache : IBufferDistributedCache
+public interface ISparseDistributedCache
 {
     ValueTask<IDictionary<string, T>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, CancellationToken token = default);
 
@@ -183,7 +183,7 @@ public static class DataFerryServiceCollectionExtensions
 
         services.AddScoped<IBufferWriter<byte>, RentedBufferWriter<byte>>();
         services.AddSingleton<IDistributedCacheSerializer, DistributedCacheSerializer>();
-        services.AddSingleton<IBatchedDistributedCache, DistributedCache>();
+        services.AddSingleton<ISparseDistributedCache, DistributedCache>();
         services.AddSingleton<IDataFerry, DataFerry>(); 
 
         return services;

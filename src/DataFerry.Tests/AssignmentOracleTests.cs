@@ -1,9 +1,9 @@
-﻿using DataFerry.Algorithms;
-using DataFerry.Collections;
-using DataFerry.Tests.TestModels;
+﻿using lvlup.DataFerry.Algorithms;
+using lvlup.DataFerry.Collections;
+using lvlup.DataFerry.Tests.TestModels;
 using Moq;
 
-namespace DataFerry.Tests
+namespace lvlup.DataFerry.Tests
 {
     [TestClass]
     public class AssignmentOracleTests

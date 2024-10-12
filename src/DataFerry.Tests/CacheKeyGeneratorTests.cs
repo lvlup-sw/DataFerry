@@ -1,7 +1,7 @@
-﻿using DataFerry.Utilities;
+﻿using lvlup.DataFerry.Utilities;
 using System.Text;
 
-namespace DataFerry.Tests
+namespace lvlup.DataFerry.Tests
 {
     [TestClass]
     public class CacheKeyGeneratorTest
