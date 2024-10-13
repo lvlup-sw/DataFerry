@@ -21,6 +21,7 @@
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
     </None>
+    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="3.0.1" />
 	<PackageReference Include="NuGet.Build.Tasks.Pack" Version="6.11.1">
 		<PrivateAssets>all</PrivateAssets>
 		<IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>

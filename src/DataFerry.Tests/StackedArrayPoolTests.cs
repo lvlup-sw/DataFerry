@@ -3,7 +3,7 @@
 namespace lvlup.DataFerry.Tests
 {
     [TestClass]
-    public class StackedArray_poolTests
+    public class StackedArrayPoolTests
     {
         private StackArrayPool<int> _pool;
 
@@ -147,6 +147,32 @@ namespace lvlup.DataFerry.Tests
 
             // Assert
             Assert.AreEqual(-1, bucketIndex);
+        }
+
+        [TestMethod]
+        public void Return_ShouldClearArrayIfClearArrayIsTrue()
+        {
+            // Arrange
+            var array = new int[] { 1, 2, 3 };
+
+            // Act
+            _pool.Return(array, clearArray: true);
+
+            // Assert
+            CollectionAssert.AreEqual(new int[] { 0, 0, 0 }, array);
+        }
+
+        [TestMethod]
+        public void Return_ShouldNotClearArrayIfClearArrayIsFalse()
+        {
+            // Arrange
+            var array = new int[] { 1, 2, 3 };
+
+            // Act
+            _pool.Return(array, clearArray: false);
+
+            // Assert
+            CollectionAssert.AreEqual(new int[] { 1, 2, 3 }, array);
         }
     }
 }

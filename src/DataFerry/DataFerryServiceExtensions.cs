@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.IO;
 using System.Buffers;
 
 namespace lvlup.DataFerry
@@ -19,8 +20,9 @@ namespace lvlup.DataFerry
             services.AddOptions();
             services.Configure(setupAction);
 
-            // Add array pool
+            // Add pooled resource managers
             services.TryAddSingleton(serviceProvider => StackArrayPool<byte>.Shared);
+            services.TryAddSingleton<RecyclableMemoryStreamManager>();
 
             // Add and return services
             services.TryAddScoped<IBufferWriter<byte>, RentedBufferWriter<byte>>();
