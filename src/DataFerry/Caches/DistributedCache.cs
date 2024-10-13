@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 using System.Buffers;
 using System.Text;
-
+/*
 namespace lvlup.DataFerry.Caches
 {
     /// <summary>
@@ -15,7 +15,7 @@ namespace lvlup.DataFerry.Caches
     /// <remarks>
     /// This can be used with numerous Redis cache providers such as AWS ElastiCache or Azure Cache for Redis.
     /// </remarks>
-    public class DistributedCache<T> where T : class
+    public class DistributedCache
     {
         private readonly IConnectionMultiplexer _cache;
         private readonly IFastMemCache<string, string> _memCache;
@@ -64,7 +64,7 @@ namespace lvlup.DataFerry.Caches
             _logger = logger;
             _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings);
         }
-
+        
         /// <summary>
         /// Retrieves an <see cref="IDatabase"/> representation of the cache.
         /// </summary>
@@ -523,3 +523,4 @@ namespace lvlup.DataFerry.Caches
         }
     }
 }
+*/

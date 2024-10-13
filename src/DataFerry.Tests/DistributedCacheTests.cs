@@ -7,7 +7,7 @@ using lvlup.DataFerry.Caches.Abstractions;
 using StackExchange.Redis;
 using System.Text.Json;
 using lvlup.DataFerry.Tests.TestModels;
-
+/*
 namespace lvlup.DataFerry.Tests
 {
     [TestClass]
@@ -403,3 +403,4 @@ namespace lvlup.DataFerry.Tests
         #endregion
     }
 }
+*/

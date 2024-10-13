@@ -66,6 +66,6 @@
         /// <summary>
         /// Gets the distributed cache reference.
         /// </summary>
-        DistributedCache Cache { get; }
+        //DistributedCache Cache { get; }
     }
 }

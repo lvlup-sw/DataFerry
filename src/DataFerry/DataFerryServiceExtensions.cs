@@ -26,7 +26,7 @@ namespace lvlup.DataFerry
             services.TryAddScoped<IBufferWriter<byte>, RentedBufferWriter<byte>>();
             services.TryAddSingleton<IDataFerrySerializer, DataFerrySerializer>();
             services.TryAddSingleton<ISparseDistributedCache, SparseDistributedCache>();
-            services.TryAddSingleton<IDataFerry, Providers.DataFerry>();
+            //services.TryAddSingleton<IDataFerry, Providers.DataFerry>();
             return services;
         }
     }
