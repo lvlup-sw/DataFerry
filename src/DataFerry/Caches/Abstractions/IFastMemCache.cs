@@ -73,5 +73,11 @@
         /// Evicts all expired items from the cache.
         /// </summary>
         void EvictExpired();
+
+        /// <summary>
+        /// Check backplane for messages from subscription
+        /// </summary>
+        /// <returns>Used to synchronize in-memory caches across nodes.</returns>
+        void CheckBackplane();
     }
 }

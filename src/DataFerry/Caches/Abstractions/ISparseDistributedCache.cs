@@ -135,11 +135,6 @@ namespace lvlup.DataFerry.Caches.Abstractions
         ValueTask RemoveBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default);
 
         /// <summary>
-        /// Retrieves an <see cref="IDatabase"/> representation of the cache.
-        /// </summary>
-        IDatabase GetCacheConnection();
-
-        /// <summary>
         /// Get the configured Polly policy.
         /// </summary>
         AsyncPolicyWrap<object> GetPollyPolicy();

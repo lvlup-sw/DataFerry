@@ -280,5 +280,7 @@ namespace lvlup.DataFerry.Caches
                 _disposedValue = true;
             }
         }
+
+        public void CheckBackplane() { }
     }
 }

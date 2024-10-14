@@ -1,4 +1,4 @@
-# DistributedCache Data Flow
+# DistributedCache Get Data Flow
 - When the `DistributedCache` needs to retrieve a value from Redis, it uses the `RentedBufferWriter` to obtain a buffer.
 - The `RentedBufferWriter` internally uses the `StackArrayPool<byte>` to rent a buffer, avoiding a new allocation if possible.
 - The `DistributedCache` retrieves the raw bytes from Redis and copies them into the rented buffer provided by the `RentedBufferWriter`.

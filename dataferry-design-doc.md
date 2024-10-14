@@ -77,3 +77,16 @@ Introduce an interface (e.g., `IDataSource<T>`) to abstract interactions with th
 * **.NET Standard Target:** Target .NET Standard 2.0 for compatibility with a wide range of .NET versions.
 * **Dependency Injection:** Use a builder pattern to facilitate easy configuration and registration of the hybrid cache with dependency injection in ASP.NET Core applications.
 * **Configuration:** Provide options for configuring L1 and L2 cache settings, serialization, and Polly policies.
+
+
+DataFerry --> 
+    Rents BufferWriter from pool
+    BufferWriter uses ArrayPool for internal buffers
+
+DataFerry --> 
+    Passes cacheKey, rented BufferWriter to SparseDistributedCache
+
+SparseDistributedCache --> 
+    Retrieves value using cacheKey from either in-memory or distributed cache
+    Deserializes value using serializer wrapper
+    Writes value to rented buffer

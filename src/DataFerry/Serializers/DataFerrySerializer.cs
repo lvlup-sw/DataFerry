@@ -43,25 +43,15 @@ namespace lvlup.DataFerry.Serializers
         /// <inheritdoc/>
         public T? Deserialize<T>(ReadOnlySequence<byte> source, JsonSerializerOptions? options = default)
         {
-            // Rent a buffer from the pool
-            byte[] buffer = _arrayPool.Rent((int)source.Length);
-
             try
             {
-                // Copy the data to the rented buffer
-                source.CopyTo(buffer);
-
-                return JsonSerializer.Deserialize<T>(buffer.AsSpan(0, (int)source.Length), options);
+                var reader = new Utf8JsonReader(source);
+                return JsonSerializer.Deserialize<T>(ref reader, options);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value.");
                 return default;
-            }
-            finally
-            {
-                // Return the buffer to the pool
-                _arrayPool.Return(buffer);
             }
         }
 
