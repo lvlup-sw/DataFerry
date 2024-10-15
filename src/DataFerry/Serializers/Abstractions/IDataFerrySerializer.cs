@@ -36,6 +36,15 @@ namespace lvlup.DataFerry.Serializers.Abstractions
         string Serialize<T>(T value, JsonSerializerOptions? options = default);
 
         /// <summary>
+        /// Serializes a <typeparamref name="T"/> to a byte array.
+        /// </summary>
+        /// <typeparam name="T">The type to serialize.</typeparam>
+        /// <param name="value">The <typeparamref name="T"/> instance to serialize.</param>
+        /// <param name="options">Options to control the behavior during serialization.</param>
+        /// <returns>A byte array representing the serialized object.</returns>
+        byte[] SerializeToUtf8Bytes<T>(T value, JsonSerializerOptions? options = default);
+
+        /// <summary>
         /// Asynchronously deserializes a <typeparamref name="T"/> from a <see cref="ReadOnlySequence{T}"/> of bytes.
         /// </summary>
         /// <typeparam name="T">The type to deserialize to.</typeparam>

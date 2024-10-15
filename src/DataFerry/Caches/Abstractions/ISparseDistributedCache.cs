@@ -18,7 +18,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="destination">The target to write the cache contents on success.</param>
         /// <returns><c>true</c> if the cache item is found and successfully written to the <paramref name="destination"/>, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Get(string)"/>, but avoids unnecessary array allocations by utilizing an <see cref="IBufferWriter{byte}"/>.</remarks>
-        bool GetFromCache(string key, IBufferWriter<byte> destination);
+        bool GetFromCache(string key, IBufferWriter<byte> destination, DistributedCacheEntryOptions? options);
 
         /// <summary>
         /// Sets or overwrites a cache item synchronously.
@@ -30,7 +30,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Set(string, byte[], DistributedCacheEntryOptions)"/>, 
         /// but avoids unnecessary array allocations by utilizing a <see cref="ReadOnlySequence{byte}"/>. 
         /// It also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions options);
+        bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options);
 
         /// <summary>
         /// Refreshes a value in the cache synchronously based on its key, resetting its sliding expiration timeout (if any).
@@ -39,7 +39,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <returns><c>true</c> if the cache item is refreshed successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Refresh(string)"/>, 
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        bool RefreshInCache(string key);
+        bool RefreshInCache(string key, DistributedCacheEntryOptions? options);
 
         /// <summary>
         /// Removes the value with the given key synchronously from the cache.
@@ -48,7 +48,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <returns><c>true</c> if the cache item is removed successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Remove(string)"/>, 
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        bool RemoveFromCache(string key);
+        bool RemoveFromCache(string key, DistributedCacheEntryOptions? options);
 
         /// <summary>
         /// Asynchronously attempts to retrieve an existing cache entry.

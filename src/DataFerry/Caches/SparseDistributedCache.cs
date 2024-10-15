@@ -74,7 +74,7 @@ namespace lvlup.DataFerry.Caches
                 && data is not null)
             {
                 // Success path; deserialize and return
-                _logger.LogDebug("Retrieved data with key {key} from memory cache.", key);
+                _logger.LogDebug("Retrieved entry with key {key} from memory cache.", key);
                 var sequence = new ReadOnlySequence<byte>(data);
 
                 destination.Write(
@@ -87,7 +87,7 @@ namespace lvlup.DataFerry.Caches
             // If the key does not exist in the _memCache, get a database connection
             IDatabase database = _cache.GetDatabase();
 
-            // We have an async policy but make sure it works 
+            // We have an async policy but force it to work 
             // synchronously by adding GetAwaiter and GetResult.
             object result = _policy.ExecuteAsync(async (context) =>
             {
@@ -96,7 +96,7 @@ namespace lvlup.DataFerry.Caches
                     .ConfigureAwait(false);
 
                 return data.HasValue ? data : default;
-            }, new Context($"DistributedCache.GetAsync for {key}"))
+            }, new Context($"SparseDistributedCache.GetFromCache for {key}"))
             .GetAwaiter()
             .GetResult();
 
@@ -121,7 +121,76 @@ namespace lvlup.DataFerry.Caches
 
         public bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions options)
         {
-            throw new NotImplementedException();
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.CheckBackplane();
+                _memCache.AddOrUpdate(key, _serializer.SerializeToUtf8Bytes(value), TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+            }
+
+            IDatabase database = _cache.GetDatabase();
+
+            // We have an async policy but force it to work 
+            // synchronously by adding GetAwaiter and GetResult.
+            object result = _policy.ExecuteAsync(async (context) =>
+            {
+                _logger.LogDebug("Attempting to add entry with key {key} to cache.", key);
+                return await database.StringSetAsync(key, _serializer.SerializeToUtf8Bytes(value), options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow)
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.SetInCache for {key}"))
+            .GetAwaiter()
+            .GetResult();
+
+            return result as bool?
+                ?? default;
+        }
+
+        public bool RefreshInCache(string key, DistributedCacheEntryOptions options)
+        {
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.CheckBackplane();
+                _memCache.Remove(key);
+            }
+
+            IDatabase database = _cache.GetDatabase();
+
+            // We have an async policy but force it to work 
+            // synchronously by adding GetAwaiter and GetResult.
+            object result = _policy.ExecuteAsync(async (context) =>
+            {
+                _logger.LogDebug("Attempting to refresh entry with key {key} from cache.", key);
+                return await database.KeyExpireAsync(key, options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow);
+            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"))
+            .GetAwaiter()
+            .GetResult();
+
+            return result as bool?
+                ?? default;
+        }
+
+        public bool RemoveFromCache(string key, DistributedCacheEntryOptions options)
+        {
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.CheckBackplane();
+                _memCache.Remove(key);
+            }
+
+            IDatabase database = _cache.GetDatabase();
+
+            // We have an async policy but force it to work 
+            // synchronously by adding GetAwaiter and GetResult.
+            object result = _policy.ExecuteAsync(async (context) =>
+            {
+                _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
+                return await database.KeyDeleteAsync(key)
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"))
+            .GetAwaiter()
+            .GetResult();
+
+            return result as bool?
+                ?? default;
         }
 
         private bool TryGetFromMemoryCache(string key, out byte[]? data)

@@ -12,6 +12,7 @@ namespace lvlup.DataFerry.Serializers
     /// This implementation utilizes pooled resources for efficient buffer management. 
     /// An <see cref="ArrayPool{T}"/> is used to rent and return buffers.
     /// A <see cref="RecyclableMemoryStreamManager"/> is used to rent stream instances.
+    /// This class is optimally used with an <see cref="IBufferWriter{T}"/>.
     /// </remarks>
     public sealed class DataFerrySerializer : IDataFerrySerializer
     {

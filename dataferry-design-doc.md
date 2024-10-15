@@ -90,3 +90,29 @@ SparseDistributedCache -->
     Retrieves value using cacheKey from either in-memory or distributed cache
     Deserializes value using serializer wrapper
     Writes value to rented buffer
+
+
+Work to be Done:
+    - StackArrayPool<T> => DONE
+    - RentedBufferWriter<T> => DONE
+    - DataFerrySerializer<T> => DONE
+    - FastMemCache => 90%
+        + Backplane
+    - SparseDistributedCache => 15%
+        + Contract methods
+    - DataFerry => 0%
+        + Contract
+            ~ IDataSource?
+        + Contract methods
+            ~ RentedBufferWriter utilization
+        + Stampede protection
+    - QoL => 0%
+        + OpenTelemetry
+        + Options classes
+        + Mix/Match cache combinations
+        + Netstandard compatibility
+        + Serializer customization
+        + Public helper methods
+        + Extended methods (GetOrAdd, etc)
+    - Future => 0%
+        + ref/structs
