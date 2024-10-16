@@ -13,15 +13,22 @@ namespace lvlup.DataFerry.Caches
     public class FastMemCache<TKey, TValue> : IFastMemCache<TKey, TValue> where TKey : notnull
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _dict = new();
-
+        private readonly CountMinSketch<TKey> _cms;
         private readonly Timer _cleanUpTimer;
+        private readonly int _sampleSize;
+
+        public int MaxSize { get; set; } = 10000;
 
         /// <summary>
         /// Initializes a new instance of <see cref="FastMemCache{TKey, TValue}"/>
         /// </summary>
+        /// <param name="maxSize">The maximum number of items allowed in the cache.</param>        
         /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
-        public FastMemCache(int cleanupJobInterval = 10000)
+        public FastMemCache(int maxSize = 10000, int cleanupJobInterval = 10000)
         {
+            MaxSize = maxSize;
+            _sampleSize = (int) Math.Sqrt(maxSize);
+            _cms = new(maxSize);
             _cleanUpTimer = new Timer(
                 async s => await EvictExpiredJob(),
                 default,
@@ -42,6 +49,7 @@ namespace lvlup.DataFerry.Caches
             try
             {
                 EvictExpired();
+                EvictLFU();
             }
             finally
             {
@@ -103,6 +111,8 @@ namespace lvlup.DataFerry.Caches
         public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
         {   // ConcurrentDictionary is thread-safe
             var ttlValue = new TtlValue(value, ttl);
+            _cms.Insert(key);
+            if (RequiresEviction()) EvictLFU();
             _dict.AddOrUpdate(key, ttlValue, (existingKey, existingValue) => ttlValue);
         }
 
@@ -147,6 +157,7 @@ namespace lvlup.DataFerry.Caches
 
             // Found and not expired
             value = ttlValue.Value;
+            _cms.Insert(key);
             return true;
         }
 
@@ -162,6 +173,8 @@ namespace lvlup.DataFerry.Caches
             if (TryGet(key, out var value)) return value;
 
             var ttlValue = new TtlValue(valueFactory(key), ttl);
+            _cms.Insert(key);
+            if (RequiresEviction()) EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -176,9 +189,15 @@ namespace lvlup.DataFerry.Caches
         /// <param name="factoryArgument">An argument to pass to the `valueFactory` function.</param>
         public TValue GetOrAdd<TArg>(TKey key, Func<TKey, TArg, TValue> valueFactory, TimeSpan ttl, TArg factoryArgument)
         {
-            if (TryGet(key, out var value)) return value;
+            if (TryGet(key, out var value))
+            {
+                _cms.Insert(key);
+                return value;
+            }
 
             var ttlValue = new TtlValue(valueFactory(key, factoryArgument), ttl);
+            _cms.Insert(key);
+            if (RequiresEviction()) EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -191,9 +210,15 @@ namespace lvlup.DataFerry.Caches
         /// <param name="ttl">The time-to-live (TTL) for the item, after which it will expire.</param>
         public TValue GetOrAdd(TKey key, TValue value, TimeSpan ttl)
         {
-            if (TryGet(key, out var existingValue)) return existingValue;
+            if (TryGet(key, out var existingValue))
+            {
+                _cms.Insert(key);
+                return existingValue;
+            }
 
             var ttlValue = new TtlValue(value, ttl);
+            _cms.Insert(key);
+            if (RequiresEviction()) EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -224,11 +249,43 @@ namespace lvlup.DataFerry.Caches
             _dict[key] = new TtlValue(_dict[key].Value, ttl);
         }
 
+        private readonly List<TKey> _sampledKeys = [];
+        internal void EvictLFU()
+        {
+            var random = new Random();
+            var keysArray = _dict.Keys.ToArray();
+
+            // Reuse the _sampledKeys list 
+            _sampledKeys.Clear();
+            for (int i = 0; i < _sampleSize; i++)
+            {
+                _sampledKeys.Add(keysArray[random.Next(keysArray.Length)]);
+            }
+
+            // Find the LFU key
+            TKey? lfuKey = default;
+            int minFrequency = int.MaxValue;
+            foreach (var key in _sampledKeys)
+            {
+                var frequency = _cms.Query(key);
+                if (frequency < minFrequency)
+                {
+                    minFrequency = frequency;
+                    lfuKey = key;
+                }
+            }
+
+            // Evict the LFU key (or a random key if all frequencies are the same)
+            _dict.TryRemove(lfuKey ?? _sampledKeys[random.Next(_sampleSize)], out _);
+        }
+
         /// <summary>
         /// Returns an enumerator that iterates through the non-expired key-value pairs in the cache.
         /// (Explicit implementation of the IEnumerable.GetEnumerator method.)
         /// </summary>
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        private bool RequiresEviction() => _dict.Count >= MaxSize;
 
         /// <summary>
         /// Represents a value with an associated time-to-live (TTL) for expiration.
