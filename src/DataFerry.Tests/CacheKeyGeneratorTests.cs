@@ -14,7 +14,7 @@ namespace lvlup.DataFerry.Tests
             uint seed = 12345;
 
             // Act
-            uint result = CacheKeyGenerator.Hash32(ref bytes, seed);
+            uint result = HashGenerator.Hash32(ref bytes, seed);
 
             // Assert
             Assert.AreEqual(seed, result);
@@ -33,10 +33,10 @@ namespace lvlup.DataFerry.Tests
 
             // Act
             uint seed1 = 42;
-            uint hash1 = CacheKeyGenerator.Hash32(ref bytesSpan1, seed1);
+            uint hash1 = HashGenerator.Hash32(ref bytesSpan1, seed1);
 
             uint seed2 = 12345;
-            uint hash2 = CacheKeyGenerator.Hash32(ref bytesSpan2, seed2);
+            uint hash2 = HashGenerator.Hash32(ref bytesSpan2, seed2);
 
             // Assert
             Assert.AreNotEqual(hash1, hash2);
@@ -54,8 +54,8 @@ namespace lvlup.DataFerry.Tests
 
             // Act
             uint seed = 5;
-            uint hash1 = CacheKeyGenerator.Hash32(ref bytesSpan1, seed);
-            uint hash2 = CacheKeyGenerator.Hash32(ref bytesSpan2, seed);
+            uint hash1 = HashGenerator.Hash32(ref bytesSpan1, seed);
+            uint hash2 = HashGenerator.Hash32(ref bytesSpan2, seed);
 
             // Assert
             Assert.AreEqual(hash1, hash2);
@@ -73,7 +73,7 @@ namespace lvlup.DataFerry.Tests
             ReadOnlySpan<byte> inputSpan = Encoding.UTF8.GetBytes(input).AsSpan();
 
             // Act
-            var actual = CacheKeyGenerator.Hash32(ref inputSpan, seed);
+            var actual = HashGenerator.Hash32(ref inputSpan, seed);
 
             // Assert
             Assert.AreEqual(expected, actual);
@@ -98,10 +98,10 @@ namespace lvlup.DataFerry.Tests
             var bytesSpan = new ReadOnlySpan<byte>(bytes);
 
             // Act
-            uint hash1 = CacheKeyGenerator.Hash32(ref bytesSpan, seed);
+            uint hash1 = HashGenerator.Hash32(ref bytesSpan, seed);
             bytes[0] = (byte)(bytes[0] ^ 0xFF);
             bytesSpan = new ReadOnlySpan<byte>(bytes);
-            uint hash2 = CacheKeyGenerator.Hash32(ref bytesSpan, seed);
+            uint hash2 = HashGenerator.Hash32(ref bytesSpan, seed);
 
             // Assert
             Assert.AreNotEqual(hash1, hash2);

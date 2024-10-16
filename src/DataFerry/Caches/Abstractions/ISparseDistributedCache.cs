@@ -18,7 +18,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="destination">The target to write the cache contents on success.</param>
         /// <returns><c>true</c> if the cache item is found and successfully written to the <paramref name="destination"/>, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Get(string)"/>, but avoids unnecessary array allocations by utilizing an <see cref="IBufferWriter{byte}"/>.</remarks>
-        bool GetFromCache(string key, IBufferWriter<byte> destination, DistributedCacheEntryOptions? options);
+        bool GetFromCache(string key, IBufferWriter<byte> destination);
 
         /// <summary>
         /// Sets or overwrites a cache item synchronously.
@@ -35,11 +35,12 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <summary>
         /// Refreshes a value in the cache synchronously based on its key, resetting its sliding expiration timeout (if any).
         /// </summary>
-        /// <param name="key">A string identifying the requested value.</param>  
+        /// <param name="key">A string identifying the requested value.</param>
+        /// <param name="options">The cache options for the entry.</param>
         /// <returns><c>true</c> if the cache item is refreshed successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Refresh(string)"/>, 
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        bool RefreshInCache(string key, DistributedCacheEntryOptions? options);
+        bool RefreshInCache(string key, DistributedCacheEntryOptions options);
 
         /// <summary>
         /// Removes the value with the given key synchronously from the cache.
@@ -48,7 +49,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <returns><c>true</c> if the cache item is removed successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Remove(string)"/>, 
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        bool RemoveFromCache(string key, DistributedCacheEntryOptions? options);
+        bool RemoveFromCache(string key);
 
         /// <summary>
         /// Asynchronously attempts to retrieve an existing cache entry.
@@ -73,19 +74,19 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// if the cache item is set successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.SetAsync(string, byte[], DistributedCacheEntryOptions, CancellationToken)"/>, but avoids unnecessary array allocations by utilizing a <see cref="ReadOnlySequence{T}"/>.
         /// It also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions options, CancellationToken token = default);
+        ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously refreshes a value in the cache based on its key, resetting its sliding expiration timeout (if any).
         /// </summary>
         /// <param name="key">A string identifying the requested value.</param>
-        /// <param name="token">The  
-	    /// <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
+        /// <param name="options">The cache options for the value.</param> 
+        /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.RefreshAsync(string, CancellationToken)"/>, 
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
         /// <returns><c>true</c>  
         /// if the cache item is refreshed successfully, <c>false</c> otherwise.</returns>
-        ValueTask<bool> RefreshInCacheAsync(string key, CancellationToken token = default);
+        ValueTask<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously removes the value with the given key from the cache.
@@ -113,18 +114,18 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// </summary>
         /// <param name="data">A dictionary containing the key-value pairs to be set in the cache, where the values are represented as <see cref="ReadOnlySequence{byte}"/> of bytes.</param>
         /// <param name="options">The cache options for the entries.</param>
-        /// <param name="absoluteExpiration">The absolute expiration time for the entries.</param>
         /// <param name="callback">A callback function to be invoked for each key, indicating whether the operation was successful.</param>
         /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
-        ValueTask SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions options, TimeSpan? absoluteExpiration, Action<string, bool> callback, CancellationToken token = default);
+        ValueTask SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, Action<string, bool> callback, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously refreshes a batch of values in the cache based on their keys, resetting their sliding expiration timeout (if any).
         /// </summary>
         /// <param name="keys">A collection of keys identifying the requested values.</param>
+        /// <param name="options">The cache options for the value.</param> 
         /// <param name="callback">A callback function to be invoked for each key, indicating whether the refresh operation was successful.</param>
         /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
-        ValueTask RefreshBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default);
+        ValueTask RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, Action<string, bool> callback, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously removes a batch of values from the cache based on their keys.
@@ -135,9 +136,14 @@ namespace lvlup.DataFerry.Caches.Abstractions
         ValueTask RemoveBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default);
 
         /// <summary>
-        /// Get the configured Polly policy.
+        /// Get the configured synchronous Polly policy.
         /// </summary>
-        AsyncPolicyWrap<object> GetPollyPolicy();
+        PolicyWrap<object> GetSyncPollyPolicy();
+
+        /// <summary>
+        /// Get the configured asynchronous Polly policy.
+        /// </summary>
+        AsyncPolicyWrap<object> GetAsyncPollyPolicy();
 
         /// <summary>
         /// Set the fallback value for the polly retry policy.

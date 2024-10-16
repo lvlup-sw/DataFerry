@@ -59,11 +59,6 @@
         Task<bool> RemoveDataBatchAsync(IEnumerable<string> keys, CancellationToken? cancellationToken = null);
 
         /// <summary>
-        /// Gets the data source reference.
-        /// </summary>
-        IDataSource DataSource { get; }
-
-        /// <summary>
         /// Gets the distributed cache reference.
         /// </summary>
         //DistributedCache Cache { get; }

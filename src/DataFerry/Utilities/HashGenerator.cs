@@ -6,7 +6,7 @@ using static System.Numerics.BitOperations;
 
 namespace lvlup.DataFerry.Utilities
 {
-    public static class CacheKeyGenerator
+    public static class HashGenerator
     {
         /// <summary>
         /// Creates a cache key by hashing <paramref name="obj"/> into a MurmurHash3 represented as <see cref="uint"/>.

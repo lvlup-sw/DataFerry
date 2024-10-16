@@ -1,6 +1,6 @@
 ﻿namespace lvlup.DataFerry.Utilities
 {
-    internal static class Extensions
+    internal static class ListExtensions
     {
         /// <summary>
         /// Swaps the elements at the specified indexes within the list.

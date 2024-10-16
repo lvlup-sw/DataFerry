@@ -17,13 +17,13 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class SparseDistributedCacheTests
     {
-        private SparseDistributedCache _cache;
-        private Mock<IConnectionMultiplexer> _redis;
-        private Mock<IFastMemCache<string, byte[]>> _memCache;
-        private StackArrayPool<byte> _arrayPool;
-        private Mock<IDataFerrySerializer> _serializer;
-        private IOptions<CacheSettings> _settings;
-        private Mock<ILogger<SparseDistributedCache>> _logger;
+        private SparseDistributedCache _cache = default!;
+        private Mock<IConnectionMultiplexer> _redis = default!;
+        private Mock<IFastMemCache<string, byte[]>> _memCache = default!;
+        private StackArrayPool<byte> _arrayPool = default!;
+        private Mock<IDataFerrySerializer> _serializer = default!;
+        private IOptions<CacheSettings> _settings = default!;
+        private Mock<ILogger<SparseDistributedCache>> _logger = default!;
 
         [TestInitialize]
         public void Setup()
@@ -116,7 +116,7 @@ namespace lvlup.DataFerry.Tests
             byte[]? memValue = default;
             _memCache.Setup(cache => cache.TryGet(key, out memValue)).Returns(false);
             Mock<IDatabase> database = new();
-            database.Setup(cache => cache.StringGetAsync(key, CommandFlags.PreferReplica)).ReturnsAsync(redisSerializedValue);
+            database.Setup(cache => cache.StringGet(key, CommandFlags.PreferReplica)).Returns(redisSerializedValue);
             _serializer.Setup(m => m.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default)).Returns(deserializedByte);
             _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
             var destination = new ArrayBufferWriter<byte>();
@@ -128,7 +128,7 @@ namespace lvlup.DataFerry.Tests
             Assert.IsNotNull(result);
             _memCache.Verify(cache => cache.TryGet(key, out serializedByte), Times.Once);
             _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Once);
-            database.Verify(cache => cache.StringGetAsync(key, CommandFlags.PreferReplica), Times.Once);
+            database.Verify(cache => cache.StringGet(key, CommandFlags.PreferReplica), Times.Once);
             CollectionAssert.AreEqual(deserializedByte, destination.WrittenMemory.ToArray());
         }
 
@@ -147,7 +147,7 @@ namespace lvlup.DataFerry.Tests
             _memCache.Setup(cache => cache.TryGet(key, out nullValue)).Returns(false);
             Mock<IDatabase> database = new();
             _serializer.Setup(m => m.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default)).Returns(deserializedByte);
-            database.Setup(cache => cache.StringGetAsync(key, CommandFlags.PreferReplica)).ReturnsAsync(nullValue);
+            database.Setup(cache => cache.StringGet(key, CommandFlags.PreferReplica)).Returns(nullValue);
             _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
             var destination = new ArrayBufferWriter<byte>();
 
@@ -158,7 +158,7 @@ namespace lvlup.DataFerry.Tests
             Assert.IsFalse(result);
             _memCache.Verify(cache => cache.TryGet(key, out nullValue), Times.Once);
             _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Never);
-            database.Verify(cache => cache.StringGetAsync(key, CommandFlags.PreferReplica), Times.Once);
+            database.Verify(cache => cache.StringGet(key, CommandFlags.PreferReplica), Times.Once);
             CollectionAssert.AreNotEqual(deserializedByte, destination.WrittenMemory.ToArray());
             Assert.IsTrue(destination.FreeCapacity == destination.WrittenSpan.Length);
         }
@@ -181,5 +181,14 @@ namespace lvlup.DataFerry.Tests
         }
 
         #endregion
+        #region SET
+
+        #endregion
+        #region REFRESH
+
+        #endregion
+        #region REMOVE
+
+        #endregion 
     }
 }

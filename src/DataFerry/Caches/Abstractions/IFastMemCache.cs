@@ -70,6 +70,13 @@
         void Remove(TKey key);
 
         /// <summary>
+        /// Refresh the time-to-live value for the associated item.
+        /// </summary>
+        /// <param name="key">The key of the item to refresh.</param>
+        /// <param name="ttl">The new time-to-live value for the item.</param>
+        void Refresh(TKey key, TimeSpan ttl);
+
+        /// <summary>
         /// Evicts all expired items from the cache.
         /// </summary>
         void EvictExpired();

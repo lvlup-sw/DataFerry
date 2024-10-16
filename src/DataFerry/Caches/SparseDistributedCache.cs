@@ -5,8 +5,6 @@ using Polly;
 using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
-using static System.Runtime.InteropServices.JavaScript.JSType;
-using System.Text.Json;
 
 namespace lvlup.DataFerry.Caches
 {
@@ -18,7 +16,8 @@ namespace lvlup.DataFerry.Caches
         private readonly IDataFerrySerializer _serializer;
         private readonly CacheSettings _settings;
         private readonly ILogger<SparseDistributedCache> _logger;
-        private AsyncPolicyWrap<object> _policy;
+        private PolicyWrap<object> _syncPolicy;
+        private AsyncPolicyWrap<object> _asyncPolicy;
 
         /// <summary>
         /// The primary constructor for the <see cref="SparseDistributedCache"/> class.
@@ -46,20 +45,32 @@ namespace lvlup.DataFerry.Caches
             _serializer = serializer;
             _settings = settings.Value;
             _logger = logger;
-            _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings);
+            _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings);
+            _asyncPolicy = PollyPolicyGenerator.GenerateAsyncPolicy(_logger, _settings);
         }
 
         /// <summary>
-        /// Get the configured Polly policy.
+        /// Get the configured synchronous Polly policy.
         /// </summary>
-        public AsyncPolicyWrap<object> GetPollyPolicy() => _policy;
+        public PolicyWrap<object> GetSyncPollyPolicy() => _syncPolicy;
+
+        /// <summary>
+        /// Get the configured asynchronous Polly policy.
+        /// </summary>
+        public AsyncPolicyWrap<object> GetAsyncPollyPolicy() => _asyncPolicy;
 
         /// <summary>
         /// Set the fallback value for the polly retry policy.
         /// </summary>
         /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
         /// <param name="value"></param>
-        public void SetFallbackValue(object value) => _policy = PollyPolicyGenerator.GeneratePolicy(_logger, _settings, value);
+        public void SetFallbackValue(object value)
+        {
+            _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings, value);
+            _asyncPolicy = PollyPolicyGenerator.GenerateAsyncPolicy(_logger, _settings, value);
+        }
+
+        #region SYNCHRONOUS OPERATIONS
 
         /// <summary>
         /// 
@@ -87,18 +98,14 @@ namespace lvlup.DataFerry.Caches
             // If the key does not exist in the _memCache, get a database connection
             IDatabase database = _cache.GetDatabase();
 
-            // We have an async policy but force it to work 
-            // synchronously by adding GetAwaiter and GetResult.
-            object result = _policy.ExecuteAsync(async (context) =>
+            // Execute against the distributed cache
+            object result = _syncPolicy.Execute((context) =>
             {
                 _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
-                RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica)
-                    .ConfigureAwait(false);
+                RedisValue data = database.StringGet(key, CommandFlags.PreferReplica);
 
                 return data.HasValue ? data : default;
-            }, new Context($"SparseDistributedCache.GetFromCache for {key}"))
-            .GetAwaiter()
-            .GetResult();
+            }, new Context($"SparseDistributedCache.GetFromCache for {key}"));
 
             if (result is RedisValue value && value.HasValue)
             {
@@ -118,8 +125,8 @@ namespace lvlup.DataFerry.Caches
             _logger.LogDebug("Failed to retrieve value with key: {key}", key);
             return false;
         }
-
-        public bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions options)
+        
+        public bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options)
         {
             if (_settings.UseMemoryCache)
             {
@@ -129,16 +136,13 @@ namespace lvlup.DataFerry.Caches
 
             IDatabase database = _cache.GetDatabase();
 
-            // We have an async policy but force it to work 
-            // synchronously by adding GetAwaiter and GetResult.
-            object result = _policy.ExecuteAsync(async (context) =>
+            // Execute against the distributed cache
+            object result = _syncPolicy.Execute((context) =>
             {
-                _logger.LogDebug("Attempting to add entry with key {key} to cache.", key);
-                return await database.StringSetAsync(key, _serializer.SerializeToUtf8Bytes(value), options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow)
-                    .ConfigureAwait(false);
-            }, new Context($"SparseDistributedCache.SetInCache for {key}"))
-            .GetAwaiter()
-            .GetResult();
+                var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
+                _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, ttl);
+                return database.StringSet(key, _serializer.SerializeToUtf8Bytes(value), ttl);
+            }, new Context($"SparseDistributedCache.SetInCache for {key}"));
 
             return result as bool?
                 ?? default;
@@ -149,26 +153,24 @@ namespace lvlup.DataFerry.Caches
             if (_settings.UseMemoryCache)
             {
                 _memCache.CheckBackplane();
-                _memCache.Remove(key);
+                _memCache.Refresh(key, TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
             }
 
             IDatabase database = _cache.GetDatabase();
 
-            // We have an async policy but force it to work 
-            // synchronously by adding GetAwaiter and GetResult.
-            object result = _policy.ExecuteAsync(async (context) =>
+            // Execute against the distributed cache
+            object result = _syncPolicy.Execute((context) =>
             {
-                _logger.LogDebug("Attempting to refresh entry with key {key} from cache.", key);
-                return await database.KeyExpireAsync(key, options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow);
-            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"))
-            .GetAwaiter()
-            .GetResult();
+                var ttl = options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromMinutes(60);
+                _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
+                return database.KeyExpire(key, ttl);
+            }, new Context($"SparseDistributedCache.RefreshInCache for {key}"));
 
             return result as bool?
                 ?? default;
         }
 
-        public bool RemoveFromCache(string key, DistributedCacheEntryOptions options)
+        public bool RemoveFromCache(string key)
         {
             if (_settings.UseMemoryCache)
             {
@@ -178,20 +180,65 @@ namespace lvlup.DataFerry.Caches
 
             IDatabase database = _cache.GetDatabase();
 
-            // We have an async policy but force it to work 
-            // synchronously by adding GetAwaiter and GetResult.
-            object result = _policy.ExecuteAsync(async (context) =>
+            // Execute against the distributed cache
+            object result = _syncPolicy.Execute((context) =>
             {
                 _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
-                return await database.KeyDeleteAsync(key)
-                    .ConfigureAwait(false);
-            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"))
-            .GetAwaiter()
-            .GetResult();
+                return database.KeyDelete(key);
+            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"));
 
             return result as bool?
                 ?? default;
         }
+
+        #endregion
+        #region ASYNCHRONOUS OPERATIONS
+        // void Serialize<T>(T value, IBufferWriter<byte> target, JsonSerializerOptions? options = default);
+        public ValueTask<bool> GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueTask<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        #endregion
+        #region ASYNCHRONOUS BATCH OPERATIONS
+
+        public ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, Action<string, T?> callback, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueTask SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, Action<string, bool> callback, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueTask RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, Action<string, bool> callback, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public ValueTask RemoveBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        #endregion
+        #region HELPER METHODS
 
         private bool TryGetFromMemoryCache(string key, out byte[]? data)
         {
@@ -205,58 +252,6 @@ namespace lvlup.DataFerry.Caches
             return _memCache.TryGet(key, out data);
         }
 
-        // void Serialize<T>(T value, IBufferWriter<byte> target, JsonSerializerOptions? options = default);
-
-
-
-        public ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, Action<string, T?> callback, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ValueTask<bool> GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ValueTask RefreshBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
-
-        public bool RefreshInCache(string key)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ValueTask<bool> RefreshInCacheAsync(string key, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ValueTask RemoveBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
-
-        public bool RemoveFromCache(string key)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ValueTask SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions options, TimeSpan? absoluteExpiration, Action<string, bool> callback, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
-
-        public ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions options, CancellationToken token = default)
-        {
-            throw new NotImplementedException();
-        }
+        #endregion
     }
 }

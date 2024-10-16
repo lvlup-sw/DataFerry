@@ -218,6 +218,12 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
+        /// <inheritdoc/>
+        public void Refresh(TKey key, TimeSpan ttl)
+        {
+            _dict[key] = new TtlValue(_dict[key].Value, ttl);
+        }
+
         /// <summary>
         /// Returns an enumerator that iterates through the non-expired key-value pairs in the cache.
         /// (Explicit implementation of the IEnumerable.GetEnumerator method.)

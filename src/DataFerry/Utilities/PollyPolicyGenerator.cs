@@ -12,12 +12,12 @@ namespace lvlup.DataFerry.Utilities
         internal static CacheSettings? _settings { get; private set; }
 
         /// <summary>
-        /// Creates a policy for handling exceptions when accessing the cache.
+        /// Creates a synchronous policy for handling exceptions when accessing the cache.
         /// </summary>
         /// <param name="logger">Logger instance to use for policy.</param>
         /// <param name="settings">The configured cache settings.</param>
         /// <param name="configuredValue">The configured fall back value for the cache.</param>
-        public static AsyncPolicyWrap<object> GeneratePolicy(ILogger logger, CacheSettings settings, object? configuredValue = null)
+        public static PolicyWrap<object> GenerateSyncPolicy(ILogger logger, CacheSettings settings, object? configuredValue = null)
         {
             _logger = logger;
             _settings = settings;
@@ -27,17 +27,103 @@ namespace lvlup.DataFerry.Utilities
 
             return (settings.DesiredPolicy) switch
             {
-                ResiliencyPatterns.Advanced => GetAdvancedPattern(configuredValue),
-                ResiliencyPatterns.Basic => GetBasicPattern(configuredValue),
-                _ => GetDefaultPattern()
+                ResiliencyPatterns.Advanced => GetAdvancedSyncPattern(configuredValue),
+                ResiliencyPatterns.Basic => GetBasicSyncPattern(configuredValue),
+                _ => GetDefaultSyncPattern()
             };
         }
 
-        private static AsyncPolicyWrap<object> GetAdvancedPattern(object? configuredValue = null)
+        /// <summary>
+        /// Creates an asynchronous policy for handling exceptions when accessing the cache.
+        /// </summary>
+        /// <param name="logger">Logger instance to use for policy.</param>
+        /// <param name="settings">The configured cache settings.</param>
+        /// <param name="configuredValue">The configured fall back value for the cache.</param>
+        public static AsyncPolicyWrap<object> GenerateAsyncPolicy(ILogger logger, CacheSettings settings, object? configuredValue = null)
+        {
+            _logger = logger;
+            _settings = settings;
+
+            ArgumentNullException.ThrowIfNull(logger, nameof(logger));
+            ArgumentNullException.ThrowIfNull(settings, nameof(settings));
+
+            return (settings.DesiredPolicy) switch
+            {
+                ResiliencyPatterns.Advanced => GetAdvancedAsyncPattern(configuredValue),
+                ResiliencyPatterns.Basic => GetBasicAsyncPattern(configuredValue),
+                _ => GetDefaultAsyncPattern()
+            };
+        }
+
+        private static PolicyWrap<object> GetAdvancedSyncPattern(object? configuredValue = null)
         {
             if (_settings is null || _logger is null)
             {
-                return GetDefaultPattern();
+                return GetDefaultSyncPattern();
+            }
+
+            // First layer: timeouts
+            var timeoutPolicy = Policy.Timeout(
+                TimeSpan.FromSeconds(_settings.TimeoutInterval));
+
+            // Second layer: bulkhead isolation
+            var bulkheadPolicy = Policy.Bulkhead(
+                maxParallelization: _settings.BulkheadMaxParallelization,
+                maxQueuingActions: _settings.BulkheadMaxQueuingActions
+            );
+
+            // Third layer: circuit breaker
+            var circuitBreakerPolicy = Policy
+                .Handle<TimeoutException>()
+                .Or<DbUpdateException>()
+                .Or<DbUpdateConcurrencyException>()
+            .CircuitBreaker(
+                exceptionsAllowedBeforeBreaking: _settings.CircuitBreakerCount,
+                durationOfBreak: TimeSpan.FromMinutes(_settings.CircuitBreakerInterval),
+                onBreak: (ex, breakDelay) =>
+                    _logger.LogError("Circuit breaker opened. Exception: {Exception}, Delay: {BreakDelay}", ex, breakDelay),
+                onReset: () => _logger.LogDebug("Circuit breaker reset."),
+                onHalfOpen: () => _logger.LogDebug("Circuit breaker half-open.")
+            );
+
+            // Fourth layer: automatic retries
+            var retryPolicy = Policy
+                .Handle<TimeoutException>()
+                .Or<DbUpdateConcurrencyException>()
+                .Or<DbUpdateException>()
+                .WaitAndRetry(
+                    _settings.RetryCount,
+                    CalculateRetryDelay,
+                    LogRetryAttempt
+                );
+
+            // Last resort: return default value
+            var fallbackPolicy = Policy<object>
+                .Handle<Exception>()
+                .Fallback(
+                    fallbackValue: configuredValue ?? RedisValue.Null,
+                    onFallback: (exception, context) =>
+                    {
+                        _logger.LogError("Fallback executed due to: {exception}", exception);
+                        return;
+                    });
+
+            // Wrap policies in order
+            var combinedPolicy = Policy.Wrap(
+                timeoutPolicy,
+                bulkheadPolicy,
+                circuitBreakerPolicy,
+                retryPolicy
+            );
+
+            return fallbackPolicy.Wrap(combinedPolicy);
+        }
+
+        private static AsyncPolicyWrap<object> GetAdvancedAsyncPattern(object? configuredValue = null)
+        {
+            if (_settings is null || _logger is null)
+            {
+                return GetDefaultAsyncPattern();
             }
 
             // First layer: timeouts
@@ -97,11 +183,52 @@ namespace lvlup.DataFerry.Utilities
             return fallbackPolicy.WrapAsync(combinedPolicy);
         }
 
-        private static AsyncPolicyWrap<object> GetBasicPattern(object? configuredValue = null)
+        private static PolicyWrap<object> GetBasicSyncPattern(object? configuredValue = null)
         {
             if (_settings is null || _logger is null)
             {
-                return GetDefaultPattern();
+                return GetDefaultSyncPattern();
+            }
+
+            // First layer: timeouts
+            var timeoutPolicy = Policy.Timeout(
+                TimeSpan.FromSeconds(_settings.TimeoutInterval));
+
+            // Second layer: automatic retries
+            var retryPolicy = Policy
+                .Handle<TimeoutException>()
+                .Or<DbUpdateConcurrencyException>()
+                .Or<DbUpdateException>()
+                .WaitAndRetry(
+                    _settings.RetryCount,
+                    CalculateRetryDelay,
+                    LogRetryAttempt
+                );
+
+            // Last resort: return default value
+            var fallbackPolicy = Policy<object>
+                .Handle<Exception>()
+                .Fallback(
+                    fallbackValue: configuredValue ?? RedisValue.Null,
+                    onFallback: (exception, context) =>
+                    {
+                        _logger.LogError("Fallback executed due to: {exception}", exception);
+                    });
+
+            // Wrap policies in order
+            var combinedPolicy = Policy.Wrap(
+                timeoutPolicy,
+                retryPolicy
+            );
+
+            return fallbackPolicy.Wrap(combinedPolicy);
+        }
+
+        private static AsyncPolicyWrap<object> GetBasicAsyncPattern(object? configuredValue = null)
+        {
+            if (_settings is null || _logger is null)
+            {
+                return GetDefaultAsyncPattern();
             }
 
             // First layer: timeouts
@@ -139,7 +266,23 @@ namespace lvlup.DataFerry.Utilities
             return fallbackPolicy.WrapAsync(retryPolicy);
         }
 
-        private static AsyncPolicyWrap<object> GetDefaultPattern()
+        private static PolicyWrap<object> GetDefaultSyncPattern()
+        {
+            // First layer: timeouts
+            var timeoutPolicy = Policy.Timeout(
+                TimeSpan.FromSeconds(30));
+
+            // Last resort: return default value
+            var fallbackPolicy = Policy<object>
+                .Handle<Exception>()
+                .Fallback(
+                    fallbackValue: string.Empty,
+                    onFallback: (exception, context) => { }); 
+
+            return fallbackPolicy.Wrap(timeoutPolicy);
+        }
+
+        private static AsyncPolicyWrap<object> GetDefaultAsyncPattern()
         {
             // First layer: timeouts
             var timeoutPolicy = Policy.TimeoutAsync(
