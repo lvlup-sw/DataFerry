@@ -31,6 +31,19 @@ namespace lvlup.DataFerry.Tests
             return payload;
         }
 
+        public static Payload CreatePayloadIdentical()
+        {
+            Payload payload = new()
+            {
+                Identifier = "1",
+                Data = "123456789123456789123456789123456789123456789123456789123456789",
+                Property = true,
+                Version = 1
+            };
+
+            return payload;
+        }
+
         public static Payload CreateLargePayload()
         {
             Payload largePayload = new()

@@ -9,7 +9,7 @@ namespace lvlup.DataFerry.Utilities
     public static class HashGenerator
     {
         /// <summary>
-        /// Creates a cache key by hashing <paramref name="obj"/> into a MurmurHash3 represented as <see cref="uint"/>.
+        /// Creates a cache key by hashing <paramref name="obj"/> into a MurmurHash3 <see cref="uint"/> serialized into a base64 string.
         /// <paramref name="prefix"/> is prepended onto the hash.
         /// </summary>
         /// <param name="obj">The object to be hashed.</param>
@@ -24,8 +24,14 @@ namespace lvlup.DataFerry.Utilities
             // Generate the hash
             var hash = Hash32(ref serializedObj, seed);
 
+            // Convert hash to a byte array
+            var hashBytes = BitConverter.GetBytes(hash);
+
+            // Encode the byte array as a string (using Base64)
+            var hashString = Convert.ToBase64String(hashBytes);
+
             // Construct the cache key
-            return $"{prefix}:{hash}";
+            return $"{prefix}:{hashString}";
         }
 
         /// <summary>

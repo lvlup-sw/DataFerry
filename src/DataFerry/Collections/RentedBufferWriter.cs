@@ -5,6 +5,7 @@ namespace lvlup.DataFerry.Collections
     /// <summary>
     /// Represents a buffer writer that rents arrays from a <see cref="StackArrayPool{T}"/> to minimize new allocations.
     /// </summary>
+    /// <remarks>This class implements <see cref="IBufferWriter{T}"/> and <see cref="IDisposable"/>.</remarks>
     /// <typeparam name="T">The type of elements in the buffer.</typeparam>
     public sealed class RentedBufferWriter<T> : IBufferWriter<T>, IDisposable
     {
