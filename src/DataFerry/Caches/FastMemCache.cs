@@ -49,7 +49,7 @@ namespace lvlup.DataFerry.Caches
             try
             {
                 EvictExpired();
-                EvictLFU();
+                //EvictLFU();
             }
             finally
             {
@@ -112,7 +112,7 @@ namespace lvlup.DataFerry.Caches
         {   // ConcurrentDictionary is thread-safe
             var ttlValue = new TtlValue(value, ttl);
             _cms.Insert(key);
-            EvictLFU();
+            //EvictLFU();
             _dict.AddOrUpdate(key, ttlValue, (existingKey, existingValue) => ttlValue);
         }
 
@@ -157,7 +157,7 @@ namespace lvlup.DataFerry.Caches
 
             // Found and not expired
             value = ttlValue.Value;
-            _cms.Insert(key);
+            //_cms.Insert(key);
             return true;
         }
 
@@ -174,7 +174,7 @@ namespace lvlup.DataFerry.Caches
 
             var ttlValue = new TtlValue(valueFactory(key), ttl);
             _cms.Insert(key);
-            EvictLFU();
+            //EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -197,7 +197,7 @@ namespace lvlup.DataFerry.Caches
 
             var ttlValue = new TtlValue(valueFactory(key, factoryArgument), ttl);
             _cms.Insert(key);
-            EvictLFU();
+            //EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -218,7 +218,7 @@ namespace lvlup.DataFerry.Caches
 
             var ttlValue = new TtlValue(value, ttl);
             _cms.Insert(key);
-            EvictLFU();
+            //EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 

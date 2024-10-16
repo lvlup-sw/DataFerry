@@ -5,6 +5,20 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class FastMemCacheTests
     {
+        private FastMemCache<int, int> _cache = default!;
+
+        [TestInitialize]
+        public void Setup()
+        {
+            _cache = new FastMemCache<int, int>();
+        }
+
+        [TestCleanup]
+        public void Cleanup()
+        {
+            _cache.Dispose();
+        }
+
         public static Task<ParallelLoopResult> RunConcurrently(int numThreads, Action action)
         {
             return Task.Run(() => Parallel.For(0, numThreads, _ => action()));
@@ -19,7 +33,7 @@ namespace lvlup.DataFerry.Tests
             Assert.IsTrue(v == 42);
 
             await Task.Delay(300);
-            Assert.IsTrue(_cache.Count == 0);
+            Assert.IsTrue(_cache.Count == 0); //cleanup job has run?
         }
 
         [TestMethod]
@@ -116,18 +130,16 @@ namespace lvlup.DataFerry.Tests
         {
             int i = 0;
 
-            var cache = new FastMemCache<int, int>();
-
-            cache.GetOrAdd(42, 42, TimeSpan.FromMilliseconds(100));
+            _cache.GetOrAdd(42, 42, TimeSpan.FromMilliseconds(100));
 
             await Task.Delay(110); // wait for tha value to expire
 
             await RunConcurrently(20, () => {
-                cache.GetOrAdd(42, k => { return ++i; }, TimeSpan.FromSeconds(1));
+                _cache.GetOrAdd(42, k => { return ++i; }, TimeSpan.FromSeconds(1));
             });
 
             // test that only the first value was added
-            cache.TryGet(42, out i);
+            _cache.TryGet(42, out i);
             Assert.IsTrue(i == 1, i.ToString());
         }
 
