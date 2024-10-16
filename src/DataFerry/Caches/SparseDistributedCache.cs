@@ -193,25 +193,123 @@ namespace lvlup.DataFerry.Caches
 
         #endregion
         #region ASYNCHRONOUS OPERATIONS
+
         // void Serialize<T>(T value, IBufferWriter<byte> target, JsonSerializerOptions? options = default);
-        public ValueTask<bool> GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default)
+        public async ValueTask<bool> GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default)
         {
-            throw new NotImplementedException();
+            // Check the _memCache first
+            if (TryGetFromMemoryCache(key, out byte[]? data)
+                && data is not null)
+            {
+                // Success path; deserialize and return
+                _logger.LogDebug("Retrieved entry with key {key} from memory cache.", key);
+                var sequence = new ReadOnlySequence<byte>(data);
+
+                destination.Write(
+                    await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
+                );
+
+                return true;
+            }
+
+            // If the key does not exist in the _memCache, get a database connection
+            IDatabase database = _cache.GetDatabase();
+
+            // Execute against the distributed cache
+            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            {
+                _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
+                RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica)
+                    .ConfigureAwait(false);
+
+                return data.HasValue ? data : default;
+            }, new Context($"SparseDistributedCache.GetFromCache for {key}"));
+
+            if (result is RedisValue value && value.HasValue)
+            {
+                // We have a value, and RedisValue contains
+                // an implicit conversion operator to byte[]
+                var sequence = new ReadOnlySequence<byte>((byte[])value!);
+
+                // Deserialize and return
+                destination.Write(
+                    await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
+                );
+
+                return true;
+            }
+
+            // Otherwise, we couldn't deserialize
+            _logger.LogDebug("Failed to retrieve value with key: {key}", key);
+            return false;
         }
 
-        public ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default)
+        public async ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default)
         {
-            throw new NotImplementedException();
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.CheckBackplane();
+                _memCache.AddOrUpdate(key, _serializer.SerializeToUtf8Bytes(value), TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+            }
+
+            IDatabase database = _cache.GetDatabase();
+
+            // Execute against the distributed cache
+            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            {
+                var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
+                _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, ttl);
+                return await database.StringSetAsync(key, _serializer.SerializeToUtf8Bytes(value), ttl)
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.SetInCache for {key}"));
+
+            return result as bool?
+                ?? default;
         }
 
-        public ValueTask<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default)
+        public async ValueTask<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default)
         {
-            throw new NotImplementedException();
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.CheckBackplane();
+                _memCache.Refresh(key, TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+            }
+
+            IDatabase database = _cache.GetDatabase();
+
+            // Execute against the distributed cache
+            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            {
+                var ttl = options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromMinutes(60);
+                _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
+                return await database.KeyExpireAsync(key, ttl)
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.RefreshInCache for {key}"));
+
+            return result as bool?
+                ?? default;
         }
 
-        public ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
+        public async ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
         {
-            throw new NotImplementedException();
+            if (_settings.UseMemoryCache)
+            {
+                _memCache.CheckBackplane();
+                _memCache.Remove(key);
+            }
+
+            IDatabase database = _cache.GetDatabase();
+
+            // Execute against the distributed cache
+            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            {
+                _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
+                return await database.KeyDeleteAsync(key)
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"));
+
+            return result as bool?
+                ?? default;
         }
 
         #endregion
