@@ -96,9 +96,11 @@ Work to be Done:
     - StackArrayPool<T> => DONE
     - RentedBufferWriter<T> => DONE
     - DataFerrySerializer<T> => DONE
-    - FastMemCache => 90%
+    - CountMinSketch<T> => DONE
+    - FastMemCache => 75%
+        + TinyLFU
         + Backplane
-    - SparseDistributedCache => 15%
+    - SparseDistributedCache => 35%
         + Contract methods
     - DataFerry => 0%
         + Contract
@@ -115,4 +117,5 @@ Work to be Done:
         + Public helper methods
         + Extended methods (GetOrAdd, etc)
     - Future => 0%
+        + perf enhancements
         + ref/structs
