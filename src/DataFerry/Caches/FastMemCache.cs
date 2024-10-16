@@ -112,7 +112,7 @@ namespace lvlup.DataFerry.Caches
         {   // ConcurrentDictionary is thread-safe
             var ttlValue = new TtlValue(value, ttl);
             _cms.Insert(key);
-            if (RequiresEviction()) EvictLFU();
+            EvictLFU();
             _dict.AddOrUpdate(key, ttlValue, (existingKey, existingValue) => ttlValue);
         }
 
@@ -174,7 +174,7 @@ namespace lvlup.DataFerry.Caches
 
             var ttlValue = new TtlValue(valueFactory(key), ttl);
             _cms.Insert(key);
-            if (RequiresEviction()) EvictLFU();
+            EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -197,7 +197,7 @@ namespace lvlup.DataFerry.Caches
 
             var ttlValue = new TtlValue(valueFactory(key, factoryArgument), ttl);
             _cms.Insert(key);
-            if (RequiresEviction()) EvictLFU();
+            EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -218,7 +218,7 @@ namespace lvlup.DataFerry.Caches
 
             var ttlValue = new TtlValue(value, ttl);
             _cms.Insert(key);
-            if (RequiresEviction()) EvictLFU();
+            EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
@@ -250,8 +250,11 @@ namespace lvlup.DataFerry.Caches
         }
 
         private readonly List<TKey> _sampledKeys = [];
+
         internal void EvictLFU()
         {
+            if (!RequiresEviction(Count)) return;
+
             var random = new Random();
             var keysArray = _dict.Keys.ToArray();
 
@@ -285,7 +288,7 @@ namespace lvlup.DataFerry.Caches
         /// </summary>
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        private bool RequiresEviction() => _dict.Count >= MaxSize;
+        private bool RequiresEviction(int count) => count >= MaxSize;
 
         /// <summary>
         /// Represents a value with an associated time-to-live (TTL) for expiration.

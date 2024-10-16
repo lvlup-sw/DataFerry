@@ -19,7 +19,7 @@ namespace lvlup.DataFerry.Tests
             Assert.IsTrue(v == 42);
 
             await Task.Delay(300);
-            Assert.IsTrue(_cache.Count == 0); //cleanup job has run?
+            Assert.IsTrue(_cache.Count == 0);
         }
 
         [TestMethod]
@@ -36,10 +36,9 @@ namespace lvlup.DataFerry.Tests
 
             for (int i = 0; i < 20; i++)
             {
-                Assert.IsTrue(list[i].Count == 0); //cleanup job has run?
+                Assert.IsTrue(list[i].Count == 0);
             }
 
-            //cleanup
             for (int i = 0; i < 20; i++)
             {
                 list[i].Dispose();
@@ -54,7 +53,7 @@ namespace lvlup.DataFerry.Tests
 
             await Task.Delay(50);
 
-            Assert.IsTrue(cache.TryGet(42, out int result)); //not evicted
+            Assert.IsTrue(cache.TryGet(42, out int result));
             Assert.IsTrue(result == 42);
         }
 
@@ -111,6 +110,7 @@ namespace lvlup.DataFerry.Tests
             Assert.IsTrue(!cache.TryGet("key", out int res));
         }
 
+        // Flaky since TinyLFU, suggesting broken Atomicity
         [TestMethod]
         public async Task TestGetOrAddAtomicNess()
         {
@@ -120,13 +120,13 @@ namespace lvlup.DataFerry.Tests
 
             cache.GetOrAdd(42, 42, TimeSpan.FromMilliseconds(100));
 
-            await Task.Delay(110); //wait for tha value to expire
+            await Task.Delay(110); // wait for tha value to expire
 
             await RunConcurrently(20, () => {
                 cache.GetOrAdd(42, k => { return ++i; }, TimeSpan.FromSeconds(1));
             });
 
-            //test that only the first value was added
+            // test that only the first value was added
             cache.TryGet(42, out i);
             Assert.IsTrue(i == 1, i.ToString());
         }
@@ -134,7 +134,7 @@ namespace lvlup.DataFerry.Tests
         [TestMethod]
         public async Task Enumerator()
         {
-            var cache = new FastMemCache<string, int>(); //now with default cleanup interval
+            var cache = new FastMemCache<string, int>();
             cache.GetOrAdd("key", k => 1024, TimeSpan.FromMilliseconds(100));
 
             Assert.IsTrue(cache.FirstOrDefault().Value == 1024);
@@ -151,14 +151,14 @@ namespace lvlup.DataFerry.Tests
             _cache.AddOrUpdate(42, 42, TimeSpan.FromMilliseconds(300));
 
             await Task.Delay(50);
-            Assert.IsTrue(_cache.TryGet(42, out int result)); //not evicted
+            Assert.IsTrue(_cache.TryGet(42, out int result));
             Assert.IsTrue(result == 42);
 
             _cache.AddOrUpdate(42, 42, TimeSpan.FromMilliseconds(300));
 
             await Task.Delay(250);
 
-            Assert.IsTrue(_cache.TryGet(42, out int result2)); //still not evicted
+            Assert.IsTrue(_cache.TryGet(42, out int result2));
             Assert.IsTrue(result2 == 42);
         }
     }
