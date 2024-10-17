@@ -111,7 +111,7 @@ namespace lvlup.DataFerry.Caches
         public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
         {   // ConcurrentDictionary is thread-safe
             var ttlValue = new TtlValue(value, ttl);
-            _cms.Insert(key);
+            //_cms.Insert(key);
             //EvictLFU();
             _dict.AddOrUpdate(key, ttlValue, (existingKey, existingValue) => ttlValue);
         }
@@ -173,7 +173,7 @@ namespace lvlup.DataFerry.Caches
             if (TryGet(key, out var value)) return value;
 
             var ttlValue = new TtlValue(valueFactory(key), ttl);
-            _cms.Insert(key);
+            //_cms.Insert(key);
             //EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
@@ -191,12 +191,12 @@ namespace lvlup.DataFerry.Caches
         {
             if (TryGet(key, out var value))
             {
-                _cms.Insert(key);
+                //_cms.Insert(key);
                 return value;
             }
 
             var ttlValue = new TtlValue(valueFactory(key, factoryArgument), ttl);
-            _cms.Insert(key);
+            //_cms.Insert(key);
             //EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
@@ -212,12 +212,12 @@ namespace lvlup.DataFerry.Caches
         {
             if (TryGet(key, out var existingValue))
             {
-                _cms.Insert(key);
+                //_cms.Insert(key);
                 return existingValue;
             }
 
             var ttlValue = new TtlValue(value, ttl);
-            _cms.Insert(key);
+            //_cms.Insert(key);
             //EvictLFU();
             return _dict.GetOrAdd(key, ttlValue).Value;
         }

@@ -18,7 +18,7 @@ namespace lvlup.DataFerry.Tests
         [TestCleanup]
         public void Cleanup()
         {
-            _cmSketch = default!;
+            _cmSketch.Dispose();
         }
 
         [TestMethod]

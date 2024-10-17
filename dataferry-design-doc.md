@@ -99,6 +99,7 @@ Work to be Done:
     - CountMinSketch<T> => DONE
     - FastMemCache => 75%
         + TinyLFU
+            => Add additional perf testing around Query
         + Backplane
     - SparseDistributedCache => 35%
         + Contract methods

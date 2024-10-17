@@ -124,7 +124,7 @@ namespace lvlup.DataFerry.Tests
             Assert.IsTrue(!cache.TryGet("key", out int res));
         }
 
-        // Flaky since TinyLFU, suggesting broken Atomicity
+        // Flaky
         [TestMethod]
         public async Task TestGetOrAddAtomicNess()
         {

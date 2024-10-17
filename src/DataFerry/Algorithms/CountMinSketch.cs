@@ -1,21 +1,28 @@
-﻿namespace lvlup.DataFerry.Algorithms
+﻿using System.Collections.Concurrent;
+
+namespace lvlup.DataFerry.Algorithms
 {
     /// <summary>
     /// Represents a Count-Min Sketch data structure.
     /// </summary>
     /// <remarks>This is a probabilistic data structure which measures the frequency of events in a stream.</remarks>
     /// <typeparam name="T">The type of item to count. Must be a non-nullable type.</typeparam>
-    public class CountMinSketch<T> where T : notnull
+    public class CountMinSketch<T> : IDisposable where T : notnull
     {
         /// <summary>
         /// The 2D array representing the sketch.
         /// </summary>
-        private readonly int[][] sketch;
+        private ConcurrentDictionary<int, int>[] _sketch;
 
         /// <summary>
         /// The number of hash functions used.
         /// </summary>
-        private readonly int numHashes;
+        private readonly int _numHashes;
+
+        /// <summary>
+        /// The width of the backing arrays.
+        /// </summary>
+        private readonly int _width;
 
         /// <summary>
         /// The default percentage for error rate and error probability.
@@ -45,13 +52,13 @@
             ErrorProbability = errorProbability ?? DefaultPercentage;
             var (width, numHashes) = CalculateOptimalDimensions(maxSize);
 
-            // Init backing fields
-            sketch = new int[numHashes][];
-            for (var i = 0; i < numHashes; i++)
-            {
-                sketch[i] = new int[width];
-            }
-            this.numHashes = numHashes;
+            // Init backing fields
+            _sketch = new ConcurrentDictionary<int, int>[numHashes];
+            _sketch = Enumerable.Range(0, numHashes)
+                .Select(i => new ConcurrentDictionary<int, int>())
+                .ToArray();
+            _width = width;
+            _numHashes = numHashes;
         }
 
         /// <summary>
@@ -61,10 +68,10 @@
         public void Insert(T item)
         {
             var initialHash = HashGenerator.GenerateHash(item);
-            for (int i = 0; i < numHashes; i++)
+            for (int i = 0; i < _numHashes; i++)
             {
                 var slot = GetSlot(i, initialHash);
-                sketch[i][slot]++;
+                _sketch[i].AddOrUpdate(slot, 1, (k, existingCount) => existingCount + 1);
             }
         }
 
@@ -73,16 +80,18 @@
         /// </summary>
         /// <param name="item">The item to query.</param>
         /// <returns>The approximate count of the item.</returns>
-        public int Query(T item)
+        public int Query(T item)
         {
             var initialHash = HashGenerator.GenerateHash(item);
-            var min = int.MaxValue;
-            for (int i = 0; i < numHashes; i++)
-            {
-                var slot = GetSlot(i, initialHash);
-                min = Math.Min(sketch[i][slot], min);
-            }
-            return min;
+
+            return Enumerable.Range(0, _numHashes)
+                .Select(i =>
+                {
+                    var slot = GetSlot(i, initialHash);
+                    return _sketch[i].TryGetValue(slot, out int count) ? count : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Min();
         }
 
         /// <summary>
@@ -95,7 +104,7 @@
         {
             unchecked
             {
-                long slot = ((i + 1) * initialHash) % sketch[0].Length;
+                long slot = ((i + 1) * initialHash) % _width;
                 return (int) slot;
             }
         }
@@ -111,6 +120,45 @@
             int width = (int)Math.Ceiling(Math.E * maxSize / ErrorRate);
             int numHashes = (int)Math.Ceiling(Math.Log(1.0 / ErrorProbability));
             return (width, numHashes);
+        }
+
+        /// <summary>
+        /// IDisposable member.
+        /// </summary>
+        private bool _disposedValue;
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposedValue)
+            {
+                if (disposing)
+
+                {
+                    // Dispose managed state (managed objects)
+                    foreach (var dictionary in _sketch)
+                    {
+                        dictionary.Clear();
+                    }
+                }
+
+                _sketch = default!;
+
+                _disposedValue = true;
+            }
+        }
+
+        // Override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
+        ~CountMinSketch()
+        {
+            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+            Dispose(disposing: false);
+        }
+
+        public void Dispose()
+        {
+            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
     }
 }
