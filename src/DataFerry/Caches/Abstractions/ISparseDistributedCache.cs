@@ -101,39 +101,39 @@ namespace lvlup.DataFerry.Caches.Abstractions
         ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default);
 
         /// <summary>
-        /// Asynchronously retrieves a batch of values from the cache based on their keys.
+        /// Asynchronously retrieves a batch of values from the cache.
         /// </summary>
-        /// <typeparam name="T">The type of the values to be retrieved.</typeparam>
-        /// <param name="keys">A collection of keys identifying the requested values.</param>
-        /// <param name="callback">A callback function to be invoked for each retrieved key-value pair.</param>
-        /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
-        ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, Action<string, T?> callback, CancellationToken token = default);
+        /// <typeparam name="T">The type of the values to retrieve.</typeparam>
+        /// <param name="keys">The keys of the values to retrieve.</param>
+        /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
+        /// <returns>An <see cref="IAsyncEnumerable{KeyValuePair{string, T?}}"/> that represents the asynchronous stream of key-value pairs.</returns>
+        ValueTask<IAsyncEnumerable<KeyValuePair<string, T?>>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously sets a batch of values in the cache.
         /// </summary>
-        /// <param name="data">A dictionary containing the key-value pairs to be set in the cache, where the values are represented as <see cref="ReadOnlySequence{byte}"/> of bytes.</param>
-        /// <param name="options">The cache options for the entries.</param>
-        /// <param name="callback">A callback function to be invoked for each key, indicating whether the operation was successful.</param>
-        /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
-        ValueTask SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, Action<string, bool> callback, CancellationToken token = default);
+        /// <param name="data">A dictionary containing the key-value pairs to set in the cache.</param>
+        /// <param name="options">Optional <see cref="DistributedCacheEntryOptions"/> to configure the cache entries.</param>
+        /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
+        /// <returns>An <see cref="IAsyncEnumerable{T}"/> that represents the asynchronous stream of results, indicating the success or failure of setting each key-value pair in the cache.</returns>
+        ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default);
 
         /// <summary>
-        /// Asynchronously refreshes a batch of values in the cache based on their keys, resetting their sliding expiration timeout (if any).
+        /// Asynchronously refreshes a batch of cache entries.
         /// </summary>
-        /// <param name="keys">A collection of keys identifying the requested values.</param>
-        /// <param name="options">The cache options for the value.</param> 
-        /// <param name="callback">A callback function to be invoked for each key, indicating whether the refresh operation was successful.</param>
-        /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
-        ValueTask RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, Action<string, bool> callback, CancellationToken token = default);
+        /// <param name="keys">The keys of the cache entries to refresh.</param>
+        /// <param name="options">Optional <see cref="DistributedCacheEntryOptions"/> to configure the cache entries.</param>
+        /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
+        /// <returns>An <see cref="IAsyncEnumerable{T}"/> that represents the asynchronous stream of results, indicating the success or failure of refreshing each cache entry.</returns>
+        ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default);
 
         /// <summary>
-        /// Asynchronously removes a batch of values from the cache based on their keys.
+        /// Asynchronously removes a batch of entries from the cache.
         /// </summary>
-        /// <param name="keys">A collection of keys identifying the values to be removed.</param>
-        /// <param name="callback">A callback function to be invoked for each key, indicating whether the remove operation was successful.</param>
-        /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
-        ValueTask RemoveBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default);
+        /// <param name="keys">The keys of the cache entries to remove.</param>
+        /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
+        /// <returns>An <see cref="IAsyncEnumerable{T}"/> that represents the asynchronous stream of results, indicating the success or failure of removing each cache entry.</returns>
+        ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default);
 
         /// <summary>
         /// Get the configured synchronous Polly policy.
