@@ -110,6 +110,16 @@ namespace lvlup.DataFerry.Caches.Abstractions
         ValueTask<IAsyncEnumerable<KeyValuePair<string, T?>>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default);
 
         /// <summary>
+        /// Asynchronously retrieves a batch of values from the cache.
+        /// </summary>
+        /// <typeparam name="T">The type of the values to retrieve.</typeparam>
+        /// <param name="keys">The keys of the values to retrieve.</param>
+        /// <param name="destination">The <see cref="IBufferWriter{T}"/> to which the retrieved values will be written.</param>
+        /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
+        /// <returns>A <see cref="ValueTask"/> that represents the asynchronous operation.</returns>
+        ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, IBufferWriter<byte> destination, [EnumeratorCancellation] CancellationToken token = default);
+
+        /// <summary>
         /// Asynchronously sets a batch of values in the cache.
         /// </summary>
         /// <param name="data">A dictionary containing the key-value pairs to set in the cache.</param>

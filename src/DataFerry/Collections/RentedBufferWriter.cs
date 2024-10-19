@@ -12,6 +12,7 @@ namespace lvlup.DataFerry.Collections
         private T[] _buffer;
         private int _index;
         private readonly StackArrayPool<T> _pool;
+        private readonly List<Memory<T>> _segments;
         private const int DefaultInitialBufferSize = 256;
 
         /// <summary>
@@ -27,6 +28,7 @@ namespace lvlup.DataFerry.Collections
         {
             _pool = pool;
             _buffer = Array.Empty<T>();
+            _segments = Enumerable.Empty<T>();
         }
 
         /// <summary>
@@ -34,6 +36,21 @@ namespace lvlup.DataFerry.Collections
         /// </summary>
         /// <returns>A new array containing the contents of the buffer.</returns>
         public T[] ToArray() => _buffer.AsSpan(0, _index).ToArray();
+        /*
+        public T[] ToArray()
+        {
+            // Concatenate all segments into a single array
+            var result = new T[_segments.Sum(s => s.Length) + _index];
+            var offset = 0;
+            foreach (var segment in _segments)
+            {
+                segment.CopyTo(result.AsMemory(offset));
+                offset += segment.Length;
+            }
+            _buffer.AsSpan(0, _index).CopyTo(result.AsSpan(offset));
+            return result;
+        }
+        */
 
         /// <summary>
         /// Advances the current write position in the buffer.
@@ -118,6 +135,62 @@ namespace lvlup.DataFerry.Collections
                 if (oldBuffer.Length != 0) _pool.Return(oldBuffer);
             }
         }
+        /*
+        private void CheckAndResizeBuffer(int sizeHint)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(sizeHint, 0, nameof(sizeHint));
+
+            if (sizeHint <= 0) 
+            {
+                sizeHint = 1;
+            }
+
+            if (sizeHint > FreeCapacity)
+            {
+                // Store the current segment
+                _segments.Add(_buffer.AsMemory(0, _index));
+
+                // Rent a new buffer from the pool
+                int currentLength = _buffer.Length;
+                int growBy = Math.Max(sizeHint, currentLength);
+
+                if (currentLength == 0)
+                {
+                    growBy = Math.Max(growBy, DefaultInitialBufferSize);
+                }
+
+                int newSize = currentLength + growBy;
+
+                if ((uint)newSize > int.MaxValue)   
+                {
+                    var needed = (uint)(currentLength - FreeCapacity + sizeHint);
+                    ArgumentOutOfRangeException.ThrowIfGreaterThan(needed, (uint)Array.MaxLength,
+                        "Requested buffer size exceeds max length.");
+
+                    newSize = Array.MaxLength;
+                }
+
+                var oldBuffer = _buffer;
+                _buffer = _pool.Rent(newSize);
+                oldBuffer.AsSpan(0, _index).CopyTo(_buffer);
+                if (oldBuffer.Length != 0) 
+                {
+                    _pool.Return(oldBuffer);
+                }
+
+                _index = 0; // Reset index for the new buffer
+            }
+        }
+        */
+
+        public IEnumerable<ReadOnlyMemory<T>> GetSegments()
+        {
+            if (_index > 0)
+            {
+                _segments.Add(_buffer.AsMemory(0, _index));
+            }
+            return _segments;
+        }
 
         /// <summary>
         /// Returns the internal buffer to the pool and disposes of the <see cref="RentedBufferWriter{T}"/> instance.
@@ -136,5 +209,26 @@ namespace lvlup.DataFerry.Collections
                 _pool.Return(toReturn);
             }
         }
+
+        /*
+        public void Dispose()
+        {
+            foreach (var segment in _segments)
+            {
+                if (segment.ToArray().Length != 0)
+                {
+                    _pool.Return(segment.ToArray());
+                }
+            }
+
+            if (_buffer.Length > 0)
+            {
+                _pool.Return(_buffer);
+            }
+
+            _buffer = Array.Empty<T>();
+            _index = 0;
+        }
+        */  
     }
 }

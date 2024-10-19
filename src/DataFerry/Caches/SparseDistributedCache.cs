@@ -306,7 +306,8 @@ namespace lvlup.DataFerry.Caches
                 _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
                 return await database.KeyDeleteAsync(key)
                     .ConfigureAwait(false);
-            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"));
+            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"),
+            token ?? default);
 
             return result as bool?
                 ?? default;
@@ -315,6 +316,7 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region ASYNCHRONOUS BATCH OPERATIONS
 
+        // Check to make sure we are passing the token to the IAsyncEnumerable correctly
         public async ValueTask<IAsyncEnumerable<KeyValuePair<string, T?>>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Get as many entries from the memory cache as possible
@@ -340,25 +342,36 @@ namespace lvlup.DataFerry.Caches
 
             foreach (var task in redisTasks)
             {
-                object policyExecutionResult = await _policy.ExecuteAsync(
+                // Maybe add a try/catch?
+                object result = await _policy.ExecuteAsync(
                     async (c, ct) =>
                     {
                         _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", task.Key);
                         return await task.Value
                             .ConfigureAwait(false);
                     },
-                    new Context($"SparseDistributedCache.GetBatchAsync for {remainingKeys.Value}"),
-                    cancellationToken ?? default
+                    new Context($"SparseDistributedCache.GetBatchAsync for {task.Key}"),
+                    token
                 );
 
-                T? value = default;
-                if (!redisValue.IsNull)
+                if (result is RedisValue value && value.HasValue)
                 {
-                    value = await _serializer.DeserializeAsync<T>(redisValue); // Assuming you have a deserializer
-                }
+                    // We have a value, and RedisValue contains
+                    // an implicit conversion operator to byte[]
+                    var sequence = new ReadOnlySequence<byte>((byte[])value!);
 
-                yield return new KeyValuePair<string, T?>(task.Key, value);
+                    // Deserialize and return
+                    yield return new KeyValuePair<string, T?>(
+                        task.Key,
+                        await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
+                    );
+                }
             }
+        }
+
+        ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, IBufferWriter<byte> writer, [EnumeratorCancellation] CancellationToken token = default)
+        {
+
         }
 
         public ValueTask SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, Action<string, bool> callback, CancellationToken token = default)
