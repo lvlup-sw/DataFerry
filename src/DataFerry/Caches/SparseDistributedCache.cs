@@ -223,7 +223,7 @@ namespace lvlup.DataFerry.Caches
                     .ConfigureAwait(false);
 
                 return data.HasValue ? data : default;
-            }, new Context($"SparseDistributedCache.GetFromCache for {key}"));
+            }, new Context($"SparseDistributedCache.GetFromCache for {key}"), token);
 
             if (result is RedisValue value && value.HasValue)
             {
@@ -261,7 +261,7 @@ namespace lvlup.DataFerry.Caches
                 _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, ttl);
                 return await database.StringSetAsync(key, _serializer.SerializeToUtf8Bytes(value), ttl)
                     .ConfigureAwait(false);
-            }, new Context($"SparseDistributedCache.SetInCache for {key}"));
+            }, new Context($"SparseDistributedCache.SetInCache for {key}"), token);
 
             return result as bool?
                 ?? default;
@@ -284,7 +284,7 @@ namespace lvlup.DataFerry.Caches
                 _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
                 return await database.KeyExpireAsync(key, ttl)
                     .ConfigureAwait(false);
-            }, new Context($"SparseDistributedCache.RefreshInCache for {key}"));
+            }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token);
 
             return result as bool?
                 ?? default;
@@ -306,8 +306,7 @@ namespace lvlup.DataFerry.Caches
                 _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
                 return await database.KeyDeleteAsync(key)
                     .ConfigureAwait(false);
-            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"),
-            token ?? default);
+            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"), token);
 
             return result as bool?
                 ?? default;
@@ -316,14 +315,19 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region ASYNCHRONOUS BATCH OPERATIONS
 
-        // Check to make sure we are passing the token to the IAsyncEnumerable correctly
         public async ValueTask<IAsyncEnumerable<KeyValuePair<string, T?>>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Get as many entries from the memory cache as possible
             HashSet<string> remainingKeys = new(keys);
             if (_settings.UseMemoryCache)
             {
-                remainingKeys = await GetItemsFromMemoryCache(keys, token);
+                await foreach (var kvp in GetFromMemoryCacheAsync(keys).WithCancellation(token))
+                {
+                    var sequence = new ReadOnlySequence<byte>(kvp.Value);
+                    kvp.Value = _serializer.Deserialize(sequence);
+                    yield return kvp;
+                    remainingKeys.Remove(kvp.Key);
+                }
             }
 
             // Special case where we retrieved all the keys
@@ -342,17 +346,13 @@ namespace lvlup.DataFerry.Caches
 
             foreach (var task in redisTasks)
             {
-                // Maybe add a try/catch?
-                object result = await _policy.ExecuteAsync(
-                    async (c, ct) =>
-                    {
-                        _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", task.Key);
-                        return await task.Value
-                            .ConfigureAwait(false);
-                    },
-                    new Context($"SparseDistributedCache.GetBatchAsync for {task.Key}"),
-                    token
-                );
+                object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+                {
+                    _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", task.Key);
+                    return await task.Value
+                        .ConfigureAwait(false);
+                },
+                new Context($"SparseDistributedCache.GetBatchAsync for {task.Key}"), token);
 
                 if (result is RedisValue value && value.HasValue)
                 {
@@ -392,7 +392,7 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region HELPER METHODS
 
-        private bool TryGetFromMemoryCache(string key, out byte[]? data)
+        internal bool TryGetFromMemoryCache(string key, out byte[]? data)
         {
             if (!_settings.UseMemoryCache)
             {
@@ -404,10 +404,15 @@ namespace lvlup.DataFerry.Caches
             return _memCache.TryGet(key, out data);
         }
 
-        internal async Task<HashSet<string>> GetItemsFromMemoryCache<T>(IEnumerable<string> keys, CancellationToken token)
+        internal async IAsyncEnumerable<KeyValuePair<string, T?>> GetFromMemoryCacheAsync<T>(IEnumerable<string> keys)
         {
-            // WIP
-            return new();
+            foreach (var key in keys)
+            {
+                if (_memoryCache.TryGetValue(key, out T? value))
+                {
+                    yield return new KeyValuePair<string, T?>(key, value);
+                }
+            }
         }
 
         #endregion
