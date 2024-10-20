@@ -12,7 +12,7 @@ namespace lvlup.DataFerry.Collections
         private T[] _buffer;
         private int _index;
         private readonly StackArrayPool<T> _pool;
-        private readonly List<Memory<T>> _segments;
+        private readonly List<(ReadOnlySequence<byte> Segment, int Length)> _segments;
         private const int DefaultInitialBufferSize = 256;
 
         /// <summary>
@@ -23,34 +23,14 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// Initializes a new instance of the <see cref="RentedBufferWriter{T}"/> class.
         /// </summary>
+        /// <remarks>A new instance of this class should be created for each request.</remarks>
         /// <param name="pool">The <see cref="StackArrayPool{T}"/> to use for renting buffers.</param>
         public RentedBufferWriter(StackArrayPool<T> pool)
         {
             _pool = pool;
             _buffer = Array.Empty<T>();
-            _segments = Enumerable.Empty<T>();
+            _segments = Enumerable.Empty<(ReadOnlySequence<byte>, int)>();
         }
-
-        /// <summary>
-        /// Creates a new array and copies the contents of the buffer to it.
-        /// </summary>
-        /// <returns>A new array containing the contents of the buffer.</returns>
-        public T[] ToArray() => _buffer.AsSpan(0, _index).ToArray();
-        /*
-        public T[] ToArray()
-        {
-            // Concatenate all segments into a single array
-            var result = new T[_segments.Sum(s => s.Length) + _index];
-            var offset = 0;
-            foreach (var segment in _segments)
-            {
-                segment.CopyTo(result.AsMemory(offset));
-                offset += segment.Length;
-            }
-            _buffer.AsSpan(0, _index).CopyTo(result.AsSpan(offset));
-            return result;
-        }
-        */
 
         /// <summary>
         /// Advances the current write position in the buffer.
@@ -89,6 +69,41 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <summary>
+        /// Gets the segments that have been written to the buffer.
+        /// </summary>
+        /// <returns>An enumerable collection of <see cref="ReadOnlySequence{byte}"/> instances representing the segments.</returns>
+        public IEnumerable<ReadOnlySequence<byte>> GetSegments()
+        {
+            if (_index > 0)
+            {
+                // Create a ReadOnlySequence<byte> from the last segment
+                var sequence = new ReadOnlySequence<byte>(_buffer, 0, _index);
+                _segments.Add(sequence, _index);
+            }
+
+            return _segments.Select(s => s.Segment);
+        }
+
+        /// <summary>
+        /// Creates a new array and copies the contents of the buffer to it.
+        /// </summary>
+        /// <returns>A new array containing the contents of the buffer.</returns>
+        //public T[] ToArray() => _buffer.AsSpan(0, _index).ToArray();
+        public T[] ToArray()
+        {
+            // Concatenate all segments into a single array
+            var result = new T[_segments.Sum(s => s.Length) + _index];
+            var offset = 0;
+            foreach (var (segment, length) in _segments)
+            {
+                segment.Slice(0, length).CopyTo(result.AsMemory(offset));
+                offset += length;
+            }
+            _buffer.AsSpan(0, _index).CopyTo(result.AsSpan(offset));
+            return result;
+        }        
+
+        /// <summary>
         /// Ensures that the buffer has enough capacity to accommodate the specified size hint.
         /// If necessary, the buffer is resized by renting a new array from the pool and copying the existing data.
         /// </summary>
@@ -103,9 +118,13 @@ namespace lvlup.DataFerry.Collections
             // If capacity is exceeded, we need to resize
             if (sizeHint > FreeCapacity)
             {
+                // Track the sequence with its length
+                var sequence = new ReadOnlySequence<byte>(_buffer, 0, _index);
+                _segments.Add(sequence, _index);
+
                 // We calculate what the new buffer size should be
                 int currentLength = _buffer.Length;
-                // Attempt to grow by the larger of the sizeHint and double the current size.
+                // Attempt to grow by the larger of the sizeHint and double the current size
                 int growBy = Math.Max(sizeHint, currentLength);
 
                 if (currentLength == 0)
@@ -133,63 +152,8 @@ namespace lvlup.DataFerry.Collections
                 _buffer = _pool.Rent(newSize);
                 oldBuffer.AsSpan(0, _index).CopyTo(_buffer);
                 if (oldBuffer.Length != 0) _pool.Return(oldBuffer);
+                _index = 0;
             }
-        }
-        /*
-        private void CheckAndResizeBuffer(int sizeHint)
-        {
-            ArgumentOutOfRangeException.ThrowIfLessThan(sizeHint, 0, nameof(sizeHint));
-
-            if (sizeHint <= 0) 
-            {
-                sizeHint = 1;
-            }
-
-            if (sizeHint > FreeCapacity)
-            {
-                // Store the current segment
-                _segments.Add(_buffer.AsMemory(0, _index));
-
-                // Rent a new buffer from the pool
-                int currentLength = _buffer.Length;
-                int growBy = Math.Max(sizeHint, currentLength);
-
-                if (currentLength == 0)
-                {
-                    growBy = Math.Max(growBy, DefaultInitialBufferSize);
-                }
-
-                int newSize = currentLength + growBy;
-
-                if ((uint)newSize > int.MaxValue)   
-                {
-                    var needed = (uint)(currentLength - FreeCapacity + sizeHint);
-                    ArgumentOutOfRangeException.ThrowIfGreaterThan(needed, (uint)Array.MaxLength,
-                        "Requested buffer size exceeds max length.");
-
-                    newSize = Array.MaxLength;
-                }
-
-                var oldBuffer = _buffer;
-                _buffer = _pool.Rent(newSize);
-                oldBuffer.AsSpan(0, _index).CopyTo(_buffer);
-                if (oldBuffer.Length != 0) 
-                {
-                    _pool.Return(oldBuffer);
-                }
-
-                _index = 0; // Reset index for the new buffer
-            }
-        }
-        */
-
-        public IEnumerable<ReadOnlyMemory<T>> GetSegments()
-        {
-            if (_index > 0)
-            {
-                _segments.Add(_buffer.AsMemory(0, _index));
-            }
-            return _segments;
         }
 
         /// <summary>
@@ -198,19 +162,6 @@ namespace lvlup.DataFerry.Collections
         /// <remarks>In the dotnet internal implementation, the BufferWriter instance itself is reused.
         /// We don't do that here since our instance scope will generally be defined (web requests)
         /// and thus disposals will happen less frequently.</remarks>
-        public void Dispose()
-        {
-            var toReturn = _buffer;
-            _buffer = Array.Empty<T>();
-            _index = 0;
-
-            if (toReturn.Length > 0)
-            {
-                _pool.Return(toReturn);
-            }
-        }
-
-        /*
         public void Dispose()
         {
             foreach (var segment in _segments)
@@ -229,6 +180,5 @@ namespace lvlup.DataFerry.Collections
             _buffer = Array.Empty<T>();
             _index = 0;
         }
-        */  
     }
 }
