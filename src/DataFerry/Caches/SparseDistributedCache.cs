@@ -324,17 +324,14 @@ namespace lvlup.DataFerry.Caches
                 await foreach (var kvp in GetFromMemoryCacheAsync(keys).WithCancellation(token))
                 {
                     var sequence = new ReadOnlySequence<byte>(kvp.Value);
-                    kvp.Value = _serializer.Deserialize(sequence);
-                    yield return kvp;
+                    var value = _serializer.Deserialize(sequence);
+                    yield return new KeyValuePair<string, T?>(kvp.Key, value);
                     remainingKeys.Remove(kvp.Key);
                 }
             }
 
             // Special case where we retrieved all the keys
-            if (remainingKeys.Count == 0) 
-            {   // Return an empty stream
-                yield break;
-            }
+            if (remainingKeys.Count == 0) yield break;
 
             // Setup our connections
             IDatabase database = _cache.GetDatabase();
@@ -369,22 +366,68 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
-        ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, IBufferWriter<byte> writer, [EnumeratorCancellation] CancellationToken token = default)
+        public async ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, IBufferWriter<byte> destination, [EnumeratorCancellation] CancellationToken token = default)
         {
+            // Get as many entries from the memory cache as possible
+            HashSet<string> remainingKeys = new(keys);
+            if (_settings.UseMemoryCache)
+            {
+                await foreach (var kvp in GetFromMemoryCacheAsync(keys).WithCancellation(token))
+                {
+                    var sequence = new ReadOnlySequence<byte>(kvp.Value);
+                    destination.Write(
+                        _serializer.Deserialize(sequence)
+                    );
+                    remainingKeys.Remove(kvp.Key);
+                }
+            }
 
+            // Special case where we retrieved all the keys
+            if (remainingKeys.Count == 0) break;
+
+            // Setup our connections
+            IDatabase database = _cache.GetDatabase();
+            IBatch batch = database.CreateBatch();
+
+            // Prepare batch requests
+            var redisTasks = remainingKeys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
+            batch.Execute();
+
+            foreach (var task in redisTasks)
+            {
+                object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+                {
+                    _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", task.Key);
+                    return await task.Value
+                        .ConfigureAwait(false);
+                },
+                new Context($"SparseDistributedCache.GetBatchAsync for {task.Key}"), token);
+
+                if (result is RedisValue value && value.HasValue)
+                {
+                    // We have a value, and RedisValue contains
+                    // an implicit conversion operator to byte[]
+                    var sequence = new ReadOnlySequence<byte>((byte[])value!);
+
+                    // Deserialize and write to buffer
+                    destination.Write(
+                        await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
+                    );
+                }
+            }
         }
 
-        public ValueTask SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, Action<string, bool> callback, CancellationToken token = default)
+        public async ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
         {
             throw new NotImplementedException();
         }
 
-        public ValueTask RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, Action<string, bool> callback, CancellationToken token = default)
+        public async ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default)
         {
             throw new NotImplementedException();
         }
 
-        public ValueTask RemoveBatchFromCacheAsync(IEnumerable<string> keys, Action<string, bool> callback, CancellationToken token = default)
+        public async ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
         {
             throw new NotImplementedException();
         }
@@ -404,13 +447,15 @@ namespace lvlup.DataFerry.Caches
             return _memCache.TryGet(key, out data);
         }
 
-        internal async IAsyncEnumerable<KeyValuePair<string, T?>> GetFromMemoryCacheAsync<T>(IEnumerable<string> keys)
+        internal async IAsyncEnumerable<KeyValuePair<string, byte[]?>> GetFromMemoryCacheAsync<T>(IEnumerable<string> keys)
         {
+            _memCache.CheckBackplane();
+
             foreach (var key in keys)
             {
-                if (_memoryCache.TryGetValue(key, out T? value))
+                if (_memoryCache.TryGetValue(key, out byte[]? value))
                 {
-                    yield return new KeyValuePair<string, T?>(key, value);
+                    yield return new KeyValuePair<string, byte[]?>(key, value);
                 }
             }
         }
