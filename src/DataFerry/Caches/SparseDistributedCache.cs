@@ -6,7 +6,6 @@ using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 
 namespace lvlup.DataFerry.Caches
 {
@@ -14,7 +13,6 @@ namespace lvlup.DataFerry.Caches
     {
         private readonly IConnectionMultiplexer _cache;
         private readonly IFastMemCache<string, byte[]> _memCache;
-        private readonly StackArrayPool<byte> _arrayPool;
         private readonly IDataFerrySerializer _serializer;
         private readonly CacheSettings _settings;
         private readonly ILogger<SparseDistributedCache> _logger;
@@ -29,21 +27,18 @@ namespace lvlup.DataFerry.Caches
         public SparseDistributedCache(
             IConnectionMultiplexer cache, 
             IFastMemCache<string, byte[]> memCache, 
-            StackArrayPool<byte> arrayPool, 
             IDataFerrySerializer serializer, 
             IOptions<CacheSettings> settings, 
             ILogger<SparseDistributedCache> logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(memCache);
-            ArgumentNullException.ThrowIfNull(arrayPool);
             ArgumentNullException.ThrowIfNull(serializer);
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(logger);
 
             _cache = cache;
             _memCache = memCache;
-            _arrayPool = arrayPool;
             _serializer = serializer;
             _settings = settings.Value;
             _logger = logger;
@@ -62,7 +57,7 @@ namespace lvlup.DataFerry.Caches
         public AsyncPolicyWrap<object> GetAsyncPollyPolicy() => _asyncPolicy;
 
         /// <summary>
-        /// Set the fallback value for the polly retry policy.
+        /// Set the fallback value for the Polly policy.
         /// </summary>
         /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
         /// <param name="value"></param>
@@ -74,12 +69,6 @@ namespace lvlup.DataFerry.Caches
 
         #region SYNCHRONOUS OPERATIONS
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="key"></param>
-        /// <param name="destination"></param>
-        /// <returns></returns>
         public void GetFromCache(string key, IBufferWriter<byte> destination)
         {
             // Check the _memCache first
@@ -346,16 +335,19 @@ namespace lvlup.DataFerry.Caches
 
         public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
         {
+            yield break;
             throw new NotImplementedException();
         }
 
         public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default)
         {
+            yield break;
             throw new NotImplementedException();
         }
 
         public async IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
         {
+            yield break;
             throw new NotImplementedException();
         }
 

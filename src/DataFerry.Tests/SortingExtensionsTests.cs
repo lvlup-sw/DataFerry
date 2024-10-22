@@ -3,7 +3,7 @@
 namespace lvlup.DataFerry.Tests
 {
     [TestClass]
-    public class SortingAlgoTests
+    public class SortingExtensionsTests
     {
         [TestMethod]
         public void TestBubbleSort()

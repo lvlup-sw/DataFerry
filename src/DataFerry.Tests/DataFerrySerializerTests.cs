@@ -227,7 +227,7 @@ namespace lvlup.DataFerry.Tests
 
             // Act
             var stopwatch = Stopwatch.StartNew();
-            _serializer.SerializeAsync(largeObject, bufferWriter).AsTask().Wait();
+            _serializer.SerializeAsync(largeObject, bufferWriter).Wait();
             stopwatch.Stop();
 
             // Assert

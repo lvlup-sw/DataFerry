@@ -5,7 +5,7 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class StackedArrayPoolTests
     {
-        private StackArrayPool<int> _pool;
+        private StackArrayPool<int> _pool = default!;
 
         [TestInitialize]
         public void Setup()

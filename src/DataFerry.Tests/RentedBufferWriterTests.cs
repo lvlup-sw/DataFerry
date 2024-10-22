@@ -5,7 +5,7 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class RentedBufferWriterTests
     {
-        private StackArrayPool<byte> _pool;
+        private StackArrayPool<byte> _pool = default!;
 
         [TestInitialize]
         public void Initialize()
@@ -155,6 +155,61 @@ namespace lvlup.DataFerry.Tests
 
             // Assert
             Assert.AreEqual(0, writer.FreeCapacity); // Buffer should be empty after dispose
+        }
+
+        [TestMethod]
+        public void WriteAndGetPosition_ShouldWriteToBufferAndReturnCorrectPosition()
+        {
+            // Arrange
+            var writer = new RentedBufferWriter<byte>(_pool);
+            var value = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+
+            // Act
+            var (index, length) = writer.WriteAndGetPosition(value);
+            var array = writer.ToArray();
+
+            // Assert
+            CollectionAssert.AreEqual(value, array);
+            Assert.AreEqual(0, index);
+            Assert.AreEqual(value.Length, length);
+        }
+
+        [TestMethod]
+        public void WriteAndGetPosition_ShouldReturnCorrectPosition_WhenCalledMultipleTimes()
+        {
+            // Arrange
+            var writer = new RentedBufferWriter<byte>(_pool);
+            var value1 = new byte[] { 0, 1, 2, 3, 4 };
+            var value2 = new byte[] { 5, 6, 7, 8, 9 };
+
+            // Act
+            var (index1, length1) = writer.WriteAndGetPosition(value1);
+            var (index2, length2) = writer.WriteAndGetPosition(value2);
+            var array = writer.ToArray();
+
+            // Assert
+            CollectionAssert.AreEqual(value1.Concat(value2).ToArray(), array);
+            Assert.AreEqual(0, index1);
+            Assert.AreEqual(value1.Length, length1);
+            Assert.AreEqual(value1.Length, index2);
+            Assert.AreEqual(value2.Length, length2);
+        }
+
+        [TestMethod]
+        public void WriteAndGetPosition_ShouldResizeBuffer_WhenCapacityIsExceeded()
+        {
+            // Arrange
+            var writer = new RentedBufferWriter<byte>(_pool);
+            var value = new byte[300]; // Larger than the default buffer size
+
+            // Act
+            var (index, length) = writer.WriteAndGetPosition(value);
+            var array = writer.ToArray();
+
+            // Assert
+            CollectionAssert.AreEqual(value, array);
+            Assert.AreEqual(0, index);
+            Assert.AreEqual(value.Length, length);
         }
     }
 }

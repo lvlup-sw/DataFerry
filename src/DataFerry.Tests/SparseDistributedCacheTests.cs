@@ -54,7 +54,6 @@ namespace lvlup.DataFerry.Tests
             _cache = new SparseDistributedCache(
                 _redis.Object,
                 _memCache.Object,
-                _arrayPool,
                 _serializer.Object,
                 _settings,
                 _logger.Object
@@ -90,10 +89,9 @@ namespace lvlup.DataFerry.Tests
             var destination = new ArrayBufferWriter<byte>();
 
             // Act
-            var result = _cache.GetFromCache(key, destination);
+            _cache.GetFromCache(key, destination);
 
             // Assert
-            Assert.IsNotNull(result);
             _memCache.Verify(cache => cache.TryGet(key, out serializedByte), Times.Once);
             _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Once);
             CollectionAssert.AreEqual(deserializedByte, destination.WrittenMemory.ToArray());
@@ -122,10 +120,9 @@ namespace lvlup.DataFerry.Tests
             var destination = new ArrayBufferWriter<byte>();
 
             // Act: Call the method under test
-            var result = _cache.GetFromCache(key, destination);
+            _cache.GetFromCache(key, destination);
 
             // Assert: Verify the result
-            Assert.IsNotNull(result);
             _memCache.Verify(cache => cache.TryGet(key, out serializedByte), Times.Once);
             _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Once);
             database.Verify(cache => cache.StringGet(key, CommandFlags.PreferReplica), Times.Once);
@@ -152,10 +149,9 @@ namespace lvlup.DataFerry.Tests
             var destination = new ArrayBufferWriter<byte>();
 
             // Act: Call the method under test
-            var result = _cache.GetFromCache(key, destination);
+            _cache.GetFromCache(key, destination);
 
             // Assert: Verify the result
-            Assert.IsFalse(result);
             _memCache.Verify(cache => cache.TryGet(key, out nullValue), Times.Once);
             _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Never);
             database.Verify(cache => cache.StringGet(key, CommandFlags.PreferReplica), Times.Once);
