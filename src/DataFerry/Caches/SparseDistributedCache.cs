@@ -5,6 +5,8 @@ using Polly;
 using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 
 namespace lvlup.DataFerry.Caches
 {
@@ -78,7 +80,7 @@ namespace lvlup.DataFerry.Caches
         /// <param name="key"></param>
         /// <param name="destination"></param>
         /// <returns></returns>
-        public bool GetFromCache(string key, IBufferWriter<byte> destination)
+        public void GetFromCache(string key, IBufferWriter<byte> destination)
         {
             // Check the _memCache first
             if (TryGetFromMemoryCache(key, out byte[]? data)
@@ -91,8 +93,6 @@ namespace lvlup.DataFerry.Caches
                 destination.Write(
                     _serializer.Deserialize<byte[]>(sequence)
                 );
-
-                return true;
             }
 
             // If the key does not exist in the _memCache, get a database connection
@@ -117,13 +117,7 @@ namespace lvlup.DataFerry.Caches
                 destination.Write(
                     _serializer.Deserialize<byte[]>(sequence)
                 );
-
-                return true;
             }
-
-            // Otherwise, we couldn't deserialize
-            _logger.LogDebug("Failed to retrieve value with key: {key}", key);
-            return false;
         }
         
         public bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options)
@@ -194,8 +188,7 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region ASYNCHRONOUS OPERATIONS
 
-        // void Serialize<T>(T value, IBufferWriter<byte> target, JsonSerializerOptions? options = default);
-        public async ValueTask<bool> GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default)
+        public async ValueTask GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default)
         {
             // Check the _memCache first
             if (TryGetFromMemoryCache(key, out byte[]? data)
@@ -208,15 +201,13 @@ namespace lvlup.DataFerry.Caches
                 destination.Write(
                     await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
                 );
-
-                return true;
             }
 
             // If the key does not exist in the _memCache, get a database connection
             IDatabase database = _cache.GetDatabase();
 
             // Execute against the distributed cache
-            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
                 _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
                 RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica)
@@ -235,16 +226,10 @@ namespace lvlup.DataFerry.Caches
                 destination.Write(
                     await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
                 );
-
-                return true;
             }
-
-            // Otherwise, we couldn't deserialize
-            _logger.LogDebug("Failed to retrieve value with key: {key}", key);
-            return false;
         }
 
-        public async ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default)
+        public async Task<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {
@@ -255,7 +240,7 @@ namespace lvlup.DataFerry.Caches
             IDatabase database = _cache.GetDatabase();
 
             // Execute against the distributed cache
-            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
                 var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
                 _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, ttl);
@@ -267,7 +252,7 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
-        public async ValueTask<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default)
+        public async Task<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {
@@ -278,7 +263,7 @@ namespace lvlup.DataFerry.Caches
             IDatabase database = _cache.GetDatabase();
 
             // Execute against the distributed cache
-            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
                 var ttl = options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromMinutes(60);
                 _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
@@ -290,7 +275,7 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
-        public async ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
+        public async Task<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {
@@ -301,7 +286,7 @@ namespace lvlup.DataFerry.Caches
             IDatabase database = _cache.GetDatabase();
 
             // Execute against the distributed cache
-            object result = await _asyncPolicy.ExecuteAsync(async (context) =>
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
                 _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
                 return await database.KeyDeleteAsync(key)
@@ -315,18 +300,26 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region ASYNCHRONOUS BATCH OPERATIONS
 
-        public async ValueTask<IAsyncEnumerable<KeyValuePair<string, T?>>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
+        public async IAsyncEnumerable<(string Key, int Index, int Length)> GetBatchFromCacheAsync(IEnumerable<string> keys, RentedBufferWriter<byte> destination, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Get as many entries from the memory cache as possible
             HashSet<string> remainingKeys = new(keys);
             if (_settings.UseMemoryCache)
             {
-                await foreach (var kvp in GetFromMemoryCacheAsync(keys).WithCancellation(token))
+                foreach (var key in keys)
                 {
+                    GetFromMemoryCache(key, out var kvp);
+                    if (kvp.Value is null) continue;
+
+                    // Deserialize and write to buffer
                     var sequence = new ReadOnlySequence<byte>(kvp.Value);
-                    var value = _serializer.Deserialize(sequence);
-                    yield return new KeyValuePair<string, T?>(kvp.Key, value);
+                    var (index, length) = destination.WriteAndGetPosition(
+                        _serializer.Deserialize<byte[]>(sequence)
+                    );
                     remainingKeys.Remove(kvp.Key);
+
+                    // Return properties of write operation
+                    yield return (key, index, length);
                 }
             }
 
@@ -338,96 +331,30 @@ namespace lvlup.DataFerry.Caches
             IBatch batch = database.CreateBatch();
 
             // Prepare batch requests
-            var redisTasks = remainingKeys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
+            var redisTasks = remainingKeys.ToDictionary(
+                key => key,
+                key => GetFromRedisAsync(key, batch.StringGetAsync(key, CommandFlags.PreferReplica), destination, token)
+            );
             batch.Execute();
 
-            foreach (var task in redisTasks)
+            // Process each task and return individual results as we complete them
+            await foreach (var task in Task.WhenEach(redisTasks.Values).WithCancellation(token))
             {
-                object result = await _asyncPolicy.ExecuteAsync(async (context) =>
-                {
-                    _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", task.Key);
-                    return await task.Value
-                        .ConfigureAwait(false);
-                },
-                new Context($"SparseDistributedCache.GetBatchAsync for {task.Key}"), token);
-
-                if (result is RedisValue value && value.HasValue)
-                {
-                    // We have a value, and RedisValue contains
-                    // an implicit conversion operator to byte[]
-                    var sequence = new ReadOnlySequence<byte>((byte[])value!);
-
-                    // Deserialize and return
-                    yield return new KeyValuePair<string, T?>(
-                        task.Key,
-                        await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
-                    );
-                }
+                yield return task.Result;
             }
         }
 
-        public async ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, IBufferWriter<byte> destination, [EnumeratorCancellation] CancellationToken token = default)
-        {
-            // Get as many entries from the memory cache as possible
-            HashSet<string> remainingKeys = new(keys);
-            if (_settings.UseMemoryCache)
-            {
-                await foreach (var kvp in GetFromMemoryCacheAsync(keys).WithCancellation(token))
-                {
-                    var sequence = new ReadOnlySequence<byte>(kvp.Value);
-                    destination.Write(
-                        _serializer.Deserialize(sequence)
-                    );
-                    remainingKeys.Remove(kvp.Key);
-                }
-            }
-
-            // Special case where we retrieved all the keys
-            if (remainingKeys.Count == 0) break;
-
-            // Setup our connections
-            IDatabase database = _cache.GetDatabase();
-            IBatch batch = database.CreateBatch();
-
-            // Prepare batch requests
-            var redisTasks = remainingKeys.ToDictionary(key => key, key => batch.StringGetAsync(key, CommandFlags.PreferReplica));
-            batch.Execute();
-
-            foreach (var task in redisTasks)
-            {
-                object result = await _asyncPolicy.ExecuteAsync(async (context) =>
-                {
-                    _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", task.Key);
-                    return await task.Value
-                        .ConfigureAwait(false);
-                },
-                new Context($"SparseDistributedCache.GetBatchAsync for {task.Key}"), token);
-
-                if (result is RedisValue value && value.HasValue)
-                {
-                    // We have a value, and RedisValue contains
-                    // an implicit conversion operator to byte[]
-                    var sequence = new ReadOnlySequence<byte>((byte[])value!);
-
-                    // Deserialize and write to buffer
-                    destination.Write(
-                        await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
-                    );
-                }
-            }
-        }
-
-        public async ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
+        public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
         {
             throw new NotImplementedException();
         }
 
-        public async ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default)
+        public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default)
         {
             throw new NotImplementedException();
         }
 
-        public async ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
+        public async IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
         {
             throw new NotImplementedException();
         }
@@ -447,17 +374,41 @@ namespace lvlup.DataFerry.Caches
             return _memCache.TryGet(key, out data);
         }
 
-        internal async IAsyncEnumerable<KeyValuePair<string, byte[]?>> GetFromMemoryCacheAsync<T>(IEnumerable<string> keys)
+        internal void GetFromMemoryCache(string key, out KeyValuePair<string, byte[]?> kvp)
         {
             _memCache.CheckBackplane();
+            kvp = _memCache.TryGet(key, out byte[] data) 
+                ? new(key, data) 
+                : new(key, default);
+        }
 
-            foreach (var key in keys)
+        internal async Task<(string Key, int Index, int Length)> GetFromRedisAsync(string key, Task<RedisValue> operation, RentedBufferWriter<byte> destination, CancellationToken token)
+        {
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
-                if (_memoryCache.TryGetValue(key, out byte[]? value))
-                {
-                    yield return new KeyValuePair<string, byte[]?>(key, value);
-                }
+                _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
+                return await operation
+                    .ConfigureAwait(false);
+            },
+            new Context($"SparseDistributedCache.GetBatchAsync for {key}"), token);
+
+            if (result is RedisValue value && value.HasValue)
+            {
+                // We have a value, and RedisValue contains
+                // an implicit conversion operator to byte[]
+                var sequence = new ReadOnlySequence<byte>((byte[])value!);
+
+                // Deserialize and write to buffer
+                var (index, length) = destination.WriteAndGetPosition(
+                    await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
+                );
+
+                // Return properties of write operation
+                return (key, index, length);
             }
+
+            // Failure case
+            return (key, -1, -1);
         }
 
         #endregion

@@ -57,12 +57,12 @@ namespace lvlup.DataFerry.Serializers
         }
 
         /// <inheritdoc/>
-        public void Serialize<T>(T value, IBufferWriter<byte> target, JsonSerializerOptions? options = default)
+        public void Serialize<T>(T value, IBufferWriter<byte> destination, JsonSerializerOptions? options = default)
         {
             try
             {
                 // This will write to the target buffer
-                using var writer = new Utf8JsonWriter(target);
+                using var writer = new Utf8JsonWriter(destination);
                 JsonSerializer.Serialize(writer, value, options);
             }
             catch (Exception ex)
@@ -105,7 +105,7 @@ namespace lvlup.DataFerry.Serializers
         /// This method rents a buffer from the <see cref="ArrayPool{T}"/> and uses it to serialize the data. 
         /// The buffer is returned to the pool after the operation completes.
         /// </remarks>
-        public async ValueTask<T?> DeserializeAsync<T>(
+        public async Task<T?> DeserializeAsync<T>(
             ReadOnlySequence<byte> source, 
             JsonSerializerOptions? options = default, 
             CancellationToken token = default)
@@ -136,9 +136,9 @@ namespace lvlup.DataFerry.Serializers
         }
 
         /// <inheritdoc/>
-        public async ValueTask SerializeAsync<T>(
+        public async Task SerializeAsync<T>(
             T value,
-            IBufferWriter<byte> target,
+            IBufferWriter<byte> destination,
             JsonSerializerOptions? options = default,
             CancellationToken token = default)
         {
@@ -155,7 +155,7 @@ namespace lvlup.DataFerry.Serializers
                     // Write the buffer segment to the target
                     // This allows us to avoid an allocation
                     // if the target is also rented from a pool
-                    target.Write(bufferSegment.AsSpan());
+                    destination.Write(bufferSegment.AsSpan());
                 }
                 else
                 {
@@ -164,7 +164,7 @@ namespace lvlup.DataFerry.Serializers
                     _logger.LogWarning("Unable to get buffer from MemoryStream in SerializeAsync; using fallback with additional allocation.");
 
                     var buffer = stream.GetBuffer();
-                    target.Write(buffer.AsSpan(0, (int)stream.Position));
+                    destination.Write(buffer.AsSpan(0, (int)stream.Position));
                 }
             }
             catch (Exception ex)
@@ -175,7 +175,7 @@ namespace lvlup.DataFerry.Serializers
         }
 
         /// <inheritdoc/>
-        public async ValueTask<byte[]> SerializeAsync<T>(T value, JsonSerializerOptions? options = default, CancellationToken token = default)
+        public async Task<byte[]> SerializeAsync<T>(T value, JsonSerializerOptions? options = default, CancellationToken token = default)
         {
             try
             {

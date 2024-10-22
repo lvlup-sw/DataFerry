@@ -2,6 +2,7 @@
 using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
+using System.Runtime.CompilerServices;
 
 namespace lvlup.DataFerry.Caches.Abstractions
 {
@@ -18,7 +19,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="destination">The target to write the cache contents on success.</param>
         /// <returns><c>true</c> if the cache item is found and successfully written to the <paramref name="destination"/>, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Get(string)"/>, but avoids unnecessary array allocations by utilizing an <see cref="IBufferWriter{byte}"/>.</remarks>
-        bool GetFromCache(string key, IBufferWriter<byte> destination);
+        void GetFromCache(string key, IBufferWriter<byte> destination);
 
         /// <summary>
         /// Sets or overwrites a cache item synchronously.
@@ -61,7 +62,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// if the cache entry is found and successfully written to the<paramref name="destination"/>, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.GetAsync(string, CancellationToken)"/>, but avoids unnecessary array allocations by utilizing an <see cref="IBufferWriter{byte}"/>.</remarks>
         /// It also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        ValueTask<bool> GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default);
+        ValueTask GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously sets or overwrites a cache entry.
@@ -74,7 +75,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// if the cache item is set successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.SetAsync(string, byte[], DistributedCacheEntryOptions, CancellationToken)"/>, but avoids unnecessary array allocations by utilizing a <see cref="ReadOnlySequence{T}"/>.
         /// It also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        ValueTask<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default);
+        Task<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously refreshes a value in the cache based on its key, resetting its sliding expiration timeout (if any).
@@ -86,7 +87,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
         /// <returns><c>true</c>  
         /// if the cache item is refreshed successfully, <c>false</c> otherwise.</returns>
-        ValueTask<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default);
+        Task<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously removes the value with the given key from the cache.
@@ -98,16 +99,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
         /// <returns><c>true</c>
         /// if the cache item is removed successfully, <c>false</c> otherwise.</returns>
-        ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default);
-
-        /// <summary>
-        /// Asynchronously retrieves a batch of values from the cache.
-        /// </summary>
-        /// <typeparam name="T">The type of the values to retrieve.</typeparam>
-        /// <param name="keys">The keys of the values to retrieve.</param>
-        /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
-        /// <returns>An <see cref="IAsyncEnumerable{KeyValuePair{string, T?}}"/> that represents the asynchronous stream of key-value pairs.</returns>
-        ValueTask<IAsyncEnumerable<KeyValuePair<string, T?>>> GetBatchFromCacheAsync<T>(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default);
+        Task<bool> RemoveFromCacheAsync(string key, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously retrieves a batch of values from the cache.
@@ -117,7 +109,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="destination">The <see cref="IBufferWriter{T}"/> to which the retrieved values will be written.</param>
         /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>A <see cref="ValueTask"/> that represents the asynchronous operation.</returns>
-        ValueTask GetBatchFromCacheAsync<T>(IEnumerable<string> keys, IBufferWriter<byte> destination, [EnumeratorCancellation] CancellationToken token = default);
+        IAsyncEnumerable<(string Key, int Index, int Length)> GetBatchFromCacheAsync(IEnumerable<string> keys, RentedBufferWriter<byte> destination, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously sets a batch of values in the cache.
@@ -126,7 +118,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="options">Optional <see cref="DistributedCacheEntryOptions"/> to configure the cache entries.</param>
         /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>An <see cref="IAsyncEnumerable{T}"/> that represents the asynchronous stream of results, indicating the success or failure of setting each key-value pair in the cache.</returns>
-        ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default);
+        IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously refreshes a batch of cache entries.
@@ -135,7 +127,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="options">Optional <see cref="DistributedCacheEntryOptions"/> to configure the cache entries.</param>
         /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>An <see cref="IAsyncEnumerable{T}"/> that represents the asynchronous stream of results, indicating the success or failure of refreshing each cache entry.</returns>
-        ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default);
+        IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously removes a batch of entries from the cache.
@@ -143,7 +135,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="keys">The keys of the cache entries to remove.</param>
         /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>An <see cref="IAsyncEnumerable{T}"/> that represents the asynchronous stream of results, indicating the success or failure of removing each cache entry.</returns>
-        ValueTask<IAsyncEnumerable<KeyValuePair<string, bool>>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default);
+        IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken token = default);
 
         /// <summary>
         /// Get the configured synchronous Polly policy.

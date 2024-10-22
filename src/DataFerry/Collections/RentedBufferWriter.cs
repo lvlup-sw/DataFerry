@@ -1,9 +1,10 @@
 ﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 
 namespace lvlup.DataFerry.Collections
 {
     /// <summary>
-    /// Represents a buffer writer that rents arrays from a <see cref="StackArrayPool{T}"/> to minimize new allocations.
+    /// Represents a buffer writer that rents arrays from an <see cref="ArrayPool{T}"/> to minimize new allocations.
     /// </summary>
     /// <remarks>This class implements <see cref="IBufferWriter{T}"/> and <see cref="IDisposable"/>.</remarks>
     /// <typeparam name="T">The type of elements in the buffer.</typeparam>
@@ -11,8 +12,7 @@ namespace lvlup.DataFerry.Collections
     {
         private T[] _buffer;
         private int _index;
-        private readonly StackArrayPool<T> _pool;
-        private readonly List<(ReadOnlySequence<byte> Segment, int Length)> _segments;
+        private readonly ArrayPool<T> _pool;
         private const int DefaultInitialBufferSize = 256;
 
         /// <summary>
@@ -23,14 +23,18 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// Initializes a new instance of the <see cref="RentedBufferWriter{T}"/> class.
         /// </summary>
-        /// <remarks>A new instance of this class should be created for each request.</remarks>
-        /// <param name="pool">The <see cref="StackArrayPool{T}"/> to use for renting buffers.</param>
-        public RentedBufferWriter(StackArrayPool<T> pool)
+        /// <param name="pool">The <see cref="ArrayPool{T}"/> to use for renting buffers.</param>
+        public RentedBufferWriter(ArrayPool<T> pool)
         {
             _pool = pool;
             _buffer = Array.Empty<T>();
-            _segments = Enumerable.Empty<(ReadOnlySequence<byte>, int)>();
         }
+
+        /// <summary>
+        /// Creates a new array and copies the contents of the buffer to it.
+        /// </summary>
+        /// <returns>A new array containing the contents of the buffer.</returns>
+        public T[] ToArray() => _buffer.AsSpan(0, _index).ToArray();
 
         /// <summary>
         /// Advances the current write position in the buffer.
@@ -69,39 +73,32 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <summary>
-        /// Gets the segments that have been written to the buffer.
+        /// Writes a value to the buffer and returns the position (index and length) of the written value.
         /// </summary>
-        /// <returns>An enumerable collection of <see cref="ReadOnlySequence{byte}"/> instances representing the segments.</returns>
-        public IEnumerable<ReadOnlySequence<byte>> GetSegments()
+        /// <param name="value">The value to write to the buffer.</param>
+        /// <returns>A tuple containing the index and length of the written value.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public (int Index, int Length) WriteAndGetPosition(ReadOnlySpan<T> value)
         {
-            if (_index > 0)
-            {
-                // Create a ReadOnlySequence<byte> from the last segment
-                var sequence = new ReadOnlySequence<byte>(_buffer, 0, _index);
-                _segments.Add(sequence, _index);
-            }
-
-            return _segments.Select(s => s.Segment);
+            var position = (_index, value.Length);
+            this.Write(value);
+            return position;
         }
 
         /// <summary>
-        /// Creates a new array and copies the contents of the buffer to it.
+        /// Returns the internal buffer to the pool and disposes of the <see cref="RentedBufferWriter{T}"/> instance.
         /// </summary>
-        /// <returns>A new array containing the contents of the buffer.</returns>
-        //public T[] ToArray() => _buffer.AsSpan(0, _index).ToArray();
-        public T[] ToArray()
+        /// <remarks>In the dotnet internal implementation, the BufferWriter instance itself is reused.
+        /// We don't do that here since our instance scope will generally be defined (web requests)
+        /// and thus disposals will happen less frequently.</remarks>
+        public void Dispose()
         {
-            // Concatenate all segments into a single array
-            var result = new T[_segments.Sum(s => s.Length) + _index];
-            var offset = 0;
-            foreach (var (segment, length) in _segments)
-            {
-                segment.Slice(0, length).CopyTo(result.AsMemory(offset));
-                offset += length;
-            }
-            _buffer.AsSpan(0, _index).CopyTo(result.AsSpan(offset));
-            return result;
-        }        
+            var oldBuffer = _buffer;
+            _buffer = Array.Empty<T>();
+            _index = 0;
+
+            if (oldBuffer.Length > 0) ReturnBuffer(oldBuffer);
+        }
 
         /// <summary>
         /// Ensures that the buffer has enough capacity to accommodate the specified size hint.
@@ -109,6 +106,7 @@ namespace lvlup.DataFerry.Collections
         /// </summary>
         /// <param name="sizeHint">The minimum size that the buffer should be able to accommodate.</param>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="sizeHint"/> is negative.</exception>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void CheckAndResizeBuffer(int sizeHint)
         {
             ArgumentOutOfRangeException.ThrowIfLessThan(sizeHint, 0, nameof(sizeHint));
@@ -118,13 +116,9 @@ namespace lvlup.DataFerry.Collections
             // If capacity is exceeded, we need to resize
             if (sizeHint > FreeCapacity)
             {
-                // Track the sequence with its length
-                var sequence = new ReadOnlySequence<byte>(_buffer, 0, _index);
-                _segments.Add(sequence, _index);
-
                 // We calculate what the new buffer size should be
                 int currentLength = _buffer.Length;
-                // Attempt to grow by the larger of the sizeHint and double the current size
+                // Attempt to grow by the larger of the sizeHint and double the current size.
                 int growBy = Math.Max(sizeHint, currentLength);
 
                 if (currentLength == 0)
@@ -140,7 +134,7 @@ namespace lvlup.DataFerry.Collections
                     // Attempt to grow to ArrayMaxLength.
                     var needed = (uint)(currentLength - FreeCapacity + sizeHint);
 
-                    ArgumentOutOfRangeException.ThrowIfGreaterThan(needed, (uint)Array.MaxLength, 
+                    ArgumentOutOfRangeException.ThrowIfGreaterThan(needed, (uint)Array.MaxLength,
                         "Requested buffer size exceeds max length.");
 
                     newSize = Array.MaxLength;
@@ -151,34 +145,18 @@ namespace lvlup.DataFerry.Collections
                 var oldBuffer = _buffer;
                 _buffer = _pool.Rent(newSize);
                 oldBuffer.AsSpan(0, _index).CopyTo(_buffer);
-                if (oldBuffer.Length != 0) _pool.Return(oldBuffer);
-                _index = 0;
+                if (oldBuffer.Length != 0) ReturnBuffer(oldBuffer);
             }
         }
 
         /// <summary>
-        /// Returns the internal buffer to the pool and disposes of the <see cref="RentedBufferWriter{T}"/> instance.
+        /// Returns the buffer to the pool.
         /// </summary>
-        /// <remarks>In the dotnet internal implementation, the BufferWriter instance itself is reused.
-        /// We don't do that here since our instance scope will generally be defined (web requests)
-        /// and thus disposals will happen less frequently.</remarks>
-        public void Dispose()
-        {
-            foreach (var segment in _segments)
-            {
-                if (segment.ToArray().Length != 0)
-                {
-                    _pool.Return(segment.ToArray());
-                }
-            }
-
-            if (_buffer.Length > 0)
-            {
-                _pool.Return(_buffer);
-            }
-
-            _buffer = Array.Empty<T>();
-            _index = 0;
-        }
+        /// <param name="oldBuffer">The buffer to return to the pool.</param>
+        /// <remarks>
+        /// If the buffer contains references, it is cleared before being returned to the pool to prevent memory leaks.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ReturnBuffer(T[] oldBuffer) => _pool.Return(oldBuffer, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
     }
 }

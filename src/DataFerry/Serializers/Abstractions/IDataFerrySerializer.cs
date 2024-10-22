@@ -22,9 +22,9 @@ namespace lvlup.DataFerry.Serializers.Abstractions
         /// </summary>
         /// <typeparam name="T">The type to serialize.</typeparam>
         /// <param name="value">The <typeparamref name="T"/> instance to serialize.</param>
-        /// <param name="target">The <see cref="IBufferWriter{T}"/> to serialize to.</param>
+        /// <param name="destination">The <see cref="IBufferWriter{T}"/> to serialize to.</param>
         /// <param name="options">Options to control the behavior during serialization.</param>
-        void Serialize<T>(T value, IBufferWriter<byte> target, JsonSerializerOptions? options = default);
+        void Serialize<T>(T value, IBufferWriter<byte> destination, JsonSerializerOptions? options = default);
 
         /// <summary>
         /// Serializes a <typeparamref name="T"/> to a JSON string.
@@ -52,18 +52,18 @@ namespace lvlup.DataFerry.Serializers.Abstractions
         /// <param name="options">Options to control the behavior during deserialization.</param>
         /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>A <see cref="ValueTask{TResult}"/> that represents the asynchronous operation. The task result contains a <typeparamref name="T"/> instance representing the deserialized object, or null if deserialization fails.</returns>
-        ValueTask<T?> DeserializeAsync<T>(ReadOnlySequence<byte> source, JsonSerializerOptions? options = default, CancellationToken token = default);
+        Task<T?> DeserializeAsync<T>(ReadOnlySequence<byte> source, JsonSerializerOptions? options = default, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously serializes a <typeparamref name="T"/> and writes it to a <see cref="IBufferWriter{T}"/>.
         /// </summary>
         /// <typeparam name="T">The type to serialize.</typeparam>
         /// <param name="value">The <typeparamref name="T"/> instance to serialize.</param>
-        /// <param name="target">The <see cref="IBufferWriter{T}"/> to serialize to.</param>
+        /// <param name="destination">The <see cref="IBufferWriter{T}"/> to serialize to.</param>
         /// <param name="options">Options to control the behavior during serialization.</param>
         /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>A <see cref="ValueTask"/> that represents the asynchronous operation.</returns>
-        ValueTask SerializeAsync<T>(T value, IBufferWriter<byte> target, JsonSerializerOptions? options = default, CancellationToken token = default);
+        Task SerializeAsync<T>(T value, IBufferWriter<byte> destination, JsonSerializerOptions? options = default, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously serializes a <typeparamref name="T"/> to a byte array.
@@ -73,6 +73,6 @@ namespace lvlup.DataFerry.Serializers.Abstractions
         /// <param name="options">Options to control the behavior during serialization.</param>
         /// <param name="token">A cancellation token that can be used to cancel the operation.</param>
         /// <returns>A <see cref="ValueTask{TResult}"/> that represents the asynchronous operation. The task result contains a byte array representing the serialized object.</returns>
-        ValueTask<byte[]> SerializeAsync<T>(T value, JsonSerializerOptions? options = default, CancellationToken token = default);
+        Task<byte[]> SerializeAsync<T>(T value, JsonSerializerOptions? options = default, CancellationToken token = default);
     }
 }
