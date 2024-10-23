@@ -4,7 +4,7 @@ using System.Text;
 namespace lvlup.DataFerry.Tests
 {
     [TestClass]
-    public class CacheKeyGeneratorTest
+    public class HashGeneratorTests
     {
         [TestMethod]
         public void EmptyInput_ReturnsCorrectHash()

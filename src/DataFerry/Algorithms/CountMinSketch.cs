@@ -94,6 +94,17 @@ namespace lvlup.DataFerry.Algorithms
                 .Min();
         }
 
+        /// <summary>
+        /// Clears the Count-Min Sketch by removing all keys and their associated counts.
+        /// </summary>
+        public void Clear()
+        {
+            foreach (var dict in _sketch)
+            {
+                dict.Clear();
+            }
+        }
+
         /// <summary>
         /// Calculates the slot index for a given hash function and initial hash value.
         /// </summary>

@@ -18,7 +18,7 @@ namespace lvlup.DataFerry.Collections
         private const int MaxPowOf2 = 30;
 
         // This is our central pool of arrays
-        private readonly FastMemCache<int, ConcurrentQueue<T[]>> _buckets;
+        private readonly LfuMemCache<int, ConcurrentQueue<T[]>> _buckets;
         private readonly int[] _bucketSizes;
 
         // This is our local cache on each thread

@@ -12,7 +12,7 @@ namespace lvlup.DataFerry.Caches
     public class SparseDistributedCache : ISparseDistributedCache
     {
         private readonly IConnectionMultiplexer _cache;
-        private readonly IFastMemCache<string, byte[]> _memCache;
+        private readonly ILfuMemCache<string, byte[]> _memCache;
         private readonly IDataFerrySerializer _serializer;
         private readonly CacheSettings _settings;
         private readonly ILogger<SparseDistributedCache> _logger;
@@ -26,7 +26,7 @@ namespace lvlup.DataFerry.Caches
         /// <exception cref="ArgumentNullException"></exception>""
         public SparseDistributedCache(
             IConnectionMultiplexer cache, 
-            IFastMemCache<string, byte[]> memCache, 
+            ILfuMemCache<string, byte[]> memCache, 
             IDataFerrySerializer serializer, 
             IOptions<CacheSettings> settings, 
             ILogger<SparseDistributedCache> logger)

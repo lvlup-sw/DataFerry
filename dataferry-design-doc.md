@@ -101,19 +101,22 @@ Work to be Done:
         + TinyLFU
             => Add additional perf testing around Query
         + Backplane
-    - SparseDistributedCache => 35%
-        + Contract methods
+    - SparseDistributedCache => 55%
+        + Batch methods
+		+ Unit tests
     - DataFerry => 0%
         + Contract
             ~ IDataSource?
-        + Contract methods
+        + Contract methods & HybridCache impl
             ~ RentedBufferWriter utilization
         + Stampede protection
+	- Smoketesting => 0%
     - QoL => 0%
         + OpenTelemetry
         + Options classes
         + Mix/Match cache combinations
         + Netstandard compatibility
+		==== 2.0.0 Release ====
         + Serializer customization
         + Public helper methods
         + Extended methods (GetOrAdd, etc)

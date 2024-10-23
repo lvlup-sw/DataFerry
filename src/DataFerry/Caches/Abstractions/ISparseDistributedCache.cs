@@ -2,7 +2,6 @@
 using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
-using System.Runtime.CompilerServices;
 
 namespace lvlup.DataFerry.Caches.Abstractions
 {

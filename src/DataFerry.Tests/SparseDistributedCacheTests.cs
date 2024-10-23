@@ -19,8 +19,7 @@ namespace lvlup.DataFerry.Tests
     {
         private SparseDistributedCache _cache = default!;
         private Mock<IConnectionMultiplexer> _redis = default!;
-        private Mock<IFastMemCache<string, byte[]>> _memCache = default!;
-        private StackArrayPool<byte> _arrayPool = default!;
+        private Mock<ILfuMemCache<string, byte[]>> _memCache = default!;
         private Mock<IDataFerrySerializer> _serializer = default!;
         private IOptions<CacheSettings> _settings = default!;
         private Mock<ILogger<SparseDistributedCache>> _logger = default!;
@@ -30,9 +29,8 @@ namespace lvlup.DataFerry.Tests
         {
             // Setup dependencies
             _redis = new Mock<IConnectionMultiplexer>();
-            _memCache = new Mock<IFastMemCache<string, byte[]>>();
+            _memCache = new Mock<ILfuMemCache<string, byte[]>>();
             _serializer = new Mock<IDataFerrySerializer>();
-            _arrayPool = new StackArrayPool<byte>();
             _settings = Options.Create(new CacheSettings
             {
                 DesiredPolicy = ResiliencyPatterns.Advanced,
@@ -76,7 +74,7 @@ namespace lvlup.DataFerry.Tests
         [DataRow("payload123")]
         [DataRow("levelupsoftware")]
         [TestMethod]
-        public void GetFromCacheAsync_KeyInMemCache_ReturnsValue(string key)
+        public void GetFromCache_KeyInMemCache_ReturnsValue(string key)
         {
             // Arrange
             Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
@@ -102,7 +100,7 @@ namespace lvlup.DataFerry.Tests
         [DataRow("payload123")]
         [DataRow("levelupsoftware")]
         [TestMethod]
-        public void GetFromCacheAsync_KeyNotInMemCache_ButInRedis_ReturnsValue(string key)
+        public void GetFromCache_KeyNotInMemCache_ButInRedis_ReturnsValue(string key)
         {
             // Arrange
             Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
@@ -134,7 +132,7 @@ namespace lvlup.DataFerry.Tests
         [DataRow("payload123")]
         [DataRow("levelupsoftware")]
         [TestMethod]
-        public void GetFromCacheAsync_KeyNotFound_ReturnsNull(string key)
+        public void GetFromCache_KeyNotFound_ReturnsNull(string key)
         {
             // Arrange
             Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
@@ -179,12 +177,122 @@ namespace lvlup.DataFerry.Tests
         #endregion
         #region SET
 
+        /*
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_UseMemoryCacheTrue_StringSetReturnsTrue()
+        {
+            // Arrange
+            // ...
+
+            // Act
+            var result = _cache.SetInCache(key, value, options);
+
+            // Assert
+            Assert.IsTrue(result);
+            // ...
+        }
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_UseMemoryCacheTrue_StringSetReturnsFalse()
+        {
+            // Arrange
+            // ...
+
+            // Act
+            var result = _cache.SetInCache(key, value, options);
+
+            // Assert
+            Assert.IsFalse(result);
+            // ...
+        }
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_UseMemoryCacheFalse_StringSetReturnsTrue()
+        {
+            // Arrange
+            // ...
+
+            // Act
+            var result = _cache.SetInCache(key, value, options);
+
+            // Assert
+            Assert.IsTrue(result);
+            // ...
+        }
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_UseMemoryCacheFalse_StringSetReturnsFalse()
+        {
+            // Arrange
+            // ...
+
+            // Act
+            var result = _cache.SetInCache(key, value, options);
+
+            // Assert
+            Assert.IsFalse(result);
+            // ...
+        }
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_OptionsNull_StringSetReturnsTrue()
+        {
+            // Arrange
+            // ...
+
+            // Act
+            var result = _cache.SetInCache(key, value, null);
+
+            // Assert
+            Assert.IsTrue(result);
+            // ...
+        }
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_OptionsNull_StringSetReturnsFalse()
+        {
+            // Arrange
+            // ...
+
+            // Act
+            var result = _cache.SetInCache(key, value, null);
+
+            // Assert
+            Assert.IsFalse(result);
+            // ...
+        }
+        */
+
         #endregion
         #region REFRESH
 
         #endregion
         #region REMOVE
 
-        #endregion 
+        #endregion
     }
 }
