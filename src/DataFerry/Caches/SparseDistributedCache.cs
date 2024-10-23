@@ -6,6 +6,8 @@ using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
 using System.Runtime.CompilerServices;
+using static Microsoft.IO.RecyclableMemoryStreamManager;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace lvlup.DataFerry.Caches
 {
@@ -322,7 +324,7 @@ namespace lvlup.DataFerry.Caches
             // Prepare batch requests
             var redisTasks = remainingKeys.ToDictionary(
                 key => key,
-                key => GetFromRedisAsync(key, batch.StringGetAsync(key, CommandFlags.PreferReplica), destination, token)
+                key => GetFromRedisTask(key, batch.StringGetAsync(key, CommandFlags.PreferReplica), destination, token)
             );
             batch.Execute();
 
@@ -335,20 +337,96 @@ namespace lvlup.DataFerry.Caches
 
         public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
         {
-            yield break;
-            throw new NotImplementedException();
+            // Set our entries in the memory cache
+            if (_settings.UseMemoryCache)
+            {
+                foreach (var kvp in data)
+                {
+                    _memCache.CheckBackplane();
+                    _memCache.AddOrUpdate(kvp.Key, _serializer.SerializeToUtf8Bytes(kvp.Value), TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+                }
+            }
+
+            // Setup our connections
+            IDatabase database = _cache.GetDatabase();
+            IBatch batch = database.CreateBatch();
+
+            var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
+
+            // Prepare batch requests
+            var redisTasks = data.ToDictionary(
+                kvp => SetInRedisTask(kvp.Key, batch.StringSetAsync(kvp.Key, _serializer.SerializeToUtf8Bytes(kvp.Value), ttl, When.Always), ttl, token),
+                kvp => kvp.Key
+            );
+            batch.Execute();
+
+            // Process each task and return individual results as we complete them
+            await foreach (var task in Task.WhenEach(redisTasks.Keys).WithCancellation(token))
+            {
+                yield return new KeyValuePair<string, bool>(redisTasks[task], task.Result);
+            }
         }
 
         public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default)
         {
-            yield break;
-            throw new NotImplementedException();
+            // Set our entries in the memory cache
+            if (_settings.UseMemoryCache)
+            {
+                foreach (var key in keys)
+                {
+                    _memCache.CheckBackplane();
+                    _memCache.Refresh(key, TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+                }
+            }
+
+            // Setup our connections
+            IDatabase database = _cache.GetDatabase();
+            IBatch batch = database.CreateBatch();
+
+            var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
+
+            // Prepare batch requests
+            var redisTasks = keys.ToDictionary(
+                key => RefreshInRedisTask(key, batch.KeyExpireAsync(key, ttl), ttl, token),
+                key => key
+            );
+            batch.Execute();
+
+            // Process each task and return individual results as we complete them
+            await foreach (var task in Task.WhenEach(redisTasks.Keys).WithCancellation(token))
+            {
+                yield return new KeyValuePair<string, bool>(redisTasks[task], task.Result);
+            }
         }
 
         public async IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
         {
-            yield break;
-            throw new NotImplementedException();
+            // Remove as many entries from the memory cache as possible
+            if (_settings.UseMemoryCache)
+            {
+                foreach (var key in keys)
+                {
+                    _memCache.CheckBackplane();
+                    _memCache.Remove(key);
+                }
+            }
+
+            // Setup our connections
+            IDatabase database = _cache.GetDatabase();
+            IBatch batch = database.CreateBatch();
+
+            // Prepare batch requests
+            var redisTasks = keys.ToDictionary(
+                key => RemoveFromRedisTask(key, batch.KeyDeleteAsync(key), token),
+                key => key
+            );
+            batch.Execute();
+
+            // Process each task and return individual results as we complete them
+            await foreach (var task in Task.WhenEach(redisTasks.Keys).WithCancellation(token))
+            {
+                yield return new KeyValuePair<string, bool>(redisTasks[task], task.Result);
+            }
         }
 
         #endregion
@@ -374,7 +452,7 @@ namespace lvlup.DataFerry.Caches
                 : new(key, default);
         }
 
-        internal async Task<(string Key, int Index, int Length)> GetFromRedisAsync(string key, Task<RedisValue> operation, RentedBufferWriter<byte> destination, CancellationToken token)
+        internal async Task<(string Key, int Index, int Length)> GetFromRedisTask(string key, Task<RedisValue> operation, RentedBufferWriter<byte> destination, CancellationToken token)
         {
             object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
@@ -401,6 +479,45 @@ namespace lvlup.DataFerry.Caches
 
             // Failure case
             return (key, -1, -1);
+        }
+
+        internal async Task<bool> SetInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
+        {
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
+            {
+                _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, expiration);
+                return await operation
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.SetInCache for {key}"), token);
+
+            return result as bool?
+                ?? default;
+        }
+
+        internal async Task<bool> RefreshInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
+        {
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
+            {
+                _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
+                return await operation
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token);
+
+            return result as bool?
+                ?? default;
+        }
+
+        internal async Task<bool> RemoveFromRedisTask(string key, Task<bool> operation, CancellationToken token)
+        {
+            object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
+            {
+                _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
+                return await operation
+                    .ConfigureAwait(false);
+            }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"), token);
+
+            return result as bool?
+                ?? default;
         }
 
         #endregion
