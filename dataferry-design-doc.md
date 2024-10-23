@@ -97,9 +97,7 @@ Work to be Done:
     - RentedBufferWriter<T> => DONE
     - DataFerrySerializer<T> => DONE
     - CountMinSketch<T> => DONE
-    - FastMemCache => 75%
-        + TinyLFU
-            => Add additional perf testing around Query
+    - FastMemCache => 90%
         + Backplane
     - SparseDistributedCache => 55%
         + Batch methods

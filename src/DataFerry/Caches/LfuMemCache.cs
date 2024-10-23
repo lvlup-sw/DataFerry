@@ -14,10 +14,14 @@ namespace lvlup.DataFerry.Caches
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
-        private readonly ConcurrentQueue<TKey> _recentKeys;
+        private readonly PriorityQueue<TKey, DateTime> _recentKeys;
         private readonly CountMinSketch<TKey> _cms;
         private readonly Timer _cleanUpTimer;
         private readonly int _sampleSize;
+
+        // Locks
+        private static readonly ReaderWriterLockSlim _evictionLock = new();
+        private static readonly SemaphoreSlim _globalEvictionSemaphore = new(1, 1);
 
         /// <inheritdoc/>
         public int MaxSize { get; set; }
@@ -42,7 +46,6 @@ namespace lvlup.DataFerry.Caches
                 TimeSpan.FromMilliseconds(cleanupJobInterval));
         }
 
-        private static readonly SemaphoreSlim _globalEvictionSemaphore = new(1, 1);
         private async Task EvictExpiredJob()
         {
             // To avoid resource wastage from concurrent cleanup jobs in multiple LfuMemCache instances, 
@@ -78,12 +81,18 @@ namespace lvlup.DataFerry.Caches
                 // The larger the cache, the greater the benefit from this optimization.
 
                 var currTime = Environment.TickCount64;
+                RemoveExpiredItems(_cache);
+                RemoveExpiredItems(_window);
 
-                foreach (var pair in _cache)
+                // Local function
+                void RemoveExpiredItems(ConcurrentDictionary<TKey, TtlValue> dict)
                 {
-                    if (currTime > pair.Value._expirationTicks)
+                    foreach (var pair in dict)
                     {
-                        _cache.TryRemove(pair.Key, out _);
+                        if (currTime > pair.Value._expirationTicks)
+                        {
+                            dict.TryRemove(pair.Key, out _);
+                        }
                     }
                 }
             }
@@ -94,7 +103,8 @@ namespace lvlup.DataFerry.Caches
         }
 
         /// <inheritdoc/>
-        public int Count => _window.Count + _cache.Count;
+        // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
+        public int Count => _window.Skip(0).Count() + _cache.Skip(0).Count();
 
         /// <inheritdoc/>
         public void Clear()
@@ -140,8 +150,7 @@ namespace lvlup.DataFerry.Caches
             // Found and not expired
             value = ttlValue.Value;
             _cms.Insert(key);
-            _recentKeys.Enqueue(key);
-            if (_recentKeys.Count > _sampleSize) _recentKeys.TryDequeue(out _);
+            UpdateRecentKeys(key);
             return true;
         }
 
@@ -150,30 +159,40 @@ namespace lvlup.DataFerry.Caches
         {
             var ttlValue = new TtlValue(value, ttl);
             _cms.Insert(key);
-            EvictLFU();
 
-            bool isWindowKey = _window.ContainsKey(key);
-            bool isCacheKey = _cache.ContainsKey(key);
-
-            if (!(isWindowKey || isCacheKey) && _window.Count >= _sampleSize)
+            _evictionLock.EnterWriteLock();
+            try
             {
-                // When the window is full, candidate items are moved to the probation segment in LRU order.
-                while (_recentKeys.TryDequeue(out TKey? oldKey))
+                bool isWindowKey = _window.ContainsKey(key);
+                bool isCacheKey = _cache.ContainsKey(key);
+
+                if (!(isWindowKey || isCacheKey) && _window.Count >= _sampleSize)
                 {
-                    if (_window.TryRemove(oldKey, out TtlValue? ttlVal))
+                    // When the window is full, candidate items are moved to the probation segment in LRU order.
+                    while (_recentKeys.TryDequeue(out TKey? oldKey, out _))
                     {
-                        _cache.AddOrUpdate(oldKey, ttlVal, (k, v) => ttlVal);
-                        break;
+                        if (_window.TryRemove(oldKey, out TtlValue? ttlVal))
+                        {
+                            _cache.AddOrUpdate(oldKey, ttlVal, (k, v) => ttlVal);
+                            break;
+                        }
                     }
                 }
+
+                // When a window item or cache item is accessed, it is moved to the MRU position.
+                var targetCache = isWindowKey || _window.Count < _sampleSize ? _window : _cache;
+                targetCache[key] = ttlValue;
+                _recentKeys.Enqueue(key, DateTime.UtcNow);
+
+                if (_recentKeys.Count > _sampleSize) _recentKeys.TryDequeue(out _, out _);
+            }
+            finally
+            {
+                _evictionLock.ExitWriteLock();
             }
 
-            // When a window item or cache item is accessed, it is moved to the MRU position.
-            var targetCache = isWindowKey || _window.Count < _sampleSize ? _window : _cache;
-            targetCache[key] = ttlValue;
-            _recentKeys.Enqueue(key);
-
-            if (_recentKeys.Count > _sampleSize) _recentKeys.TryDequeue(out _);
+            // Perform eviction if necessary
+            EvictLFU();
         }
 
         /// <inheritdoc/>
@@ -250,27 +269,56 @@ namespace lvlup.DataFerry.Caches
         /// Evicts the least frequently used (LFU) item from the cache.
         /// If the cache does not require eviction, no action is taken.
         /// If the cache is empty, no action is taken.
-        /// </summary>
         internal void EvictLFU()
         {
             if (!RequiresEviction()) return;
 
-            TKey? lfuKey = default;
-            int minFrequency = int.MaxValue;
-            foreach (var key in _recentKeys)
+            _evictionLock.EnterWriteLock();
+            try
             {
-                var frequency = _cms.Query(key);
-                if (frequency < minFrequency)
+                TKey? lfuKey = default;
+                int minFrequency = int.MaxValue;
+
+                foreach (var key in _recentKeys.UnorderedItems.Select(item => item.Element))
                 {
-                    minFrequency = frequency;
-                    lfuKey = key;
+                    var frequency = _cms.Query(key);
+                    if (frequency < minFrequency)
+                    {
+                        minFrequency = frequency;
+                        lfuKey = key;
+                    }
+                }
+
+                // When the main space is full, the access frequency of each
+                // window candidate is compared to probation victims in LRU order.
+                // The item with the lowest frequency is evicted until the cache size is within bounds.
+                if (lfuKey is not null)
+                {
+                    _cache.TryRemove(lfuKey, out _);
                 }
             }
+            finally
+            {
+                _evictionLock.ExitWriteLock();
+            }
+        }
 
-            // When the main space is full, the access frequency of each
-            // window candidate is compared to probation victims in LRU order.
-            // The item with the lowest frequency is evicted until the cache size is within bounds.
-            if (lfuKey is not null) _cache.TryRemove(lfuKey, out _);
+        /// <summary>
+        /// Updates the LRU queue in a thread-safe manner.
+        /// </summary>
+        /// <param name="key"></param>
+        internal void UpdateRecentKeys(TKey key)
+        {
+            _evictionLock.EnterWriteLock();
+            try
+            {
+                _recentKeys.Enqueue(key, DateTime.UtcNow);
+                if (_recentKeys.Count > _sampleSize) _recentKeys.TryDequeue(out _, out _);
+            }
+            finally
+            {
+                _evictionLock.ExitWriteLock();
+            }
         }
 
         /// <inheritdoc/>

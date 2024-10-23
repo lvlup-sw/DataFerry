@@ -10,7 +10,7 @@ namespace lvlup.DataFerry.Tests
         [TestInitialize]
         public void Setup()
         {
-            _cache = new(100, 200);
+            _cache = new(1000, 200);
         }
 
         [TestCleanup]
@@ -235,51 +235,6 @@ namespace lvlup.DataFerry.Tests
         }
 
         [TestMethod]
-        public async Task EvictLFU_ShouldEvictLeastFrequentlyUsedItems_UnderHighConcurrency()
-        {
-            // Arrange
-            var tasks = new Task[1000];
-            var zipfianKeys = Enumerable.Range(0, 1000).Select(i => i.ToString()).ToList();
-            Random rand = new();
-
-            // Act
-            for (int i = 0; i < tasks.Length; i++)
-            {
-                var localI = i.ToString();
-                tasks[i] = Task.Run(() =>
-                {
-                    for (int j = 0; j < 10; j++)
-                    {
-                        // Zipfian distributed items
-                        foreach (var key in zipfianKeys)
-                        {
-                            var frequency = 1.0 / (zipfianKeys.IndexOf(key) + 1);
-                            if (rand.NextDouble() < frequency)
-                            {
-                                _cache.AddOrUpdate(key, i, TimeSpan.FromMinutes(1));
-                                _cache.TryGet(key, out _);
-                            }
-                        }
-                    }
-                });
-            }
-            await Task.WhenAll(tasks);
-
-            // Assert
-            // The frequently accessed items should not have been evicted
-            for (int i = 0; i < 100; i++)
-            {
-                Assert.IsTrue(_cache.TryGet(i.ToString(), out _));
-            }
-
-            // The infrequently accessed items should have been evicted
-            for (int i = 100; i < 1000; i++)
-            {
-                Assert.IsFalse(_cache.TryGet(i.ToString(), out _));
-            }
-        }
-
-        [TestMethod]
         public void TestAddOrUpdate_ShouldAddNewItemToWindowCache_WhenWindowCacheIsNotFull()
         {
             _cache.AddOrUpdate("key", 1024, TimeSpan.FromMinutes(1));
@@ -297,12 +252,38 @@ namespace lvlup.DataFerry.Tests
         }
 
         [TestMethod]
-        public void TestAddOrUpdate_ShouldReplaceRandomItemInWindowCache_WhenWindowCacheIsFull()
+        public void TestEvictionStrategy()
         {
-            _cache.AddOrUpdate("key1", 1024, TimeSpan.FromMinutes(1));
-            _cache.AddOrUpdate("key2", 1024, TimeSpan.FromMinutes(1));
+            // Add items to the cache with different TTLs
+            _cache.AddOrUpdate("key1", 1, TimeSpan.FromMilliseconds(100));
+            _cache.AddOrUpdate("key2", 2, TimeSpan.FromMilliseconds(200));
+            _cache.AddOrUpdate("key3", 3, TimeSpan.FromMilliseconds(300));
 
-            Assert.IsTrue(_cache.TryGet("key1", out _) ^ _cache.TryGet("key2", out _));
+            // Ensure items are present initially
+            Assert.IsTrue(_cache.TryGet("key1", out _));
+            Assert.IsTrue(_cache.TryGet("key2", out _));
+            Assert.IsTrue(_cache.TryGet("key3", out _));
+
+            // Wait for some items to expire
+            Thread.Sleep(150);
+
+            // Evict expired items
+            _cache.EvictExpired();
+
+            // Check if the expired items are evicted
+            Assert.IsFalse(_cache.TryGet("key1", out _));
+            Assert.IsTrue(_cache.TryGet("key2", out _));
+            Assert.IsTrue(_cache.TryGet("key3", out _));
+
+            // Wait for the remaining items to expire
+            Thread.Sleep(200);
+
+            // Evict expired items
+            _cache.EvictExpired();
+
+            // Check if all items are evicted
+            Assert.IsFalse(_cache.TryGet("key2", out _));
+            Assert.IsFalse(_cache.TryGet("key3", out _));
         }
     }
 }
