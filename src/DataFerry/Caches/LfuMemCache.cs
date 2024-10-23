@@ -67,8 +67,7 @@ namespace lvlup.DataFerry.Caches
         /// </summary>
         public void EvictExpired()
         {
-            if (!Monitor.TryEnter(_cleanUpTimer))
-                return;
+            if (!Monitor.TryEnter(_cleanUpTimer)) return;
 
             try
             {
@@ -156,31 +155,23 @@ namespace lvlup.DataFerry.Caches
             bool isWindowKey = _window.ContainsKey(key);
             bool isCacheKey = _cache.ContainsKey(key);
 
-            if (isWindowKey || isCacheKey)
+            if (!(isWindowKey || isCacheKey) && _window.Count >= _sampleSize)
             {
-                // When a window item or cache item is accessed, it is moved to the MRU position.
-                var targetCache = isWindowKey ? _window : _cache;
-                targetCache[key] = ttlValue;
-                _recentKeys.Enqueue(key);
-            }
-            else
-            {
-                // New items are added to the window.
-                if (_window.Count >= _sampleSize)
+                // When the window is full, candidate items are moved to the probation segment in LRU order.
+                while (_recentKeys.TryDequeue(out TKey? oldKey))
                 {
-                    // When the window is full, candidate items are moved to the probation segment in LRU order.
-                    while (_recentKeys.TryDequeue(out TKey? oldKey))
+                    if (_window.TryRemove(oldKey, out TtlValue? ttlVal))
                     {
-                        if (_window.TryGetValue(oldKey, out TtlValue? ttlVal) && _window.TryRemove(oldKey, out _))
-                        {
-                            _cache[oldKey] = ttlVal;
-                            break;
-                        }
+                        _cache.AddOrUpdate(oldKey, ttlVal, (k, v) => ttlVal);
+                        break;
                     }
                 }
-                _window[key] = ttlValue;
-                _recentKeys.Enqueue(key);
             }
+
+            // When a window item or cache item is accessed, it is moved to the MRU position.
+            var targetCache = isWindowKey || _window.Count < _sampleSize ? _window : _cache;
+            targetCache[key] = ttlValue;
+            _recentKeys.Enqueue(key);
 
             if (_recentKeys.Count > _sampleSize) _recentKeys.TryDequeue(out _);
         }
