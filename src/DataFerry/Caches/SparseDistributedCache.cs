@@ -48,21 +48,13 @@ namespace lvlup.DataFerry.Caches
             _asyncPolicy = PollyPolicyGenerator.GenerateAsyncPolicy(_logger, _settings);
         }
 
-        /// <summary>
-        /// Get the configured synchronous Polly policy.
-        /// </summary>
+        /// <inheritdoc/>
         public PolicyWrap<object> GetSyncPollyPolicy() => _syncPolicy;
 
-        /// <summary>
-        /// Get the configured asynchronous Polly policy.
-        /// </summary>
+        /// <inheritdoc/>
         public AsyncPolicyWrap<object> GetAsyncPollyPolicy() => _asyncPolicy;
 
-        /// <summary>
-        /// Set the fallback value for the Polly policy.
-        /// </summary>
-        /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
-        /// <param name="value"></param>
+        /// <inheritdoc/>
         public void SetFallbackValue(object value)
         {
             _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings, value);
@@ -71,6 +63,7 @@ namespace lvlup.DataFerry.Caches
 
         #region SYNCHRONOUS OPERATIONS
 
+        /// <inheritdoc/>
         public void GetFromCache(string key, IBufferWriter<byte> destination)
         {
             // Check the _memCache first
@@ -110,7 +103,8 @@ namespace lvlup.DataFerry.Caches
                 );
             }
         }
-        
+
+        /// <inheritdoc/>
         public bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options)
         {
             if (_settings.UseMemoryCache)
@@ -133,6 +127,7 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
+        /// <inheritdoc/>
         public bool RefreshInCache(string key, DistributedCacheEntryOptions options)
         {
             if (_settings.UseMemoryCache)
@@ -155,6 +150,7 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
+        /// <inheritdoc/>
         public bool RemoveFromCache(string key)
         {
             if (_settings.UseMemoryCache)
@@ -179,6 +175,7 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region ASYNCHRONOUS OPERATIONS
 
+        /// <inheritdoc/>
         public async ValueTask GetFromCacheAsync(string key, IBufferWriter<byte> destination, CancellationToken token = default)
         {
             // Check the _memCache first
@@ -220,6 +217,7 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
+        /// <inheritdoc/>
         public async Task<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
@@ -243,6 +241,7 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
+        /// <inheritdoc/>
         public async Task<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
@@ -266,6 +265,7 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
+        /// <inheritdoc/>
         public async Task<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
@@ -291,6 +291,7 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region ASYNCHRONOUS BATCH OPERATIONS
 
+        /// <inheritdoc/>
         public async IAsyncEnumerable<(string Key, int Index, int Length)> GetBatchFromCacheAsync(IEnumerable<string> keys, RentedBufferWriter<byte> destination, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Get as many entries from the memory cache as possible
@@ -335,6 +336,7 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
+        /// <inheritdoc/>
         public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Set our entries in the memory cache
@@ -367,6 +369,7 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
+        /// <inheritdoc/>
         public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Set our entries in the memory cache
@@ -399,6 +402,7 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
+        /// <inheritdoc/>
         public async IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Remove as many entries from the memory cache as possible
@@ -432,6 +436,12 @@ namespace lvlup.DataFerry.Caches
         #endregion
         #region HELPER METHODS
 
+        /// <summary>
+        /// Outputs a <see cref="byte"/> array associated with the key from the memory cache.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="data"></param>
+        /// <returns>A <c>bool</c> indicating the result of the operation.</returns>
         internal bool TryGetFromMemoryCache(string key, out byte[]? data)
         {
             if (!_settings.UseMemoryCache)
@@ -444,6 +454,11 @@ namespace lvlup.DataFerry.Caches
             return _memCache.TryGet(key, out data);
         }
 
+        /// <summary>
+        /// Outputs a <see cref="KeyValuePair"/> associated with the key from the memory cache.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="kvp"></param>
         internal void GetFromMemoryCache(string key, out KeyValuePair<string, byte[]?> kvp)
         {
             _memCache.CheckBackplane();
@@ -452,6 +467,14 @@ namespace lvlup.DataFerry.Caches
                 : new(key, default);
         }
 
+        /// <summary>
+        /// Creates the individual Get task for the distributed cache.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="operation"></param>
+        /// <param name="destination"></param>
+        /// <param name="token"></param>
+        /// <returns>A <c>Task</c> containing the result of the operation.</returns>
         internal async Task<(string Key, int Index, int Length)> GetFromRedisTask(string key, Task<RedisValue> operation, RentedBufferWriter<byte> destination, CancellationToken token)
         {
             object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
@@ -481,6 +504,14 @@ namespace lvlup.DataFerry.Caches
             return (key, -1, -1);
         }
 
+        /// <summary>
+        /// Creates the individual Set task for the distributed cache.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="operation"></param>
+        /// <param name="expiration"></param>
+        /// <param name="token"></param>
+        /// <returns>A <c>Task</c> containing the result of the operation.</returns>
         internal async Task<bool> SetInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
         {
             object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
@@ -494,11 +525,19 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
+        /// <summary>
+        /// Creates the individual Refresh task for the distributed cache.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="operation"></param>
+        /// <param name="expiration"></param>
+        /// <param name="token"></param>
+        /// <returns>A <c>Task</c> containing the result of the operation.</returns>
         internal async Task<bool> RefreshInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
         {
             object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
-                _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
+                _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, expiration);
                 return await operation
                     .ConfigureAwait(false);
             }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token);
@@ -507,6 +546,13 @@ namespace lvlup.DataFerry.Caches
                 ?? default;
         }
 
+        /// <summary>
+        /// Creates the individual Remove task for the distributed cache.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="operation"></param>
+        /// <param name="token"></param>
+        /// <returns>A <c>Task</c> containing the result of the operation.</returns>
         internal async Task<bool> RemoveFromRedisTask(string key, Task<bool> operation, CancellationToken token)
         {
             object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
