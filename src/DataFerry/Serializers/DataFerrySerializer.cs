@@ -16,7 +16,6 @@ namespace lvlup.DataFerry.Serializers
     /// </remarks>
     public sealed class DataFerrySerializer : IDataFerrySerializer
     {
-        private readonly StackArrayPool<byte> _arrayPool;
         private readonly RecyclableMemoryStreamManager _streamManager;
         private readonly ILogger<DataFerrySerializer> _logger;
 
@@ -28,15 +27,12 @@ namespace lvlup.DataFerry.Serializers
         /// <summary>
         /// Initializes a new instance of the <see cref="DataFerrySerializer"/> class.
         /// </summary>
-        /// <param name="arrayPool">The <see cref="ArrayPool{T}"/> to use for buffer management.</param>
         /// <param name="streamManager">The <see cref="RecyclableMemoryStreamManager"/> to use for stream management.</param>
         /// <param name="logger">The <see cref="ILogger"/> to use for logging.</param>
         public DataFerrySerializer(
-            StackArrayPool<byte> arrayPool,
             RecyclableMemoryStreamManager streamManager,
             ILogger<DataFerrySerializer> logger)
         {
-            _arrayPool = arrayPool;
             _streamManager = streamManager;
             _logger = logger;
         }
@@ -101,25 +97,15 @@ namespace lvlup.DataFerry.Serializers
         }
 
         /// <inheritdoc/>
-        /// <remarks>
-        /// This method rents a buffer from the <see cref="ArrayPool{T}"/> and uses it to serialize the data. 
-        /// The buffer is returned to the pool after the operation completes.
-        /// </remarks>
         public async Task<T?> DeserializeAsync<T>(
-            ReadOnlySequence<byte> source, 
-            JsonSerializerOptions? options = default, 
+            byte[] serializedValue,
+            JsonSerializerOptions? options = default,
             CancellationToken token = default)
         {
-            // Rent a buffer from the pool
-            byte[] buffer = _arrayPool.Rent((int)source.Length);
-
             try
             {
-                // Copy the data to the rented buffer
-                source.CopyTo(buffer);
-
-                // Get a stream from the pool using the rented buffer
-                using var stream = _streamManager.GetStream(StreamTag, buffer, 0, (int)source.Length);
+                // Get a stream from the pool
+                using var stream = _streamManager.GetStream(StreamTag, serializedValue, 0, serializedValue.Length);
 
                 return await JsonSerializer.DeserializeAsync<T>(stream, options, token);
             }
@@ -127,11 +113,6 @@ namespace lvlup.DataFerry.Serializers
             {
                 _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value.");
                 return default;
-            }
-            finally
-            {
-                // Return the buffer to the pool
-                _arrayPool.Return(buffer);
             }
         }
 
@@ -159,12 +140,11 @@ namespace lvlup.DataFerry.Serializers
                 }
                 else
                 {
-                    // If this fails somehow, we
-                    // fallback to allocating the buffer
+                    // If this fails somehow, we fallback
+                    // to allocating the buffer
                     _logger.LogWarning("Unable to get buffer from MemoryStream in SerializeAsync; using fallback with additional allocation.");
 
-                    var buffer = stream.GetBuffer();
-                    destination.Write(buffer.AsSpan(0, (int)stream.Position));
+                    destination.Write(stream.GetBuffer().AsSpan(0, (int)stream.Position));
                 }
             }
             catch (Exception ex)
@@ -192,8 +172,8 @@ namespace lvlup.DataFerry.Serializers
                 }
                 else
                 {
-                    // If this fails somehow, we
-                    // fallback to allocating the buffer
+                    // If this fails somehow, we fallback
+                    // to allocating the entire buffer
                     _logger.LogWarning("Unable to get buffer from MemoryStream in SerializeAsync; using fallback with additional allocation.");
 
                     return stream.GetBuffer()

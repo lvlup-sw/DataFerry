@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Caching.Distributed;
+﻿using lvlup.DataFerry.Orchestrators.Abstractions;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -6,42 +7,36 @@ using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
 using System.Runtime.CompilerServices;
-using static Microsoft.IO.RecyclableMemoryStreamManager;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
-namespace lvlup.DataFerry.Caches
+namespace lvlup.DataFerry.Orchestrators
 {
-    public class SparseDistributedCache : ISparseDistributedCache
+    public class CacheOrchestrator : ICacheOrchestrator
     {
         private readonly IConnectionMultiplexer _cache;
         private readonly ILfuMemCache<string, byte[]> _memCache;
-        private readonly IDataFerrySerializer _serializer;
         private readonly CacheSettings _settings;
-        private readonly ILogger<SparseDistributedCache> _logger;
+        private readonly ILogger<CacheOrchestrator> _logger;
         private PolicyWrap<object> _syncPolicy;
         private AsyncPolicyWrap<object> _asyncPolicy;
 
         /// <summary>
-        /// The primary constructor for the <see cref="SparseDistributedCache"/> class.
+        /// The primary constructor for the <see cref="CacheOrchestrator"/> class.
         /// </summary>
         /// <param name="settings">The settings for the cache.</param>
         /// <exception cref="ArgumentNullException"></exception>""
-        public SparseDistributedCache(
-            IConnectionMultiplexer cache, 
-            ILfuMemCache<string, byte[]> memCache, 
-            IDataFerrySerializer serializer, 
-            IOptions<CacheSettings> settings, 
-            ILogger<SparseDistributedCache> logger)
+        public CacheOrchestrator(
+            IConnectionMultiplexer cache,
+            ILfuMemCache<string, byte[]> memCache,
+            IOptions<CacheSettings> settings,
+            ILogger<CacheOrchestrator> logger)
         {
             ArgumentNullException.ThrowIfNull(cache);
             ArgumentNullException.ThrowIfNull(memCache);
-            ArgumentNullException.ThrowIfNull(serializer);
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentNullException.ThrowIfNull(logger);
 
             _cache = cache;
             _memCache = memCache;
-            _serializer = serializer;
             _settings = settings.Value;
             _logger = logger;
             _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings);
@@ -70,13 +65,10 @@ namespace lvlup.DataFerry.Caches
             if (TryGetFromMemoryCache(key, out byte[]? data)
                 && data is not null)
             {
-                // Success path; deserialize and return
+                // Success path; write to BufferWriter and return
                 _logger.LogDebug("Retrieved entry with key {key} from memory cache.", key);
-                var sequence = new ReadOnlySequence<byte>(data);
-
-                destination.Write(
-                    _serializer.Deserialize<byte[]>(sequence)
-                );
+                destination.Write(data);
+                return;
             }
 
             // If the key does not exist in the _memCache, get a database connection
@@ -95,22 +87,17 @@ namespace lvlup.DataFerry.Caches
             {
                 // We have a value, and RedisValue contains
                 // an implicit conversion operator to byte[]
-                var sequence = new ReadOnlySequence<byte>((byte[])value!);
-
-                // Deserialize and return
-                destination.Write(
-                    _serializer.Deserialize<byte[]>(sequence)
-                );
+                destination.Write((byte[])value!);
             }
         }
 
         /// <inheritdoc/>
-        public bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options)
+        public bool SetInCache(string key, byte[] serializedValue, DistributedCacheEntryOptions? options)
         {
             if (_settings.UseMemoryCache)
             {
                 _memCache.CheckBackplane();
-                _memCache.AddOrUpdate(key, _serializer.SerializeToUtf8Bytes(value), TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+                _memCache.AddOrUpdate(key, serializedValue, TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
             }
 
             IDatabase database = _cache.GetDatabase();
@@ -120,7 +107,7 @@ namespace lvlup.DataFerry.Caches
             {
                 var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
                 _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, ttl);
-                return database.StringSet(key, _serializer.SerializeToUtf8Bytes(value), ttl);
+                return database.StringSet(key, serializedValue, ttl);
             }, new Context($"SparseDistributedCache.SetInCache for {key}"));
 
             return result as bool?
@@ -182,13 +169,10 @@ namespace lvlup.DataFerry.Caches
             if (TryGetFromMemoryCache(key, out byte[]? data)
                 && data is not null)
             {
-                // Success path; deserialize and return
+                // Success path; write to BufferWriter and return
                 _logger.LogDebug("Retrieved entry with key {key} from memory cache.", key);
-                var sequence = new ReadOnlySequence<byte>(data);
-
-                destination.Write(
-                    await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
-                );
+                destination.Write(data);
+                return;
             }
 
             // If the key does not exist in the _memCache, get a database connection
@@ -208,22 +192,17 @@ namespace lvlup.DataFerry.Caches
             {
                 // We have a value, and RedisValue contains
                 // an implicit conversion operator to byte[]
-                var sequence = new ReadOnlySequence<byte>((byte[])value!);
-
-                // Deserialize and return
-                destination.Write(
-                    await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
-                );
+                destination.Write((byte[])value!);
             }
         }
 
         /// <inheritdoc/>
-        public async Task<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default)
+        public async Task<bool> SetInCacheAsync(string key, byte[] serializedValue, DistributedCacheEntryOptions? options, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {
                 _memCache.CheckBackplane();
-                _memCache.AddOrUpdate(key, _serializer.SerializeToUtf8Bytes(value), TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+                _memCache.AddOrUpdate(key, serializedValue, TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
             }
 
             IDatabase database = _cache.GetDatabase();
@@ -233,7 +212,7 @@ namespace lvlup.DataFerry.Caches
             {
                 var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
                 _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, ttl);
-                return await database.StringSetAsync(key, _serializer.SerializeToUtf8Bytes(value), ttl)
+                return await database.StringSetAsync(key, serializedValue, ttl)
                     .ConfigureAwait(false);
             }, new Context($"SparseDistributedCache.SetInCache for {key}"), token);
 
@@ -304,10 +283,7 @@ namespace lvlup.DataFerry.Caches
                     if (kvp.Value is null) continue;
 
                     // Deserialize and write to buffer
-                    var sequence = new ReadOnlySequence<byte>(kvp.Value);
-                    var (index, length) = destination.WriteAndGetPosition(
-                        _serializer.Deserialize<byte[]>(sequence)
-                    );
+                    var (index, length) = destination.WriteAndGetPosition(kvp.Value);
                     remainingKeys.Remove(kvp.Key);
 
                     // Return properties of write operation
@@ -337,7 +313,7 @@ namespace lvlup.DataFerry.Caches
         }
 
         /// <inheritdoc/>
-        public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
+        public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, byte[]> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Set our entries in the memory cache
             if (_settings.UseMemoryCache)
@@ -345,7 +321,7 @@ namespace lvlup.DataFerry.Caches
                 foreach (var kvp in data)
                 {
                     _memCache.CheckBackplane();
-                    _memCache.AddOrUpdate(kvp.Key, _serializer.SerializeToUtf8Bytes(kvp.Value), TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
+                    _memCache.AddOrUpdate(kvp.Key, kvp.Value, TimeSpan.FromMinutes(_settings.InMemoryAbsoluteExpiration));
                 }
             }
 
@@ -357,7 +333,7 @@ namespace lvlup.DataFerry.Caches
 
             // Prepare batch requests
             var redisTasks = data.ToDictionary(
-                kvp => SetInRedisTask(kvp.Key, batch.StringSetAsync(kvp.Key, _serializer.SerializeToUtf8Bytes(kvp.Value), ttl, When.Always), ttl, token),
+                kvp => SetInRedisTask(kvp.Key, batch.StringSetAsync(kvp.Key, kvp.Value, ttl, When.Always), ttl, token),
                 kvp => kvp.Key
             );
             batch.Execute();
@@ -462,8 +438,8 @@ namespace lvlup.DataFerry.Caches
         internal void GetFromMemoryCache(string key, out KeyValuePair<string, byte[]?> kvp)
         {
             _memCache.CheckBackplane();
-            kvp = _memCache.TryGet(key, out byte[] data) 
-                ? new(key, data) 
+            kvp = _memCache.TryGet(key, out byte[] data)
+                ? new(key, data)
                 : new(key, default);
         }
 
@@ -489,12 +465,7 @@ namespace lvlup.DataFerry.Caches
             {
                 // We have a value, and RedisValue contains
                 // an implicit conversion operator to byte[]
-                var sequence = new ReadOnlySequence<byte>((byte[])value!);
-
-                // Deserialize and write to buffer
-                var (index, length) = destination.WriteAndGetPosition(
-                    await _serializer.DeserializeAsync<byte[]>(sequence, token: token)
-                );
+                var (index, length) = destination.WriteAndGetPosition((byte[])value!);
 
                 // Return properties of write operation
                 return (key, index, length);

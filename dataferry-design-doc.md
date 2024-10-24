@@ -99,10 +99,12 @@ Work to be Done:
     - CountMinSketch<T> => DONE
     - FastMemCache => 90%
         + Backplane
-    - SparseDistributedCache => 55%
+    - SparseDistributedCache => 65%
         + Batch methods
 		+ Unit tests
+        + Address faults with serialization/deserialization
     - DataFerry => 0%
+        + NOTE: deserialization/serialization should happen here
         + Contract
             ~ IDataSource?
         + Contract methods & HybridCache impl

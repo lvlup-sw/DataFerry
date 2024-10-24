@@ -1,5 +1,4 @@
 ﻿using lvlup.DataFerry.Caches.Abstractions;
-using lvlup.DataFerry.Caches;
 using lvlup.DataFerry.Collections;
 using lvlup.DataFerry.Properties;
 using lvlup.DataFerry.Serializers.Abstractions;
@@ -11,19 +10,35 @@ using Microsoft.Extensions.Options;
 using lvlup.DataFerry.Tests.TestModels;
 using System.Text.Json;
 using System.Text;
+using Microsoft.Extensions.Caching.Distributed;
+using lvlup.DataFerry.Orchestrators;
 
 namespace lvlup.DataFerry.Tests
 {
     [TestClass]
     public class SparseDistributedCacheTests
     {
-        private SparseDistributedCache _cache = default!;
+        private CacheOrchestrator _cache = default!;
         private Mock<IConnectionMultiplexer> _redis = default!;
         private Mock<ILfuMemCache<string, byte[]>> _memCache = default!;
         private Mock<IDataFerrySerializer> _serializer = default!;
-        private IOptions<CacheSettings> _settings = default!;
-        private Mock<ILogger<SparseDistributedCache>> _logger = default!;
-
+        private Mock<ILogger<CacheOrchestrator>> _logger = default!;
+        private readonly IOptions<CacheSettings> _settings = Options.Create(new CacheSettings
+        {
+            DesiredPolicy = ResiliencyPatterns.Advanced,
+            TimeoutInterval = 30,
+            BulkheadMaxParallelization = 10,
+            BulkheadMaxQueuingActions = 100,
+            RetryCount = 1,
+            UseExponentialBackoff = true,
+            RetryInterval = 2,
+            CircuitBreakerCount = 3,
+            CircuitBreakerInterval = 1,
+            AbsoluteExpiration = 24,
+            InMemoryAbsoluteExpiration = 60,
+            UseMemoryCache = true
+        });
+        
         [TestInitialize]
         public void Setup()
         {
@@ -31,22 +46,7 @@ namespace lvlup.DataFerry.Tests
             _redis = new Mock<IConnectionMultiplexer>();
             _memCache = new Mock<ILfuMemCache<string, byte[]>>();
             _serializer = new Mock<IDataFerrySerializer>();
-            _settings = Options.Create(new CacheSettings
-            {
-                DesiredPolicy = ResiliencyPatterns.Advanced,
-                TimeoutInterval = 30,
-                BulkheadMaxParallelization = 10,
-                BulkheadMaxQueuingActions = 100,
-                RetryCount = 1,
-                UseExponentialBackoff = true,
-                RetryInterval = 2,
-                CircuitBreakerCount = 3,
-                CircuitBreakerInterval = 1,
-                AbsoluteExpiration = 24,
-                InMemoryAbsoluteExpiration = 60,
-                UseMemoryCache = true
-            });
-            _logger = new Mock<ILogger<SparseDistributedCache>>();
+            _logger = new Mock<ILogger<CacheOrchestrator>>();
 
             // Create the SparseDistributedCache instance
             _cache = new SparseDistributedCache(
@@ -177,113 +177,67 @@ namespace lvlup.DataFerry.Tests
         #endregion
         #region SET
 
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_SetsValuesInCaches_AndReturnsTrue(string key)
+        {
+            // Arrange
+            Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
+            byte[] serializedValue = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
+            byte[] deserializedValue = JsonSerializer.Deserialize(serializedValue);
+
+            var options = new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(5) };
+            _serializer.Setup(m => m.SerializeToUtf8Bytes(It.IsAny<ReadOnlySequence<byte>>(), default)).Returns(serializedValue);
+            Mock<IDatabase> database = new();
+            database.Setup(cache => cache.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<When>())).Returns(true);
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            // Act
+            _cache.SetInCache(key, value, options);
+
+            // Assert
+            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
+            _memCache.Verify(x => x.AddOrUpdate(key, serializedValue, TimeSpan.FromMinutes(5)), Times.Once);
+            database.Verify(x => x.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<When>()), Times.Once);
+        }
+
         /*
-        [DataTestMethod]
-        [DataRow("testKey")]
-        [DataRow("payload123")]
-        [DataRow("levelupsoftware")]
         [TestMethod]
-        public void SetInCache_UseMemoryCacheTrue_StringSetReturnsTrue()
+        public void SetInCache_WhenCalled_ShouldCallDatabaseStringSet()
         {
             // Arrange
-            // ...
+            var key = "test-key";
+            var value = new ReadOnlySequence<byte>(new byte[0]);
+            var options = new DistributedCacheEntryOptions();
+            var mockDatabase = new Mock<IDatabase>();
+            _redis.Setup(x => x.GetDatabase()).Returns(mockDatabase.Object);
+
+            // Act
+            _cache.SetInCache(key, value, options);
+
+            // Assert
+            mockDatabase.Verify(x => x.StringSet(key, It.IsAny<byte[]>(), It.IsAny<TimeSpan>()), Times.Once);
+        }
+
+        [TestMethod]
+        public void SetInCache_WhenCalled_ReturnsExpectedResult()
+        {
+            // Arrange
+            var key = "test-key";
+            var value = new ReadOnlySequence<byte>(new byte[0]);
+            var options = new DistributedCacheEntryOptions();
+            var mockDatabase = new Mock<IDatabase>();
+            mockDatabase.Setup(x => x.StringSet(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan>())).Returns(true);
+            _redis.Setup(x => x.GetDatabase()).Returns(mockDatabase.Object);
 
             // Act
             var result = _cache.SetInCache(key, value, options);
 
             // Assert
             Assert.IsTrue(result);
-            // ...
-        }
-
-        [DataTestMethod]
-        [DataRow("testKey")]
-        [DataRow("payload123")]
-        [DataRow("levelupsoftware")]
-        [TestMethod]
-        public void SetInCache_UseMemoryCacheTrue_StringSetReturnsFalse()
-        {
-            // Arrange
-            // ...
-
-            // Act
-            var result = _cache.SetInCache(key, value, options);
-
-            // Assert
-            Assert.IsFalse(result);
-            // ...
-        }
-
-        [DataTestMethod]
-        [DataRow("testKey")]
-        [DataRow("payload123")]
-        [DataRow("levelupsoftware")]
-        [TestMethod]
-        public void SetInCache_UseMemoryCacheFalse_StringSetReturnsTrue()
-        {
-            // Arrange
-            // ...
-
-            // Act
-            var result = _cache.SetInCache(key, value, options);
-
-            // Assert
-            Assert.IsTrue(result);
-            // ...
-        }
-
-        [DataTestMethod]
-        [DataRow("testKey")]
-        [DataRow("payload123")]
-        [DataRow("levelupsoftware")]
-        [TestMethod]
-        public void SetInCache_UseMemoryCacheFalse_StringSetReturnsFalse()
-        {
-            // Arrange
-            // ...
-
-            // Act
-            var result = _cache.SetInCache(key, value, options);
-
-            // Assert
-            Assert.IsFalse(result);
-            // ...
-        }
-
-        [DataTestMethod]
-        [DataRow("testKey")]
-        [DataRow("payload123")]
-        [DataRow("levelupsoftware")]
-        [TestMethod]
-        public void SetInCache_OptionsNull_StringSetReturnsTrue()
-        {
-            // Arrange
-            // ...
-
-            // Act
-            var result = _cache.SetInCache(key, value, null);
-
-            // Assert
-            Assert.IsTrue(result);
-            // ...
-        }
-
-        [DataTestMethod]
-        [DataRow("testKey")]
-        [DataRow("payload123")]
-        [DataRow("levelupsoftware")]
-        [TestMethod]
-        public void SetInCache_OptionsNull_StringSetReturnsFalse()
-        {
-            // Arrange
-            // ...
-
-            // Act
-            var result = _cache.SetInCache(key, value, null);
-
-            // Assert
-            Assert.IsFalse(result);
-            // ...
         }
         */
 

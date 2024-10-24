@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using lvlup.DataFerry.Orchestrators;
+using lvlup.DataFerry.Orchestrators.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IO;
 using System.Buffers;
@@ -27,7 +29,7 @@ namespace lvlup.DataFerry
             // Add and return services
             services.TryAddScoped<IBufferWriter<byte>, RentedBufferWriter<byte>>();
             services.TryAddSingleton<IDataFerrySerializer, DataFerrySerializer>();
-            services.TryAddSingleton<ISparseDistributedCache, SparseDistributedCache>();
+            services.TryAddSingleton<ICacheOrchestrator, CacheOrchestrator>();
             //services.TryAddSingleton<IDataFerry, Providers.DataFerry>();
             return services;
         }

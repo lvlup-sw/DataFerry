@@ -1,6 +1,6 @@
 ﻿namespace lvlup.DataFerry.Properties
 {
-    public enum GetFlags
+    public enum DataFerryFlags
     {
         ReturnNullIfNotFoundInCache,
         DoNotSetRecordInCache

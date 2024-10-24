@@ -3,13 +3,13 @@ using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
 
-namespace lvlup.DataFerry.Caches.Abstractions
+namespace lvlup.DataFerry.Orchestrators.Abstractions
 {
     /// <summary>
     /// A contract for interacting with a distributed cache of serialized values that supports low allocation data transfers.
     /// </summary>
-    /// <remarks>Based on <see cref="IBufferDistributedCache"/>.</remarks>
-    public interface ISparseDistributedCache
+    /// <remarks>Based on <see cref="IBufferDistributedCache"/> and <see cref="IDistributedCache"/>.</remarks>
+    public interface ICacheOrchestrator
     {
         /// <summary>
         /// Attempts to retrieve an existing cache item synchronously.
@@ -24,13 +24,12 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// Sets or overwrites a cache item synchronously.
         /// </summary>
         /// <param name="key">The key of the entry to create.</param>
-        /// <param name="value">The value for this cache entry, represented as a <see cref="ReadOnlySequence{byte}"/> of bytes.</param>
+        /// <param name="serializedValue">The serialized value for this cache entry, represented as a <see cref="byte[]"/>.</param>
         /// <param name="options">The cache options for the entry.</param>
         /// <returns><c>true</c> if the cache item is set successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.Set(string, byte[], DistributedCacheEntryOptions)"/>, 
-        /// but avoids unnecessary array allocations by utilizing a <see cref="ReadOnlySequence{byte}"/>. 
-        /// It also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        bool SetInCache(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options);
+        /// but also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
+        bool SetInCache(string key, byte[] serializedValue, DistributedCacheEntryOptions? options);
 
         /// <summary>
         /// Refreshes a value in the cache synchronously based on its key, resetting its sliding expiration timeout (if any).
@@ -67,14 +66,14 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// Asynchronously sets or overwrites a cache entry.
         /// </summary>
         /// <param name="key">The key of the entry to create.</param>
-        /// <param name="value">The value for this cache entry, represented as a <see cref="ReadOnlySequence{byte}"/> of bytes.</param>
+        /// <param name="serializedValue">The serialized value for this cache entry, represented as a <see cref="byte[]"/> of bytes.</param>
         /// <param name="options">The cache options for the value.</param>
         /// <param name="token">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
         /// <returns><c>true</c>  
         /// if the cache item is set successfully, <c>false</c> otherwise.</returns>
-        /// <remarks>This method is functionally similar to <see cref="IDistributedCache.SetAsync(string, byte[], DistributedCacheEntryOptions, CancellationToken)"/>, but avoids unnecessary array allocations by utilizing a <see cref="ReadOnlySequence{T}"/>.
-        /// It also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        Task<bool> SetInCacheAsync(string key, ReadOnlySequence<byte> value, DistributedCacheEntryOptions? options, CancellationToken token = default);
+        /// <remarks>This method is functionally similar to <see cref="IDistributedCache.SetAsync(string, byte[], DistributedCacheEntryOptions, CancellationToken)"/>, 
+        /// but also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
+        Task<bool> SetInCacheAsync(string key, byte[] serializedValue, DistributedCacheEntryOptions? options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously refreshes a value in the cache based on its key, resetting its sliding expiration timeout (if any).
@@ -118,7 +117,7 @@ namespace lvlup.DataFerry.Caches.Abstractions
         /// <param name="token">The  
         /// <see cref = "CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
         /// <returns>An <see cref="IAsyncEnumerable{KeyValuePair{string, bool}}"/> that represents the asynchronous stream of results, indicating the success or failure of setting each key-value pair in the cache.</returns>
-        IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, ReadOnlySequence<byte>> data, DistributedCacheEntryOptions? options, CancellationToken token = default);
+        IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, byte[]> data, DistributedCacheEntryOptions? options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously refreshes a batch of cache entries.
