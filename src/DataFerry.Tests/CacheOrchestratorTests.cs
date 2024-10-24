@@ -13,7 +13,7 @@ using Microsoft.Extensions.Caching.Distributed;
 namespace lvlup.DataFerry.Tests
 {
     [TestClass]
-    public class SparseDistributedCacheTests
+    public class CacheOrchestratorTests
     {
         private CacheOrchestrator _cache = default!;
         private Mock<IConnectionMultiplexer> _redis = default!;
@@ -61,6 +61,7 @@ namespace lvlup.DataFerry.Tests
             _memCache.Reset();
         }
 
+        #region SYNCHRONOUS OPERATIONS
         #region GET
 
         [DataTestMethod]
@@ -157,61 +158,172 @@ namespace lvlup.DataFerry.Tests
 
             var options = new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(5) };
             Mock<IDatabase> database = new();
-            database.Setup(cache => cache.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<When>())).Returns(true);
+            database.Setup(cache => cache.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), false, When.Always, CommandFlags.None)).Returns(true);
             _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
 
             // Act
-            _cache.SetInCache(key, serializedValue, options);
-
-            // Assert
-            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
-            _memCache.Verify(x => x.AddOrUpdate(key, serializedValue, TimeSpan.FromMinutes(5)), Times.Once);
-            database.Verify(x => x.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<When>()), Times.Once);
-        }
-
-        
-        [TestMethod]
-        public void SetInCache_WhenCalled_ShouldCallDatabaseStringSet()
-        {
-            // Arrange
-            var key = "test-key";
-            var value = new ReadOnlySequence<byte>(new byte[0]);
-            var options = new DistributedCacheEntryOptions();
-            var mockDatabase = new Mock<IDatabase>();
-            _redis.Setup(x => x.GetDatabase()).Returns(mockDatabase.Object);
-
-            // Act
-            _cache.SetInCache(key, value, options);
-
-            // Assert
-            mockDatabase.Verify(x => x.StringSet(key, It.IsAny<byte[]>(), It.IsAny<TimeSpan>()), Times.Once);
-        }
-
-        [TestMethod]
-        public void SetInCache_WhenCalled_ReturnsExpectedResult()
-        {
-            // Arrange
-            var key = "test-key";
-            var value = new ReadOnlySequence<byte>(new byte[0]);
-            var options = new DistributedCacheEntryOptions();
-            var mockDatabase = new Mock<IDatabase>();
-            mockDatabase.Setup(x => x.StringSet(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan>())).Returns(true);
-            _redis.Setup(x => x.GetDatabase()).Returns(mockDatabase.Object);
-
-            // Act
-            var result = _cache.SetInCache(key, value, options);
+            bool result = _cache.SetInCache(key, serializedValue, options);
 
             // Assert
             Assert.IsTrue(result);
+            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
+            _memCache.Verify(x => x.AddOrUpdate(key, serializedValue, TimeSpan.FromMinutes(_settings.Value.InMemoryAbsoluteExpiration)), Times.Once);
+            database.Verify(x => x.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()), Times.Once);
         }
-        */
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void SetInCache_RemoteCacheOperationFails_AndReturnsFalse(string key)
+        {
+            // Arrange
+            Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
+            byte[] serializedValue = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
+
+            var options = new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(5) };
+            Mock<IDatabase> database = new();
+            database.Setup(cache => cache.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), false, When.Always, CommandFlags.None)).Returns(false);
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            // Act
+            bool result = _cache.SetInCache(key, serializedValue, options);
+
+            // Assert
+            Assert.IsFalse(result);
+            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
+            _memCache.Verify(x => x.AddOrUpdate(key, serializedValue, TimeSpan.FromMinutes(_settings.Value.InMemoryAbsoluteExpiration)), Times.Once);
+            database.Verify(x => x.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()), Times.Once);
+        }
 
         #endregion
         #region REFRESH
 
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void RefreshInCache_RefreshesValuesInCaches_AndReturnsTrue(string key)
+        {
+            // Arrange
+            TimeSpan ttl = TimeSpan.FromMinutes(60);
+
+            Mock<IDatabase> database = new();
+            database.Setup(cache => cache.KeyExpire(key, ttl, ExpireWhen.Always, CommandFlags.None)).Returns(true);
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            // Act
+            bool result = _cache.RefreshInCache(key, ttl);
+
+            // Assert
+            Assert.IsTrue(result);
+            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
+            _memCache.Verify(x => x.Refresh(key, TimeSpan.FromMinutes(_settings.Value.InMemoryAbsoluteExpiration)), Times.Once);
+            database.Verify(x => x.KeyExpire(key, ttl, ExpireWhen.Always, It.IsAny<CommandFlags>()), Times.Once);
+        }
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void RefreshInCache_RemoteCacheOperationFails_AndReturnsFalse(string key)
+        {
+            // Arrange
+            TimeSpan ttl = TimeSpan.FromMinutes(60);
+
+            Mock<IDatabase> database = new();
+            database.Setup(cache => cache.KeyExpire(key, ttl, ExpireWhen.Always, CommandFlags.None)).Returns(false);
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            // Act
+            bool result = _cache.RefreshInCache(key, ttl);
+
+            // Assert
+            Assert.IsFalse(result);
+            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
+            _memCache.Verify(x => x.Refresh(key, TimeSpan.FromMinutes(_settings.Value.InMemoryAbsoluteExpiration)), Times.Once);
+            database.Verify(x => x.KeyExpire(key, ttl, ExpireWhen.Always, It.IsAny<CommandFlags>()), Times.Once);
+        }
+
         #endregion
         #region REMOVE
 
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void RemoveInCache_RemovesValuesInCaches_AndReturnsTrue(string key)
+        {
+            // Arrange
+            Mock<IDatabase> database = new();
+            database.Setup(cache => cache.KeyDelete(key, CommandFlags.None)).Returns(true);
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            // Act
+            bool result = _cache.RemoveFromCache(key);
+
+            // Assert
+            Assert.IsTrue(result);
+            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
+            _memCache.Verify(x => x.Remove(key), Times.Once);
+            database.Verify(x => x.KeyDelete(key, It.IsAny<CommandFlags>()), Times.Once);
+        }
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public void RemoveInCache_RemoteCacheOperationFails_AndReturnsFalse(string key)
+        {
+            // Arrange
+            Mock<IDatabase> database = new();
+            database.Setup(cache => cache.KeyDelete(key, CommandFlags.None)).Returns(false);
+            _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
+
+            // Act
+            bool result = _cache.RemoveFromCache(key);
+
+            // Assert
+            Assert.IsFalse(result);
+            _memCache.Verify(x => x.CheckBackplane(), Times.Once);
+            _memCache.Verify(x => x.Remove(key), Times.Once);
+            database.Verify(x => x.KeyDelete(key, It.IsAny<CommandFlags>()), Times.Once);
+        }
+
+        #endregion
+        #endregion
+
+        #region ASYNCHRONOUS OPERATIONS
+        #region GETASYNC
+
+        [DataTestMethod]
+        [DataRow("testKey")]
+        [DataRow("payload123")]
+        [DataRow("levelupsoftware")]
+        [TestMethod]
+        public async Task GetFromCacheAsync_KeyInMemCache_ReturnsValue(string key)
+        {
+            // Arrange
+            Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
+            byte[] serializedByte = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
+
+            _memCache.Setup(cache => cache.TryGet(key, out serializedByte)).Returns(true);
+            var destination = new ArrayBufferWriter<byte>();
+
+            // Act
+            _cache.GetFromCache(key, destination);
+
+            // Assert
+            _memCache.Verify(cache => cache.TryGet(key, out serializedByte), Times.Once);
+            CollectionAssert.AreEqual(serializedByte, destination.WrittenMemory.ToArray());
+        }
+
+        #endregion
         #endregion
     }
 }

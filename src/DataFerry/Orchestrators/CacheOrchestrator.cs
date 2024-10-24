@@ -151,7 +151,7 @@ namespace lvlup.DataFerry.Orchestrators
         }
 
         /// <inheritdoc/>
-        public bool RefreshInCache(string key, DistributedCacheEntryOptions options)
+        public bool RefreshInCache(string key, TimeSpan ttl)
         {
             if (_settings.UseMemoryCache)
             {
@@ -164,9 +164,8 @@ namespace lvlup.DataFerry.Orchestrators
             // Execute against the distributed cache
             object result = _syncPolicy.Execute((context) =>
             {
-                var ttl = options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromMinutes(60);
                 _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
-                return database.KeyExpire(key, ttl);
+                return database.KeyExpire(key, ttl, ExpireWhen.Always);
             }, new Context($"SparseDistributedCache.RefreshInCache for {key}"));
 
             return result as bool?
@@ -257,7 +256,7 @@ namespace lvlup.DataFerry.Orchestrators
         }
 
         /// <inheritdoc/>
-        public async Task<bool> RefreshInCacheAsync(string key, DistributedCacheEntryOptions options, CancellationToken token = default)
+        public async Task<bool> RefreshInCacheAsync(string key, TimeSpan ttl, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {
@@ -270,9 +269,8 @@ namespace lvlup.DataFerry.Orchestrators
             // Execute against the distributed cache
             object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
             {
-                var ttl = options.SlidingExpiration ?? options.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromMinutes(60);
                 _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
-                return await database.KeyExpireAsync(key, ttl)
+                return await database.KeyExpireAsync(key, ttl, ExpireWhen.Always)
                     .ConfigureAwait(false);
             }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token);
 
@@ -382,7 +380,7 @@ namespace lvlup.DataFerry.Orchestrators
         }
 
         /// <inheritdoc/>
-        public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, DistributedCacheEntryOptions options, [EnumeratorCancellation] CancellationToken token = default)
+        public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, TimeSpan ttl, [EnumeratorCancellation] CancellationToken token = default)
         {
             // Set our entries in the memory cache
             if (_settings.UseMemoryCache)
@@ -398,11 +396,9 @@ namespace lvlup.DataFerry.Orchestrators
             IDatabase database = _cache.GetDatabase();
             IBatch batch = database.CreateBatch();
 
-            var ttl = options?.SlidingExpiration ?? options?.AbsoluteExpirationRelativeToNow ?? TimeSpan.FromHours(_settings.AbsoluteExpiration);
-
             // Prepare batch requests
             var redisTasks = keys.ToDictionary(
-                key => RefreshInRedisTask(key, batch.KeyExpireAsync(key, ttl), ttl, token),
+                key => RefreshInRedisTask(key, batch.KeyExpireAsync(key, ttl, ExpireWhen.Always), ttl, token),
                 key => key
             );
             batch.Execute();
