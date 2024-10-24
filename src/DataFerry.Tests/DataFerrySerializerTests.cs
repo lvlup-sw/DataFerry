@@ -13,18 +13,22 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class DataFerrySerializerTests
     {
-        private StackArrayPool<byte> _arrayPool;
-        private RecyclableMemoryStreamManager _streamManager;
-        private Mock<ILogger<DataFerrySerializer>> _mockLogger;
-        private DataFerrySerializer _serializer;
+        private static readonly StackArrayPool<byte> _arrayPool = new();
+        private static readonly RecyclableMemoryStreamManager _streamManager = new();
+        private Mock<ILogger<DataFerrySerializer>> _mockLogger = default!;
+        private DataFerrySerializer _serializer = default!;
 
         [TestInitialize]
         public void Setup()
         {
-            _arrayPool = new StackArrayPool<byte>();
-            _streamManager = new RecyclableMemoryStreamManager();
             _mockLogger = new Mock<ILogger<DataFerrySerializer>>();
             _serializer = new DataFerrySerializer(_arrayPool, _streamManager, _mockLogger.Object);
+        }
+
+        [TestCleanup]
+        public void Cleanup()
+        {
+            _mockLogger.VerifyAll();
         }
 
         [TestMethod]

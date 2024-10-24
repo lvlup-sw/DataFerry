@@ -6,7 +6,7 @@ namespace lvlup.DataFerry.Collections
 {
     /// <summary>
     /// An implementation of <see cref="ArrayPool{T}"/> utilizing a thread-local cache.
-    /// Resource eviction is handled by <see cref="FastMemCache{TKey, TValue}"/> behind the scenes.
+    /// Resource eviction is handled by <see cref="LfuMemCache{TKey, TValue}"/> behind the scenes.
     /// </summary>
     /// <remarks>This class is designed to be injected into your application as a singleton using <see cref="ArrayPool{T}.Shared"/>.</remarks>
     /// <typeparam name="T"></typeparam>
@@ -27,7 +27,7 @@ namespace lvlup.DataFerry.Collections
         [ThreadStatic]
         private static T[][]? threadLocalCache;
 
-        // Time-to-live; tracked by FastMemCache
+        // Time-to-live; tracked by LfuMemCache
         public TimeSpan ArrayTTL { get; set; } = TimeSpan.FromMinutes(5);
 
         /// <summary>

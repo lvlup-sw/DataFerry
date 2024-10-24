@@ -5,13 +5,7 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class RentedBufferWriterTests
     {
-        private StackArrayPool<byte> _pool = default!;
-
-        [TestInitialize]
-        public void Initialize()
-        {
-            _pool = new StackArrayPool<byte>();
-        }
+        private static readonly StackArrayPool<byte> _pool = new();
 
         [TestMethod]
         public void Advance_ShouldIncreaseIndex()

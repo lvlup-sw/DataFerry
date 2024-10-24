@@ -5,13 +5,7 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class StackedArrayPoolTests
     {
-        private StackArrayPool<int> _pool = default!;
-
-        [TestInitialize]
-        public void Setup()
-        {
-            _pool = new();
-        }
+        private static readonly StackArrayPool<int> _pool = new();
 
         [TestMethod]
         public void Rent_MinimumLengthWithinRange_ReturnsArrayWithSufficientLength()
