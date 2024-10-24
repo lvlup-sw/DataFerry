@@ -13,7 +13,6 @@ namespace lvlup.DataFerry.Tests
     [TestClass]
     public class DataFerrySerializerTests
     {
-        private static readonly StackArrayPool<byte> _arrayPool = new();
         private static readonly RecyclableMemoryStreamManager _streamManager = new();
         private Mock<ILogger<DataFerrySerializer>> _mockLogger = default!;
         private DataFerrySerializer _serializer = default!;
@@ -22,7 +21,7 @@ namespace lvlup.DataFerry.Tests
         public void Setup()
         {
             _mockLogger = new Mock<ILogger<DataFerrySerializer>>();
-            _serializer = new DataFerrySerializer(_arrayPool, _streamManager, _mockLogger.Object);
+            _serializer = new DataFerrySerializer(_streamManager, _mockLogger.Object);
         }
 
         [TestCleanup]
@@ -143,10 +142,9 @@ namespace lvlup.DataFerry.Tests
                 Version = 1.0m
             };
             var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(testPayload);
-            var source = new ReadOnlySequence<byte>(jsonBytes);
 
             // Act
-            var result = await _serializer.DeserializeAsync<Payload>(source);
+            var result = await _serializer.DeserializeAsync<Payload>(jsonBytes);
 
             // Assert
             Assert.AreEqual(testPayload.Identifier, result?.Identifier);
@@ -181,10 +179,9 @@ namespace lvlup.DataFerry.Tests
         {
             // Arrange
             var invalidJsonBytes = System.Text.Encoding.UTF8.GetBytes("{\"Name\": \"Test\",}");
-            var source = new ReadOnlySequence<byte>(invalidJsonBytes);
 
             // Act
-            var result = await _serializer.DeserializeAsync<Payload>(source);
+            var result = await _serializer.DeserializeAsync<Payload>(invalidJsonBytes);
 
             // Assert
             Assert.IsNull(result);
@@ -213,7 +210,7 @@ namespace lvlup.DataFerry.Tests
         public async Task DeserializeAsync_ShouldHandleEmptyInput()
         {
             // Arrange
-            var emptySource = new ReadOnlySequence<byte>(Array.Empty<byte>());
+            var emptySource = Array.Empty<byte>();
 
             // Act
             var result = await _serializer.DeserializeAsync<Payload>(emptySource);
@@ -266,10 +263,9 @@ namespace lvlup.DataFerry.Tests
             // Arrange
             var veryLargePayload = TestUtils.CreateLargePayload(100000);
             var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(veryLargePayload);
-            var source = new ReadOnlySequence<byte>(jsonBytes);
 
             // Act
-            var result = await _serializer.DeserializeAsync<Payload>(source);
+            var result = await _serializer.DeserializeAsync<Payload>(jsonBytes);
 
             // Assert
             Assert.IsNotNull(result);

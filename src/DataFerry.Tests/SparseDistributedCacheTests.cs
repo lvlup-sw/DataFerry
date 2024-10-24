@@ -1,7 +1,5 @@
 ﻿using lvlup.DataFerry.Caches.Abstractions;
-using lvlup.DataFerry.Collections;
 using lvlup.DataFerry.Properties;
-using lvlup.DataFerry.Serializers.Abstractions;
 using Moq;
 using StackExchange.Redis;
 using System.Buffers;
@@ -9,9 +7,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using lvlup.DataFerry.Tests.TestModels;
 using System.Text.Json;
-using System.Text;
-using Microsoft.Extensions.Caching.Distributed;
 using lvlup.DataFerry.Orchestrators;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace lvlup.DataFerry.Tests
 {
@@ -21,7 +18,6 @@ namespace lvlup.DataFerry.Tests
         private CacheOrchestrator _cache = default!;
         private Mock<IConnectionMultiplexer> _redis = default!;
         private Mock<ILfuMemCache<string, byte[]>> _memCache = default!;
-        private Mock<IDataFerrySerializer> _serializer = default!;
         private Mock<ILogger<CacheOrchestrator>> _logger = default!;
         private readonly IOptions<CacheSettings> _settings = Options.Create(new CacheSettings
         {
@@ -45,14 +41,12 @@ namespace lvlup.DataFerry.Tests
             // Setup dependencies
             _redis = new Mock<IConnectionMultiplexer>();
             _memCache = new Mock<ILfuMemCache<string, byte[]>>();
-            _serializer = new Mock<IDataFerrySerializer>();
             _logger = new Mock<ILogger<CacheOrchestrator>>();
 
-            // Create the SparseDistributedCache instance
-            _cache = new SparseDistributedCache(
+            // Create the CacheOrchestrator instance
+            _cache = new CacheOrchestrator(
                 _redis.Object,
                 _memCache.Object,
-                _serializer.Object,
                 _settings,
                 _logger.Object
             );
@@ -78,12 +72,9 @@ namespace lvlup.DataFerry.Tests
         {
             // Arrange
             Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
-            string serializedValue = JsonSerializer.Serialize(expectedValue);
-            byte[] serializedByte = Encoding.UTF8.GetBytes(serializedValue);
-            byte[] deserializedByte = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
+            byte[] serializedByte = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
 
             _memCache.Setup(cache => cache.TryGet(key, out serializedByte)).Returns(true);
-            _serializer.Setup(m => m.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default)).Returns(deserializedByte);
             var destination = new ArrayBufferWriter<byte>();
 
             // Act
@@ -91,8 +82,7 @@ namespace lvlup.DataFerry.Tests
 
             // Assert
             _memCache.Verify(cache => cache.TryGet(key, out serializedByte), Times.Once);
-            _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Once);
-            CollectionAssert.AreEqual(deserializedByte, destination.WrittenMemory.ToArray());
+            CollectionAssert.AreEqual(serializedByte, destination.WrittenMemory.ToArray());
         }
 
         [DataTestMethod]
@@ -104,16 +94,13 @@ namespace lvlup.DataFerry.Tests
         {
             // Arrange
             Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
-            string serializedValue = JsonSerializer.Serialize(expectedValue);
-            byte[] serializedByte = Encoding.UTF8.GetBytes(serializedValue);
-            byte[] deserializedByte = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
+            byte[] serializedByte = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
 
-            RedisValue redisSerializedValue = new(serializedByte.AsSpan().ToString());
-            byte[]? memValue = default;
-            _memCache.Setup(cache => cache.TryGet(key, out memValue)).Returns(false);
+            RedisValue redisSerializedValue = (RedisValue)serializedByte;
+            byte[]? nullValue = default;
+            _memCache.Setup(cache => cache.TryGet(key, out nullValue)).Returns(false);
             Mock<IDatabase> database = new();
             database.Setup(cache => cache.StringGet(key, CommandFlags.PreferReplica)).Returns(redisSerializedValue);
-            _serializer.Setup(m => m.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default)).Returns(deserializedByte);
             _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
             var destination = new ArrayBufferWriter<byte>();
 
@@ -121,10 +108,9 @@ namespace lvlup.DataFerry.Tests
             _cache.GetFromCache(key, destination);
 
             // Assert: Verify the result
-            _memCache.Verify(cache => cache.TryGet(key, out serializedByte), Times.Once);
-            _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Once);
+            _memCache.Verify(cache => cache.TryGet(key, out nullValue), Times.Once);
             database.Verify(cache => cache.StringGet(key, CommandFlags.PreferReplica), Times.Once);
-            CollectionAssert.AreEqual(deserializedByte, destination.WrittenMemory.ToArray());
+            CollectionAssert.AreEqual(serializedByte, destination.WrittenMemory.ToArray());
         }
 
         [DataTestMethod]
@@ -136,13 +122,12 @@ namespace lvlup.DataFerry.Tests
         {
             // Arrange
             Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
-            byte[] deserializedByte = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
+            byte[] serializedByte = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
 
             byte[]? nullValue = default;
             _memCache.Setup(cache => cache.TryGet(key, out nullValue)).Returns(false);
             Mock<IDatabase> database = new();
-            _serializer.Setup(m => m.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default)).Returns(deserializedByte);
-            database.Setup(cache => cache.StringGet(key, CommandFlags.PreferReplica)).Returns(nullValue);
+            database.Setup(cache => cache.StringGet(key, CommandFlags.PreferReplica)).Returns(RedisValue.Null);
             _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
             var destination = new ArrayBufferWriter<byte>();
 
@@ -151,27 +136,9 @@ namespace lvlup.DataFerry.Tests
 
             // Assert: Verify the result
             _memCache.Verify(cache => cache.TryGet(key, out nullValue), Times.Once);
-            _serializer.Verify(s => s.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Never);
             database.Verify(cache => cache.StringGet(key, CommandFlags.PreferReplica), Times.Once);
-            CollectionAssert.AreNotEqual(deserializedByte, destination.WrittenMemory.ToArray());
+            CollectionAssert.AreNotEqual(serializedByte, destination.WrittenMemory.ToArray());
             Assert.IsTrue(destination.FreeCapacity == destination.WrittenSpan.Length);
-        }
-
-        [TestMethod]
-        public void GetFromCache_SerializationException_ReturnsFalse()
-        {
-            // Arrange
-            var key = "testKey";
-            var data = new byte[] { 1, 2, 3 };
-            _memCache.Setup(m => m.TryGet(key, out data)).Returns(true);
-            Exception exception = new("Serialization failed.");
-
-            _serializer.Setup(m => m.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default)).Throws(exception);
-            var destination = new ArrayBufferWriter<byte>();
-
-            // Act and Assert
-            Assert.ThrowsException<Exception>(() => _cache.GetFromCache(key, destination));
-            _serializer.Verify(m => m.Deserialize<byte[]>(It.IsAny<ReadOnlySequence<byte>>(), default), Times.Once);
         }
 
         #endregion
@@ -187,16 +154,14 @@ namespace lvlup.DataFerry.Tests
             // Arrange
             Payload expectedValue = TestUtils.CreatePayloadWithInput(key);
             byte[] serializedValue = JsonSerializer.SerializeToUtf8Bytes(expectedValue);
-            byte[] deserializedValue = JsonSerializer.Deserialize(serializedValue);
 
             var options = new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromMinutes(5) };
-            _serializer.Setup(m => m.SerializeToUtf8Bytes(It.IsAny<ReadOnlySequence<byte>>(), default)).Returns(serializedValue);
             Mock<IDatabase> database = new();
             database.Setup(cache => cache.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<When>())).Returns(true);
             _redis.Setup(db => db.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(database.Object);
 
             // Act
-            _cache.SetInCache(key, value, options);
+            _cache.SetInCache(key, serializedValue, options);
 
             // Assert
             _memCache.Verify(x => x.CheckBackplane(), Times.Once);
@@ -204,7 +169,7 @@ namespace lvlup.DataFerry.Tests
             database.Verify(x => x.StringSet(key, serializedValue, TimeSpan.FromMinutes(5), It.IsAny<When>()), Times.Once);
         }
 
-        /*
+        
         [TestMethod]
         public void SetInCache_WhenCalled_ShouldCallDatabaseStringSet()
         {

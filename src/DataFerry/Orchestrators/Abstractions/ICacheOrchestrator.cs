@@ -139,19 +139,19 @@ namespace lvlup.DataFerry.Orchestrators.Abstractions
         IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, CancellationToken token = default);
 
         /// <summary>
-        /// Get the configured synchronous Polly policy.
+        /// Get or set the synchronous Polly policy.
         /// </summary>
-        PolicyWrap<object> GetSyncPollyPolicy();
+        PolicyWrap<object> SyncPolicy { get; set; }
 
         /// <summary>
-        /// Get the configured asynchronous Polly policy.
+        /// Get or set the asynchronous Polly policy.
         /// </summary>
-        AsyncPolicyWrap<object> GetAsyncPollyPolicy();
+        AsyncPolicyWrap<object> AsyncPolicy { get; set; }
 
         /// <summary>
-        /// Set the fallback value for the polly retry policy.
+        /// Set the fallback value for the polly retry policy. Policy will by default return <see cref="RedisValue.Null"/>.
         /// </summary>
-        /// <remarks>Policy will return <see cref="RedisValue.Null"/> if not set.</remarks>
+        /// <remarks>This will generate a new policy and is thus a relatively expensive operation; it should be utilized infrequently, such as during setup operations.</remarks>
         /// <param name="value"></param>
         void SetFallbackValue(object value);
     }

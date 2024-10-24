@@ -20,7 +20,7 @@ namespace lvlup.DataFerry.Caches
         private readonly int _sampleSize;
 
         // Locks
-        private static readonly ReaderWriterLockSlim _evictionLock = new();
+        private static readonly SemaphoreSlim _evictionSemaphore = new(1, 1);
         private static readonly SemaphoreSlim _globalEvictionSemaphore = new(1, 1);
 
         /// <inheritdoc/>
@@ -160,7 +160,7 @@ namespace lvlup.DataFerry.Caches
             var ttlValue = new TtlValue(value, ttl);
             _cms.Insert(key);
 
-            _evictionLock.EnterWriteLock();
+            _evictionSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
                 bool isWindowKey = _window.ContainsKey(key);
@@ -188,7 +188,7 @@ namespace lvlup.DataFerry.Caches
             }
             finally
             {
-                _evictionLock.ExitWriteLock();
+                _evictionSemaphore.Release();
             }
 
             // Perform eviction if necessary
@@ -273,7 +273,7 @@ namespace lvlup.DataFerry.Caches
         {
             if (!RequiresEviction()) return;
 
-            _evictionLock.EnterWriteLock();
+            _evictionSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
                 TKey? lfuKey = default;
@@ -299,7 +299,7 @@ namespace lvlup.DataFerry.Caches
             }
             finally
             {
-                _evictionLock.ExitWriteLock();
+                _evictionSemaphore.Release();
             }
         }
 
@@ -309,7 +309,7 @@ namespace lvlup.DataFerry.Caches
         /// <param name="key"></param>
         internal void UpdateRecentKeys(TKey key)
         {
-            _evictionLock.EnterWriteLock();
+            _evictionSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
                 _recentKeys.Enqueue(key, DateTime.UtcNow);
@@ -317,7 +317,7 @@ namespace lvlup.DataFerry.Caches
             }
             finally
             {
-                _evictionLock.ExitWriteLock();
+                _evictionSemaphore.Release();
             }
         }
 

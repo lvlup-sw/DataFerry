@@ -16,6 +16,7 @@ namespace lvlup.DataFerry.Orchestrators
         private readonly ILfuMemCache<string, byte[]> _memCache;
         private readonly CacheSettings _settings;
         private readonly ILogger<CacheOrchestrator> _logger;
+        private readonly ReaderWriterLockSlim _policyLock;
         private PolicyWrap<object> _syncPolicy;
         private AsyncPolicyWrap<object> _asyncPolicy;
 
@@ -39,21 +40,56 @@ namespace lvlup.DataFerry.Orchestrators
             _memCache = memCache;
             _settings = settings.Value;
             _logger = logger;
+            _policyLock = new();
             _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings);
             _asyncPolicy = PollyPolicyGenerator.GenerateAsyncPolicy(_logger, _settings);
         }
 
         /// <inheritdoc/>
-        public PolicyWrap<object> GetSyncPollyPolicy() => _syncPolicy;
+        public PolicyWrap<object> SyncPolicy
+        {
+            get
+            {
+                _policyLock.EnterReadLock();
+                try { return _syncPolicy; }
+                finally {  _policyLock.ExitReadLock(); }
+            }
+            set
+            {
+                _policyLock.EnterWriteLock();
+                try {
+                    ArgumentNullException.ThrowIfNull(value);
+                    _syncPolicy = value;
+                } finally {  _policyLock.ExitWriteLock(); }
+            }
+        }
 
         /// <inheritdoc/>
-        public AsyncPolicyWrap<object> GetAsyncPollyPolicy() => _asyncPolicy;
+        public AsyncPolicyWrap<object> AsyncPolicy
+        {
+            get
+            {
+                _policyLock.EnterReadLock();
+                try { return _asyncPolicy; }
+                finally { _policyLock.ExitReadLock(); }
+            }
+            set
+            {
+                _policyLock.EnterWriteLock();
+                try
+                {
+                    ArgumentNullException.ThrowIfNull(value);
+                    _asyncPolicy = value;
+                }
+                finally { _policyLock.ExitWriteLock(); }
+            }
+        }
 
         /// <inheritdoc/>
         public void SetFallbackValue(object value)
         {
-            _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings, value);
-            _asyncPolicy = PollyPolicyGenerator.GenerateAsyncPolicy(_logger, _settings, value);
+            SyncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings, value);
+            AsyncPolicy = PollyPolicyGenerator.GenerateAsyncPolicy(_logger, _settings, value);
         }
 
         #region SYNCHRONOUS OPERATIONS
