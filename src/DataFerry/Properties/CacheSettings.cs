@@ -1,11 +1,8 @@
 ﻿namespace lvlup.DataFerry.Properties
 {
     /// <summary>
-    /// Cache settings for <see cref="SparseDistributedCache{T}"/>.
+    /// Cache settings for <see cref="DataFerry"/>.
     /// </summary>
-    /// <remarks>
-    /// You need to pass an instance of this class to the <see cref="DataFerry{T}"/>.
-    /// </remarks>
     public class CacheSettings
     {
         /// <summary>

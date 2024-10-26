@@ -232,7 +232,7 @@ namespace lvlup.DataFerry.Orchestrators
         }
 
         /// <inheritdoc/>
-        public async Task<bool> SetInCacheAsync(string key, byte[] serializedValue, DistributedCacheEntryOptions? options, CancellationToken token = default)
+        public async ValueTask<bool> SetInCacheAsync(string key, byte[] serializedValue, DistributedCacheEntryOptions? options, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {
@@ -256,7 +256,7 @@ namespace lvlup.DataFerry.Orchestrators
         }
 
         /// <inheritdoc/>
-        public async Task<bool> RefreshInCacheAsync(string key, TimeSpan ttl, CancellationToken token = default)
+        public async ValueTask<bool> RefreshInCacheAsync(string key, TimeSpan ttl, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {
@@ -279,7 +279,7 @@ namespace lvlup.DataFerry.Orchestrators
         }
 
         /// <inheritdoc/>
-        public async Task<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
+        public async ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default)
         {
             if (_settings.UseMemoryCache)
             {

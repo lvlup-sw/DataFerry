@@ -4,7 +4,7 @@ using System.Collections.Concurrent;
 namespace lvlup.DataFerry.Caches
 {
     /// <summary>
-    /// LfuMemCache is an in-memory caching implementation based on FastCache and BitFaster. 
+    /// LfuMemCache is an in-memory caching implementation based on FastCache. 
     /// It includes resource eviction based on associated Time-To-Live (TTL) values and an LFU eviction strategy.
     /// </summary>
     /// <remarks>

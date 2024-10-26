@@ -8,7 +8,7 @@ using System.Buffers;
 namespace lvlup.DataFerry
 {
     /// <summary>
-    /// Configuration extension methods for <see cref="Providers.DataFerry"/>.
+    /// Configuration extension methods for <see cref="DataFerry"/>.
     /// </summary>
     public static class DataFerryServiceExtensions
     {
@@ -30,7 +30,7 @@ namespace lvlup.DataFerry
             services.TryAddScoped<IBufferWriter<byte>, RentedBufferWriter<byte>>();
             services.TryAddSingleton<IDataFerrySerializer, DataFerrySerializer>();
             services.TryAddSingleton<ICacheOrchestrator, CacheOrchestrator>();
-            //services.TryAddSingleton<IDataFerry, Providers.DataFerry>();
+            services.TryAddSingleton<IDataFerry, DataFerry>();
             return services;
         }
     }

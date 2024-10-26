@@ -9,8 +9,6 @@ namespace lvlup.DataFerry.Serializers
     /// Implements the <see cref="IDataFerrySerializer"/> interface for serializing and deserializing data using JSON.
     /// </summary>
     /// <remarks>
-    /// This implementation utilizes pooled resources for efficient buffer management. 
-    /// An <see cref="ArrayPool{T}"/> is used to rent and return buffers.
     /// A <see cref="RecyclableMemoryStreamManager"/> is used to rent stream instances.
     /// This class is optimally used with an <see cref="IBufferWriter{T}"/>.
     /// </remarks>
@@ -97,7 +95,7 @@ namespace lvlup.DataFerry.Serializers
         }
 
         /// <inheritdoc/>
-        public async Task<T?> DeserializeAsync<T>(
+        public async ValueTask<T?> DeserializeAsync<T>(
             byte[] serializedValue,
             JsonSerializerOptions? options = default,
             CancellationToken token = default)
@@ -117,7 +115,7 @@ namespace lvlup.DataFerry.Serializers
         }
 
         /// <inheritdoc/>
-        public async Task SerializeAsync<T>(
+        public async ValueTask SerializeAsync<T>(
             T value,
             IBufferWriter<byte> destination,
             JsonSerializerOptions? options = default,
@@ -155,7 +153,10 @@ namespace lvlup.DataFerry.Serializers
         }
 
         /// <inheritdoc/>
-        public async Task<byte[]> SerializeAsync<T>(T value, JsonSerializerOptions? options = default, CancellationToken token = default)
+        public async ValueTask<byte[]> SerializeAsync<T>(
+            T value, 
+            JsonSerializerOptions? options = default, 
+            CancellationToken token = default)
         {
             try
             {
@@ -163,7 +164,7 @@ namespace lvlup.DataFerry.Serializers
                 using var stream = _streamManager.GetStream(StreamTag);
 
                 await JsonSerializer.SerializeAsync(stream, value, options, token);
-
+                
                 // Try to get the buffer from the stream
                 if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
                 {

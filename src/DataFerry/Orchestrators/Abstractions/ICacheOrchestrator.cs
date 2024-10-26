@@ -73,7 +73,7 @@ namespace lvlup.DataFerry.Orchestrators.Abstractions
         /// if the cache item is set successfully, <c>false</c> otherwise.</returns>
         /// <remarks>This method is functionally similar to <see cref="IDistributedCache.SetAsync(string, byte[], DistributedCacheEntryOptions, CancellationToken)"/>, 
         /// but also returns a <see cref="bool"/> indicating the success of the operation.</remarks>
-        Task<bool> SetInCacheAsync(string key, byte[] serializedValue, DistributedCacheEntryOptions? options, CancellationToken token = default);
+        ValueTask<bool> SetInCacheAsync(string key, byte[] serializedValue, DistributedCacheEntryOptions? options, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously refreshes a value in the cache based on its key, resetting its sliding expiration timeout (if any).
@@ -85,7 +85,7 @@ namespace lvlup.DataFerry.Orchestrators.Abstractions
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
         /// <returns><c>true</c>  
         /// if the cache item is refreshed successfully, <c>false</c> otherwise.</returns>
-        Task<bool> RefreshInCacheAsync(string key, TimeSpan ttl, CancellationToken token = default);
+        ValueTask<bool> RefreshInCacheAsync(string key, TimeSpan ttl, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously removes the value with the given key from the cache.
@@ -97,7 +97,7 @@ namespace lvlup.DataFerry.Orchestrators.Abstractions
         /// but returns a <see cref="bool"/> indicating the success of the operation.</remarks>
         /// <returns><c>true</c>
         /// if the cache item is removed successfully, <c>false</c> otherwise.</returns>
-        Task<bool> RemoveFromCacheAsync(string key, CancellationToken token = default);
+        ValueTask<bool> RemoveFromCacheAsync(string key, CancellationToken token = default);
 
         /// <summary>
         /// Asynchronously retrieves a batch of values from the cache.

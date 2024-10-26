@@ -16,11 +16,6 @@ namespace lvlup.DataFerry.Collections
         private const int DefaultInitialBufferSize = 256;
 
         /// <summary>
-        /// Gets the amount of free space available in the underlying buffer.
-        /// </summary>
-        public int FreeCapacity => _buffer.Length - _index;
-
-        /// <summary>
         /// Initializes a new instance of the <see cref="RentedBufferWriter{T}"/> class.
         /// </summary>
         /// <param name="pool">The <see cref="ArrayPool{T}"/> to use for renting buffers.</param>
@@ -29,6 +24,11 @@ namespace lvlup.DataFerry.Collections
             _pool = pool;
             _buffer = Array.Empty<T>();
         }
+
+        /// <summary>
+        /// Gets the amount of free space available in the underlying buffer.
+        /// </summary>
+        public int FreeCapacity => _buffer.Length - _index;
 
         /// <summary>
         /// Creates a new array and copies the contents of the buffer to it.

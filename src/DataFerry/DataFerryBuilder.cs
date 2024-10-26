@@ -3,7 +3,7 @@
 namespace lvlup.DataFerry
 {
     /// <summary>
-    /// Helper API for configuring <see cref="Providers.DataFerry"/>.
+    /// Helper API for configuring <see cref="DataFerry"/>.
     /// </summary>
     public sealed class DataFerryBuilder(IServiceCollection services) : IDataFerryBuilder
     {
