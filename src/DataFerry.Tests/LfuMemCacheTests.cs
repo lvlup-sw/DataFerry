@@ -220,7 +220,7 @@ namespace lvlup.DataFerry.Tests
                 var localI = i.ToString();
                 tasks[i] = Task.Run(() =>
                 {
-                    _cache.AddOrUpdate(localI, i, TimeSpan.FromMinutes(1));
+                    _cache.AddOrUpdate(localI, i, TimeSpan.FromMinutes(5));
                     if (_cache.TryGet(localI, out var value))
                     {
                         Assert.AreEqual(i, value);
