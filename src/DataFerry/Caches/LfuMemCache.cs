@@ -277,50 +277,29 @@ namespace lvlup.DataFerry.Caches
             {
                 await _evictionChannel.Reader.ReadAsync().ConfigureAwait(false);
 
-                while (_recentKeys.Reader.TryRead(out var key))
+                // Lock the entire eviction logic to ensure consistency
+                await _windowSemaphore.WaitAsync().ConfigureAwait(false);
+                try
                 {
-                    _cms.Insert(key);
-
-                    if (RequiresEviction())
+                    while (_recentKeys.Reader.TryRead(out var key))
                     {
-                        // Lock only the _window dictionary for eviction from the window
-                        await _windowSemaphore.WaitAsync().ConfigureAwait(false);
-                        try
-                        {
-                            if (_window.Count >= _sampleSize && _window.TryRemove(key, out var ttlVal))
-                            {
-                                // Lock _cache only when adding to it
-                                await _cacheSemaphore.WaitAsync().ConfigureAwait(false);
-                                try
-                                {
-                                    _cache.TryAdd(key, ttlVal);
-                                }
-                                finally
-                                {
-                                    _cacheSemaphore.Release();
-                                }
-                            }
-                        }
-                        finally
-                        {
-                            _windowSemaphore.Release();
-                        }
+                        _cms.Insert(key);
 
-                        // Lock _window again when finding and evicting from _cache
-                        await _windowSemaphore.WaitAsync().ConfigureAwait(false);
-                        try
+                        if (RequiresEviction())
                         {
-                            var lfuKey = _window.Keys.MinBy(k => _cms.Query(k));
-                            if (lfuKey != null)
+                            if (_window.Skip(0).Count() >= _sampleSize && _window.TryRemove(key, out var ttlVal))
                             {
-                                _cache.TryRemove(lfuKey, out _);
+                                _cache.TryAdd(key, ttlVal);
                             }
-                        }
-                        finally
-                        {
-                            _windowSemaphore.Release();
+
+                            var lfuKey = _window.Keys.MinBy(k => _cms.Query(k));
+                            if (lfuKey is not null) _cache.TryRemove(lfuKey, out _);
                         }
                     }
+                }
+                finally
+                {
+                    _windowSemaphore.Release();
                 }
             }
         }

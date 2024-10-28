@@ -49,7 +49,7 @@ namespace lvlup.DataFerry.Tests
         }
 
         [Benchmark]
-        public void WindowTinyLFU()
+        public void DataFerry()
         {
             foreach (var user in _users)
             {
@@ -69,11 +69,11 @@ namespace lvlup.DataFerry.Tests
             }
 
             double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"WindowTinyLFU hit rate: {hitRate:F2}%");
+            Console.WriteLine($"DataFerry hit rate: {hitRate:F2}%");
         }
 
         [Benchmark]
-        public void ThirdPartyCache()
+        public void BitFaster()
         {
             foreach (var user in _users)
             {
@@ -93,7 +93,7 @@ namespace lvlup.DataFerry.Tests
             }
 
             double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"ThirdPartyCache hit rate: {hitRate:F2}%");
+            Console.WriteLine($"BitFaster hit rate: {hitRate:F2}%");
         }
 
         private static List<Payload> GenerateUsers(int count)
