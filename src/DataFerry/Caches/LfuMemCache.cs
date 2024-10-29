@@ -15,6 +15,7 @@ namespace lvlup.DataFerry.Caches
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
+        private readonly ConcurrentPriorityQueue<TKey, int> _windowQueue;
         private readonly CountMinSketch<TKey> _cms;
         private readonly Timer _cleanUpTimer;
         private readonly int _sampleSize;
@@ -43,6 +44,7 @@ namespace lvlup.DataFerry.Caches
             _cache = new();
             _window = new();
             _cms = new(MaxSize);
+            _windowQueue = new(Comparer<int>.Default);
             _recentKeys = Channel.CreateBounded<TKey>(_sampleSize);
             _evictionChannel = Channel.CreateUnbounded<bool>();
             _cleanUpTimer = new Timer(
@@ -139,12 +141,12 @@ namespace lvlup.DataFerry.Caches
             value = default!;
 
             // Not found or expired
-            if ((!_window.TryGetValue(key, out TtlValue? ttlValue) && !_cache.TryGetValue(key, out ttlValue)) || ttlValue.IsExpired())
+            if ((!_window.TryGetValue(key, out TtlValue ttlValue) && !_cache.TryGetValue(key, out ttlValue)) || ttlValue.IsExpired())
             {
                 // Utilizes atomic conditional removal to eliminate the need for locks, 
                 // ensuring only items matching both key and value are removed.
                 // See: https://devblogs.microsoft.com/pfxteam/little-known-gems-atomic-conditional-removals-from-concurrentdictionary/
-                if (ttlValue is not null)
+                if (ttlValue.HasValue)
                 {
                     _window.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
                     _cache.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
@@ -279,64 +281,16 @@ namespace lvlup.DataFerry.Caches
 
                         if (RequiresEviction())
                         {
-                            if (_window.Skip(0).Count() >= _sampleSize && _window.TryRemove(key, out var ttlVal))
+                            // Add the new key to the priority queue
+                            _windowQueue.TryAdd(key, _cms.EstimateFrequency(key));
+
+                            if (_windowQueue.Count >= _sampleSize)
                             {
-                                _cache.TryAdd(key, ttlVal);
-                            }
-
-                            var lfuKey = _window.Keys.MinBy(k => _cms.EstimateFrequency(k));
-                            if (lfuKey is not null) _cache.TryRemove(lfuKey, out _);
-                        }
-                    }
-                }
-                finally
-                {
-                    _windowSemaphore.Release();
-                }
-            }
-
-            /*
-            TKey victim = default!;
-            TKey candidate = default!;
-
-            while (true)
-            {
-                await _evictionChannel.Reader.ReadAsync().ConfigureAwait(false);
-
-                // Lock the eviction logic to ensure consistency
-                await _windowSemaphore.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    while (_recentKeys.Reader.TryRead(out var key))
-                    {
-                        _cms.Increment(key);
-                        candidate = key;
-
-                        if (RequiresEviction())
-                        {
-                            // First pass: admit candidates
-                            while (_window.Count > _sampleSize && victim is not null)
-                            {
-                                var victimFrequency = _cms.EstimateFrequency(victim);
-                                var candidateFrequency = _cms.EstimateFrequency(candidate);
-
-                                if (candidateFrequency > victimFrequency)
+                                // Dequeue the least frequently used item (lowest priority)
+                                if (_windowQueue.TryTake(out var lfuKey))
                                 {
-                                    _window.TryRemove(victim, out _);
-                                    victim = _window.Keys.ArgMin(k => _cms.EstimateFrequency(k));
+                                    Remove(lfuKey);
                                 }
-                                else
-                                {
-                                    _window.TryRemove(candidate, out _);
-                                    candidate = _window.Keys.ArgMin(k => _cms.EstimateFrequency(k));
-                                }
-                            }
-
-                            // Second pass: remove probation items in LRU order, evict lowest frequency
-                            while (_window.Count > _sampleSize)
-                            {
-                                victim = _window.Keys.ArgMin(k => _cms.EstimateFrequency(k));
-                                _window.TryRemove(victim, out _);
                             }
                         }
                     }
@@ -346,7 +300,6 @@ namespace lvlup.DataFerry.Caches
                     _windowSemaphore.Release();
                 }
             }
-            */
         }
 
         /// <inheritdoc/>
@@ -361,7 +314,7 @@ namespace lvlup.DataFerry.Caches
         /// <summary>
         /// Represents a value with an associated time-to-live (TTL) for expiration.
         /// </summary>
-        private sealed class TtlValue
+        private readonly struct TtlValue
         {
             /// <summary>
             /// The stored value.
@@ -388,7 +341,19 @@ namespace lvlup.DataFerry.Caches
             /// Determines if this value has expired.
             /// </summary>
             /// <returns>True if the value has expired; otherwise, false.</returns>
-            public bool IsExpired() => Environment.TickCount64 > _expirationTicks;
+            public readonly bool IsExpired() => Environment.TickCount64 > _expirationTicks;
+
+            public readonly bool HasValue => !IsNullOrEmpty;
+
+            private readonly bool IsNullOrEmpty
+            {
+                get
+                {
+                    if (Value != null) return true;
+                    if (_expirationTicks > 0) return true;
+                    return false;
+                }
+            }
         }
 
         #region IDisposable

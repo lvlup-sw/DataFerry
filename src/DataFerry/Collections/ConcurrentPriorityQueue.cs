@@ -189,10 +189,12 @@ namespace lvlup.DataFerry.Collections
         }
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        public bool TryAdd(TElement item)
+        public bool TryAdd(TElement item, TPriority priority)
         {
             throw new NotImplementedException();
         }
+
+        public bool TryAdd(TElement item) => throw new NotImplementedException();
 
         public bool TryTake(out TElement item)
         {
