@@ -51,6 +51,7 @@ namespace lvlup.DataFerry.Caches
                 TimeSpan.FromMilliseconds(cleanupJobInterval),
                 TimeSpan.FromMilliseconds(cleanupJobInterval));
 
+            // We should only run the task when >50% capacity is reached
             _ = Task.Run(EvictLFUAsync);
         }
 
@@ -264,6 +265,37 @@ namespace lvlup.DataFerry.Caches
         /// If the cache is empty, no action is taken.
         internal async Task EvictLFUAsync()
         {
+            while (true)
+            {
+                await _evictionChannel.Reader.ReadAsync().ConfigureAwait(false);
+
+                // Lock the entire eviction logic to ensure consistency
+                await _windowSemaphore.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    while (_recentKeys.Reader.TryRead(out var key))
+                    {
+                        _cms.Increment(key);
+
+                        if (RequiresEviction())
+                        {
+                            if (_window.Skip(0).Count() >= _sampleSize && _window.TryRemove(key, out var ttlVal))
+                            {
+                                _cache.TryAdd(key, ttlVal);
+                            }
+
+                            var lfuKey = _window.Keys.MinBy(k => _cms.EstimateFrequency(k));
+                            if (lfuKey is not null) _cache.TryRemove(lfuKey, out _);
+                        }
+                    }
+                }
+                finally
+                {
+                    _windowSemaphore.Release();
+                }
+            }
+
+            /*
             TKey victim = default!;
             TKey candidate = default!;
 
@@ -314,6 +346,7 @@ namespace lvlup.DataFerry.Caches
                     _windowSemaphore.Release();
                 }
             }
+            */
         }
 
         /// <inheritdoc/>

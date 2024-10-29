@@ -174,24 +174,16 @@ namespace lvlup.DataFerry.Caches
         /// <inheritdoc/>
         public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
         {
-            var ttlValue = new TtlValue(value, ttl);
             _cms.Increment(key);
 
-            // Use a conditional expression to determine the target cache
+            // Determine the target cache
             var targetCache = _window.ContainsKey(key) ? _window
                             : _cache.ContainsKey(key) ? _cache
                             : _window.Count < _sampleSize ? _window
                             : _cache;
 
-            // Use TryUpdate if the key exists, otherwise use TryAdd
-            if (targetCache.TryGetValue(key, out _))
-            {
-                targetCache.TryUpdate(key, ttlValue, targetCache[key]);
-            }
-            else
-            {
-                targetCache.TryAdd(key, ttlValue);
-            }
+            // Add a new key-value pair or update an existing one
+            targetCache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
 
             _recentKeys.Writer.TryWrite(key);
             _evictionChannel.Writer.TryWrite(true);

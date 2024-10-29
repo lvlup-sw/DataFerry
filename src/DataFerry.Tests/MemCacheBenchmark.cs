@@ -16,6 +16,7 @@ namespace lvlup.DataFerry.Tests
         private readonly ConcurrentLfu<string, Payload> _bitfaster;
         private readonly LfuMemCache<string, Payload> _dataferry;
         private readonly BitfasterMemCache<string, Payload> _bfdataferry;
+        private readonly FastMemCache<string, Payload> _fastcache;
 
         public MemCacheBenchmark()
         {
@@ -24,7 +25,22 @@ namespace lvlup.DataFerry.Tests
             _bitfaster = new(CacheSize);
             _dataferry = new(CacheSize);
             _bfdataferry = new(CacheSize);
+            _fastcache = new(CacheSize);
         }
+
+        /*
+        [Benchmark(OperationsPerInvoke = 1000)]
+        public void DataFerryThroughput()
+        {
+            var random = new Random();
+            for (int i = 0; i < 1000; i++)
+            {
+                var keyIndex = random.Next(CacheSize * 2);
+                var key = $"user{keyIndex}";
+                _dataferry.TryGet(key, out var _);
+            }
+        }
+        */
 
         /*
         [Benchmark]
@@ -37,7 +53,7 @@ namespace lvlup.DataFerry.Tests
 
             int hits = 0;
             var random = new Random();
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 10000; i++)
             {
                 var keyIndex = random.Next(CacheSize * 2);
                 var key = $"user{keyIndex}";
@@ -47,61 +63,13 @@ namespace lvlup.DataFerry.Tests
                 }
             }
 
-            double hitRate = (double)hits / 1000 * 100;
-            Console.WriteLine($"DataFerry hit rate: {hitRate:F2}%");
-        }
-
-        [Benchmark(OperationsPerInvoke = 1000)]
-        public void MemoryCacheThroughput()
-        {
-            var random = new Random();
-            for (int i = 0; i < 1000; i++)
-            {
-                var keyIndex = random.Next(CacheSize * 2);
-                var key = $"user{keyIndex}";
-                _memoryCache.TryGetValue(key, out var _);
-            }
+            double hitRate = (double)hits / 10000 * 100;
+            Console.WriteLine($"MemoryCache hit rate: {hitRate:F2}%");
         }
         */
 
         [Benchmark]
-        public void BitfasterDataFerryHitRate()
-        {
-            foreach (var user in _users)
-            {
-                _bfdataferry.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
-            }
-
-            int hits = 0;
-            var random = new Random();
-            for (int i = 0; i < 1000; i++)
-            {
-                var keyIndex = random.Next(CacheSize * 2);
-                var key = $"user{keyIndex}";
-                if (_bfdataferry.TryGet(key, out var _))
-                {
-                    hits++;
-                }
-            }
-
-            double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"DataFerry hit rate: {hitRate:F2}%");
-        }
-
-        [Benchmark(OperationsPerInvoke = 1000)]
-        public void BitfasterDataFerryThroughput()
-        {
-            var random = new Random();
-            for (int i = 0; i < 1000; i++)
-            {
-                var keyIndex = random.Next(CacheSize * 2);
-                var key = $"user{keyIndex}";
-                _bfdataferry.TryGet(key, out var _);
-            }
-        }
-
-        [Benchmark]
-        public void DataFerryHitRate()
+        public void DataFerry()
         {
             foreach (var user in _users)
             {
@@ -110,7 +78,7 @@ namespace lvlup.DataFerry.Tests
 
             int hits = 0;
             var random = new Random();
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 10000; i++)
             {
                 var keyIndex = random.Next(CacheSize * 2);
                 var key = $"user{keyIndex}";
@@ -121,22 +89,59 @@ namespace lvlup.DataFerry.Tests
             }
 
             double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"DataFerry hit rate: {hitRate:F2}%");
+            Console.WriteLine($"LfuMemCache hit rate: {hitRate:F2}%");
         }
 
-        [Benchmark(OperationsPerInvoke = 1000)]
-        public void DataFerryThroughput()
+        [Benchmark]
+        public void BfDataFerry()
         {
+            foreach (var user in _users)
+            {
+                _bfdataferry.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
+            }
+
+            int hits = 0;
             var random = new Random();
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 10000; i++)
             {
                 var keyIndex = random.Next(CacheSize * 2);
                 var key = $"user{keyIndex}";
-                _dataferry.TryGet(key, out var _);
+                if (_bfdataferry.TryGet(key, out var _))
+                {
+                    hits++;
+                }
             }
+
+            double hitRate = (double)hits / 10000 * 100;
+            Console.WriteLine($"LfuMemCache hit rate: {hitRate:F2}%");
         }
 
         /*
+        [Benchmark]
+        public void FastMemCache()
+        {
+            foreach (var user in _users)
+            {
+                _fastcache.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
+            }
+
+            int hits = 0;
+            var random = new Random();
+            for (int i = 0; i < 10000; i++)
+            {
+                var keyIndex = random.Next(CacheSize * 2);
+                var key = $"user{keyIndex}";
+                if (_fastcache.TryGet(key, out var _))
+                {
+                    hits++;
+                }
+            }
+
+            double hitRate = (double)hits / 10000 * 100;
+            Console.WriteLine($"FastMemCache hit rate: {hitRate:F2}%");
+        }
+        */
+
         [Benchmark]
         public void BitFaster()
         {
@@ -147,7 +152,7 @@ namespace lvlup.DataFerry.Tests
 
             int hits = 0;
             var random = new Random();
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 10000; i++)
             {
                 var keyIndex = random.Next(CacheSize * 2);
                 var key = $"user{keyIndex}";
@@ -157,23 +162,10 @@ namespace lvlup.DataFerry.Tests
                 }
             }
 
-            double hitRate = (double)hits / 1000 * 100;
-            Console.WriteLine($"Native BitFaster hit rate: {hitRate:F2}%");
+            double hitRate = (double)hits / 10000 * 100;
+            Console.WriteLine($"BitFaster hit rate: {hitRate:F2}%");
         }
-
-        [Benchmark(OperationsPerInvoke = 1000)]
-        public void BitfasterThroughput()
-        {
-            var random = new Random();
-            for (int i = 0; i < 1000; i++)
-            {
-                var keyIndex = random.Next(CacheSize * 2);
-                var key = $"user{keyIndex}";
-                _bitfaster.TryGet(key, out var _);
-            }
-        }
-        */
-
+        
         private static List<Payload> GenerateUsers(int count)
         {
             var users = new List<Payload>(count);
@@ -186,8 +178,7 @@ namespace lvlup.DataFerry.Tests
 
         public static void Main(string[] args)
         {
-            _ = BenchmarkRunner.Run<MemCacheBenchmark>
-                (
+            var summary = BenchmarkRunner.Run<MemCacheBenchmark>(
                     ManualConfig.Create(DefaultConfig.Instance)
                         .WithOptions(ConfigOptions.DisableOptimizationsValidator)
                 );
