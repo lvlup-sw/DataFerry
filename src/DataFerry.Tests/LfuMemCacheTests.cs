@@ -210,6 +210,7 @@ namespace lvlup.DataFerry.Tests
             // No exception should be thrown
         }
 
+        // Can be flaky unless run in isolation
         [TestMethod]
         public async Task HighConcurrencyTest()
         {

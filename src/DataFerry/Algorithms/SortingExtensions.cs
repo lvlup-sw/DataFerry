@@ -289,5 +289,24 @@
                 collection[j + 1] = key;
             }
         }
+
+        public static T ArgMin<T, TResult>(this IEnumerable<T> sequence, Func<T, TResult> selector)
+            where TResult : IComparable<TResult>
+        {
+            var minElement = sequence.First();
+            var minValue = selector(minElement);
+
+            foreach (var element in sequence.Skip(1))
+            {
+                var value = selector(element);
+                if (value.CompareTo(minValue) < 0)
+                {
+                    minElement = element;
+                    minValue = value;
+                }
+            }
+
+            return minElement;
+        }
     }
 }

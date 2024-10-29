@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using BitFaster.Caching.Lfu;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 
@@ -6,12 +7,12 @@ namespace lvlup.DataFerry.Caches
 {
     /// <summary>
     /// LfuMemCache is an in-memory caching implementation based on FastCache. 
-    /// It includes resource eviction based on associated Time-To-Live (TTL) values and a Window TinyLFU eviction strategy.
+    /// It includes resource eviction based on associated Time-To-Live (TTL) values and an LFU eviction strategy.
     /// </summary>
     /// <remarks>
     /// This class utilizes a <see cref="ConcurrentDictionary{TKey, TValue}"/> and <see cref="CountMinSketch{TKey}"/> behind the scenes.
     /// </remarks> 
-    public class LfuMemCache<TKey, TValue> : ILfuMemCache<TKey, TValue> where TKey : notnull
+    public class BitfasterMemCache<TKey, TValue> : ILfuMemCache<TKey, TValue> where TKey : notnull
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
@@ -36,7 +37,7 @@ namespace lvlup.DataFerry.Caches
         /// </summary>
         /// <param name="maxSize">The maximum number of items allowed in the cache.</param>        
         /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
-        public LfuMemCache(int maxSize = 10000, int cleanupJobInterval = 10000)
+        public BitfasterMemCache(int maxSize = 10000, int cleanupJobInterval = 10000)
         {
             MaxSize = maxSize;
             _sampleSize = maxSize / 10;
@@ -127,7 +128,7 @@ namespace lvlup.DataFerry.Caches
                 _recentKeys = Channel.CreateBounded<TKey>(_sampleSize);
             }
             finally
-            { 
+            {
                 _clearSemaphore.Release();
             }
         }
@@ -173,16 +174,24 @@ namespace lvlup.DataFerry.Caches
         /// <inheritdoc/>
         public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
         {
+            var ttlValue = new TtlValue(value, ttl);
             _cms.Increment(key);
 
-            // Determine the target cache
+            // Use a conditional expression to determine the target cache
             var targetCache = _window.ContainsKey(key) ? _window
                             : _cache.ContainsKey(key) ? _cache
                             : _window.Count < _sampleSize ? _window
                             : _cache;
 
-            // Add a new key-value pair or update an existing one
-            targetCache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
+            // Use TryUpdate if the key exists, otherwise use TryAdd
+            if (targetCache.TryGetValue(key, out _))
+            {
+                targetCache.TryUpdate(key, ttlValue, targetCache[key]);
+            }
+            else
+            {
+                targetCache.TryAdd(key, ttlValue);
+            }
 
             _recentKeys.Writer.TryWrite(key);
             _evictionChannel.Writer.TryWrite(true);
@@ -264,48 +273,27 @@ namespace lvlup.DataFerry.Caches
         /// If the cache is empty, no action is taken.
         internal async Task EvictLFUAsync()
         {
-            TKey victim = default!;
-            TKey candidate = default!;
-
             while (true)
             {
                 await _evictionChannel.Reader.ReadAsync().ConfigureAwait(false);
 
-                // Lock the eviction logic to ensure consistency
+                // Lock the entire eviction logic to ensure consistency
                 await _windowSemaphore.WaitAsync().ConfigureAwait(false);
                 try
                 {
                     while (_recentKeys.Reader.TryRead(out var key))
                     {
                         _cms.Increment(key);
-                        candidate = key;
 
                         if (RequiresEviction())
                         {
-                            // First pass: admit candidates
-                            while (_window.Count > _sampleSize && victim is not null)
+                            if (_window.Skip(0).Count() >= _sampleSize && _window.TryRemove(key, out var ttlVal))
                             {
-                                var victimFrequency = _cms.EstimateFrequency(victim);
-                                var candidateFrequency = _cms.EstimateFrequency(candidate);
-
-                                if (candidateFrequency > victimFrequency)
-                                {
-                                    _window.TryRemove(victim, out _);
-                                    victim = _window.Keys.ArgMin(k => _cms.EstimateFrequency(k));
-                                }
-                                else
-                                {
-                                    _window.TryRemove(candidate, out _);
-                                    candidate = _window.Keys.ArgMin(k => _cms.EstimateFrequency(k));
-                                }
+                                _cache.TryAdd(key, ttlVal);
                             }
 
-                            // Second pass: remove probation items in LRU order, evict lowest frequency
-                            while (_window.Count > _sampleSize)
-                            {
-                                victim = _window.Keys.ArgMin(k => _cms.EstimateFrequency(k));
-                                _window.TryRemove(victim, out _);
-                            }
+                            var lfuKey = _window.Keys.MinBy(k => _cms.EstimateFrequency(k));
+                            if (lfuKey is not null) _cache.TryRemove(lfuKey, out _);
                         }
                     }
                 }

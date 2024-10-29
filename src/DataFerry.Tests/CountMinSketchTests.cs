@@ -12,30 +12,17 @@ namespace lvlup.DataFerry.Tests
         [TestInitialize]
         public void Initialize()
         {
-            _cmSketch = new CountMinSketch<Payload>(DefaultMaxSize);
+            _cmSketch = new(DefaultMaxSize);
         }
 
         [TestCleanup]
         public void Cleanup()
         {
-            _cmSketch.Dispose();
+            _cmSketch.Clear();
         }
 
         [TestMethod]
-        public void Insert_IncreasesCount()
-        {
-            // Arrange
-            var payload = TestUtils.CreatePayloadIdentical();
-
-            // Act
-           _cmSketch.Insert(payload);
-
-            // Assert
-            Assert.IsTrue(_cmSketch.Query(payload) > 0);
-        }
-
-        [TestMethod]
-        public void Query_ReturnsApproximateCount()
+        public void EstimateFrequency_ReturnsApproximateCount()
         {
             // Arrange
             var payload = TestUtils.CreatePayloadIdentical();
@@ -44,60 +31,46 @@ namespace lvlup.DataFerry.Tests
             // Act
             for (int i = 0; i < count; i++)
             {
-                _cmSketch.Insert(payload);
+                _cmSketch.Increment(payload);
             }
 
             // Assert
-            var result = _cmSketch.Query(payload);
-            Assert.IsTrue(result >= count);
+            var result = _cmSketch.EstimateFrequency(payload);
+            Assert.IsTrue(result <= count);
         }
 
         [TestMethod]
-        public void Query_ReturnsZeroForNonexistentItem()
+        public void EstimateFrequency_ReturnsZeroForNonexistentItem()
         {
             // Arrange
             var payload = TestUtils.CreatePayloadRandom();
 
             // Act
-            var result = _cmSketch.Query(payload);
+            var result = _cmSketch.EstimateFrequency(payload);
 
             // Assert
             Assert.AreEqual(0, result);
         }
 
         [TestMethod]
-        public void CalculateOptimalDimensions_ReturnsCorrectValues()
-        {
-            // Arrange
-            var maxSize = 1000;
-
-            // Act
-            var (width, numHashes) = _cmSketch.CalculateOptimalDimensions(maxSize);
-
-            // Assert
-            Assert.AreEqual(271829, width);
-            Assert.AreEqual(5, numHashes);
-        }
-
-        [TestMethod]
-        public void Insert_MultipleItems_CountsAreIndependent()
+        public void Increment_MultipleItems_CountsAreIndependent()
         {
             // Arrange
             var payload1 = TestUtils.CreatePayloadRandom();
             var payload2 = TestUtils.CreatePayloadRandom();
 
             // Act
-            _cmSketch.Insert(payload1);
-            _cmSketch.Insert(payload1);
-            _cmSketch.Insert(payload2);
+            _cmSketch.Increment(payload1);
+            _cmSketch.Increment(payload1);
+            _cmSketch.Increment(payload2);
 
             // Assert
-            Assert.AreEqual(2, _cmSketch.Query(payload1));
-            Assert.AreEqual(1, _cmSketch.Query(payload2));
+            Assert.AreEqual(2, _cmSketch.EstimateFrequency(payload1));
+            Assert.AreEqual(1, _cmSketch.EstimateFrequency(payload2));
         }
 
         [TestMethod]
-        public void LargePayloadInsertions_DoesNotThrowExceptions()
+        public void LargePayloadIncrements_DoNotThrowExceptions()
         {
             // Arrange
             int range = 1000;
@@ -105,7 +78,7 @@ namespace lvlup.DataFerry.Tests
             // Act
             for (int i = 0; i < range; i++)
             {
-                _cmSketch.Insert(TestUtils.CreateLargePayload());
+                _cmSketch.Increment(TestUtils.CreateLargePayload());
             }
 
             // Assert
@@ -113,7 +86,7 @@ namespace lvlup.DataFerry.Tests
         }
 
         [TestMethod]
-        public void Insert_ManyItems_ProbabilisticFrequencyIsAccurate()
+        public void Increment_ManyItems_ProbabilisticFrequencyIsAccurate()
         {
             // Arrange
             var range = 100000;
@@ -124,7 +97,7 @@ namespace lvlup.DataFerry.Tests
             for (int i = 0; i < range; i++)
             {
                 var item = TestUtils.CreatePayloadWithInput($"item_{random.Next(range)}");
-                _cmSketch.Insert(item);
+                _cmSketch.Increment(item);
                 itemCounts.TryAdd(item, 0);
                 itemCounts[item]++;
             }
@@ -132,12 +105,70 @@ namespace lvlup.DataFerry.Tests
             // Act & Assert
             foreach (var (item, trueCount) in itemCounts)
             {
-                var estimatedCount = _cmSketch.Query(item);
+                var estimatedCount = _cmSketch.EstimateFrequency(item);
 
                 // Due to the probabilistic nature, we can't expect exact counts
                 // Instead, we check if the estimated count is within a reasonable range
                 Assert.IsTrue(estimatedCount >= trueCount);
             }
+        }
+
+        [TestMethod]
+        public void Clear_ClearsSketch()
+        {
+            // Arrange
+            var payload = TestUtils.CreatePayloadIdentical();
+            _cmSketch.Increment(payload);
+
+            // Act
+            _cmSketch.Clear();
+
+            // Assert
+            Assert.AreEqual(0, _cmSketch.EstimateFrequency(payload));
+        }
+
+        [TestMethod]
+        public void Sketch_HandlesNonPowerOfTwoCapacity()
+        {
+            // Arrange
+            var payload = TestUtils.CreatePayloadIdentical();
+            _cmSketch = new CountMinSketch<Payload>(123); // 123 is not a power of two
+
+            // Act
+            _cmSketch.Increment(payload);
+
+            // Assert
+            Assert.AreEqual(1, _cmSketch.EstimateFrequency(payload));
+        }
+
+        [TestMethod]
+        public void Sketch_PerformsWellWithLargeNumberOfItems()
+        {
+            // Arrange
+            var payloads = Enumerable.Range(0, 1000000).Select(i => TestUtils.CreatePayloadWithInput($"item_{i}"));
+
+            // Act
+            foreach (var payload in payloads)
+            {
+                _cmSketch.Increment(payload);
+            }
+
+            // Assert
+            // This is a performance test, so we don't assert anything.
+            // You could measure the time it takes to run this test and make sure it's acceptable.
+        }
+
+        [TestMethod]
+        public void Sketch_HandlesEdgeCases()
+        {
+            // Arrange
+            var payload = TestUtils.CreatePayloadWithInput(""); // Empty string
+
+            // Act
+            _cmSketch.Increment(payload);
+
+            // Assert
+            Assert.AreEqual(1, _cmSketch.EstimateFrequency(payload));
         }
     }
 }

@@ -18,11 +18,13 @@ namespace lvlup.DataFerry.Utilities
         /// <returns><see cref="string"/></returns>
         public static string GenerateCacheKey<T>(T obj, string prefix = "1.0.0.0", uint seed = 0)
         {
-            // Serialize the object
-            ReadOnlySpan<byte> serializedObj = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj)).AsSpan();
+            ArgumentNullException.ThrowIfNull(obj, nameof(obj));
+
+            // Read the object as bytes
+            ReadOnlySpan<byte> bytes = ConvertToBytes(obj);
 
             // Generate the hash
-            var hash = Hash32(ref serializedObj, seed);
+            var hash = Hash32(ref bytes, seed);
 
             // Convert hash to a byte array
             var hashBytes = BitConverter.GetBytes(hash);
@@ -41,13 +43,36 @@ namespace lvlup.DataFerry.Utilities
         /// <param name="obj"></param>
         /// <param name="seed"></param>
         /// <returns><see cref="uint"/></returns>
-        public static uint GenerateHash<T>(T obj, uint seed = 0)
+        public static int GenerateHash<T>(T obj, uint seed = 0)
         {
-            // Serialize the object
-            ReadOnlySpan<byte> serializedObj = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj)).AsSpan();
+            ArgumentNullException.ThrowIfNull(obj, nameof(obj));
+
+            // Read the object as bytes
+            ReadOnlySpan<byte> bytes = ConvertToBytes(obj);
 
             // Generate the hash
-            return Hash32(ref serializedObj, seed);
+            return unchecked((int)Hash32(ref bytes, seed));
+        }
+
+        /// <summary>
+        /// Converts input to parsable bytes.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="obj"></param>
+        /// <returns>A <see cref="ReadOnlySpan{T}"/> of bytes.</returns>
+        private static ReadOnlySpan<byte> ConvertToBytes<T>(T obj)
+        {
+            return obj switch
+            {
+                byte[] byteArray => byteArray,
+                string str => Encoding.UTF8.GetBytes(str),
+                int i => BitConverter.GetBytes(i),
+                long l => BitConverter.GetBytes(l),
+                float f => BitConverter.GetBytes(f),
+                double d => BitConverter.GetBytes(d),
+                decimal d => decimal.GetBits(d).SelectMany(BitConverter.GetBytes).ToArray(),
+                _ => JsonSerializer.SerializeToUtf8Bytes(obj)
+            };
         }
 
         /// <summary>
