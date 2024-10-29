@@ -90,21 +90,8 @@ namespace lvlup.DataFerry.Collections
 
                 if (allUpdates is null || !allUpdates.Any()) return;
 
-                // Process the batch in parallel, respecting priority
-                Parallel.ForEach(allUpdates, item =>
-                {
-                    int stripeIndex = GetStripeIndexForCurrentThread();
-                    @stripes[stripeIndex].Enter();
-                    try
-                    {
-                        TPriority priority = DeterminePriority(item);
-                        _queue.Enqueue(item, priority);
-                    }
-                    finally
-                    {
-                        @stripes[stripeIndex].Exit();
-                    }
-                });
+                // Process the batch in parallel
+                Parallel.ForEach(allUpdates, item => { InternalTryAdd(item); });
 
                 if (_contentionIndicators > _contentionIndicatorThreshold)
                     _contentionChannel.Writer.TryWrite(true);
@@ -169,20 +156,15 @@ namespace lvlup.DataFerry.Collections
 
         private void ResizeStripeBuffer()
         {
-            // 1. Determine the new number of stripes
+            // Determine the new number of stripes
             int newStripeCount = _stripeCount * 2;
 
-            // 2. Create a new array of stripes
-            var newStripes = new Lock[newStripeCount];
-            for (int i = 0; i < newStripeCount; i++)
-            {
-                newStripes[i] = new Lock();
-            }
+            // Create a new array of stripes
+            var newStripes = Enumerable.Range(0, newStripeCount)
+                .Select(_ => new Lock())
+                .ToArray();
 
-            // 3. Transfer elements from the old stripes to the new stripes
-            //    (Implement the logic based on your chosen underlying data structure)
-
-            // 4. Update the stripe count and stripes array
+            // Update the stripe count and stripes array
             _stripeCount = newStripeCount;
             @stripes = newStripes;
         }
@@ -225,6 +207,21 @@ namespace lvlup.DataFerry.Collections
         public void CopyTo(Array array, int index)
         {
             throw new NotImplementedException();
+        }
+
+        private void InternalTryAdd(TElement item)
+        {
+            int stripeIndex = GetStripeIndexForCurrentThread();
+            @stripes[stripeIndex].Enter();
+            try
+            {
+                TPriority priority = DeterminePriority(item);
+                _queue.Enqueue(item, priority);
+            }
+            finally
+            {
+                @stripes[stripeIndex].Exit();
+            }
         }
     }
 }
