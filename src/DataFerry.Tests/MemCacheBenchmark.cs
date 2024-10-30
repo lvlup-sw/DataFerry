@@ -5,6 +5,8 @@ using Microsoft.Extensions.Caching.Memory;
 using BitFaster.Caching.Lfu;
 using lvlup.DataFerry.Caches;
 using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Toolchains.InProcess.Emit;
 
 namespace lvlup.DataFerry.Tests
 {
@@ -26,6 +28,15 @@ namespace lvlup.DataFerry.Tests
             _dataferry = new(CacheSize);
             _bfdataferry = new(CacheSize);
             _fastcache = new(CacheSize);
+        }
+
+        [Config(typeof(Config))]
+        public class Config : ManualConfig
+        {
+            public Config()
+            {
+                AddJob(Job.ShortRun.WithToolchain(InProcessEmitToolchain.Instance));
+            }
         }
 
         /*
@@ -76,20 +87,13 @@ namespace lvlup.DataFerry.Tests
                 _dataferry.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
             }
 
-            int hits = 0;
             var random = new Random();
             for (int i = 0; i < 10000; i++)
             {
                 var keyIndex = random.Next(CacheSize * 2);
                 var key = $"user{keyIndex}";
-                if (_dataferry.TryGet(key, out var _))
-                {
-                    hits++;
-                }
+                _dataferry.TryGet(key, out var _);
             }
-
-            double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"LfuMemCache hit rate: {hitRate:F2}%");
         }
 
         [Benchmark]
@@ -100,20 +104,13 @@ namespace lvlup.DataFerry.Tests
                 _bfdataferry.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
             }
 
-            int hits = 0;
             var random = new Random();
             for (int i = 0; i < 10000; i++)
             {
                 var keyIndex = random.Next(CacheSize * 2);
                 var key = $"user{keyIndex}";
-                if (_bfdataferry.TryGet(key, out var _))
-                {
-                    hits++;
-                }
+                _bfdataferry.TryGet(key, out var _);
             }
-
-            double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"LfuMemCache hit rate: {hitRate:F2}%");
         }
 
         /*
@@ -150,20 +147,13 @@ namespace lvlup.DataFerry.Tests
                 _bitfaster.AddOrUpdate(user.Identifier, user);
             }
 
-            int hits = 0;
             var random = new Random();
             for (int i = 0; i < 10000; i++)
             {
                 var keyIndex = random.Next(CacheSize * 2);
                 var key = $"user{keyIndex}";
-                if (_bitfaster.TryGet(key, out var _))
-                {
-                    hits++;
-                }
+                _bitfaster.TryGet(key, out var _);
             }
-
-            double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"BitFaster hit rate: {hitRate:F2}%");
         }
         
         private static List<Payload> GenerateUsers(int count)
@@ -178,10 +168,7 @@ namespace lvlup.DataFerry.Tests
 
         public static void Main(string[] args)
         {
-            var summary = BenchmarkRunner.Run<MemCacheBenchmark>(
-                    ManualConfig.Create(DefaultConfig.Instance)
-                        .WithOptions(ConfigOptions.DisableOptimizationsValidator)
-                );
+            _ = BenchmarkRunner.Run<MemCacheBenchmark>();
         }
     }
 }
