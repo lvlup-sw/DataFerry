@@ -27,10 +27,12 @@ namespace lvlup.DataFerry.Collections
         private const double ContentionWaitTimeThreshold = 10.0;
         private const int ContentionSizeThreshold = 1000;
         private const int ContentionWindowSize = 10;
+        private const int ContentionWindowTime = 50;
         private const int ContentionIndicatorThreshold = 10;
 
         // Settings
         private readonly int _queueCapacity;
+        private long _prevContentionTimestamp;
         private int _contentionIndicators;
         private int _stripeCount = 10;
 
@@ -73,8 +75,7 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        // Revisit whether this should be a synchronous method
-        private async Task BatchProcessItems()
+        private async ValueTask BatchProcessItems()
         {
             if (!Monitor.TryEnter(_batchTimer)) return;
 
@@ -111,14 +112,9 @@ namespace lvlup.DataFerry.Collections
                 await Task.WhenAll(tasks).ConfigureAwait(false);
 
                 // Contention detection
-                // Revisit this decrement logic..
                 if (_contentionIndicators > ContentionIndicatorThreshold)
                 {
                     _contentionChannel.Writer.TryWrite(true);
-                }
-                else if (_contentionIndicators > 0)
-                {
-                    Interlocked.Decrement(ref _contentionIndicators);
                 }
             }
             finally
@@ -203,8 +199,9 @@ namespace lvlup.DataFerry.Collections
 
         public bool TryAdd(TElement item, TPriority priority)
         {
-            // _threadLocalBuffer.Value.Add(item);
-            throw new NotImplementedException();
+            _threadLocalBuffer.Value ??= [];
+            _threadLocalBuffer.Value.Add(item);
+            return true;
         }
 
         public bool TryTake(out TElement item)
@@ -240,12 +237,33 @@ namespace lvlup.DataFerry.Collections
 
         private void InternalTryAdd(TElement item)
         {
+            // Don't add new items if we are at capacity
+            if (Count > _queueCapacity) return;
+
+            // Potential contention; increment counter
+            if (Environment.TickCount64 - _prevContentionTimestamp < ContentionWindowTime)
+            {
+                Interlocked.Increment(ref _contentionIndicators);
+            }
+
+            // Access the thread-specific lock
             int stripeIndex = GetStripeIndexForCurrentThread();
             @stripes[stripeIndex].Enter();
             try
             {
+                // Enqueue item
                 TPriority priority = DeterminePriority(item);
                 _queue.Enqueue(item, priority);
+
+                // Check for contention
+                if (Environment.TickCount64 - _prevContentionTimestamp > ContentionWaitTimeThreshold)
+                {
+                    _prevContentionTimestamp = Environment.TickCount64;
+                }
+                else
+                {
+                    Interlocked.Decrement(ref _contentionIndicators);
+                }
             }
             finally
             {
