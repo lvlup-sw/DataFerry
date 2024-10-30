@@ -8,8 +8,8 @@ namespace lvlup.DataFerry.Utilities
 {
     public static class PollyPolicyGenerator
     {
-        internal static ILogger? _logger { get; private set; }
-        internal static CacheSettings? _settings { get; private set; }
+        private static ILogger? _logger;
+        private static CacheSettings? _settings;
 
         /// <summary>
         /// Creates a synchronous policy for handling exceptions when accessing the cache.

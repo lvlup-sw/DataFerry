@@ -21,7 +21,7 @@ namespace lvlup.DataFerry.Collections
         private readonly SemaphoreSlim _batchSemaphore = new(1, 1);
         
         // Thread-local buffer for batch processing
-        private static readonly ThreadLocal<ConcurrentBag<TElement>> _threadLocalBuffer = new(() => []);
+        private static readonly ThreadLocal<ConcurrentBag<ItemWithPriority>> _threadLocalBuffer = new(() => []);
 
         // Constants
         private const double ContentionWaitTimeThreshold = 10.0;
@@ -38,7 +38,7 @@ namespace lvlup.DataFerry.Collections
 
         public ConcurrentPriorityQueue(
             IComparer<TPriority> comparer, 
-            int capacity = 100,
+            int capacity = 1000,
             int batchInterval = 100)
         {
             _queue = new(comparer);
@@ -95,7 +95,7 @@ namespace lvlup.DataFerry.Collections
                 }
 
                 // Process the batch
-                var blockingCollection = new BlockingCollection<TElement>();
+                var blockingCollection = new BlockingCollection<ItemWithPriority>();
                 allUpdates.ToList().ForEach(blockingCollection.Add);
                 blockingCollection.CompleteAdding();
 
@@ -187,8 +187,6 @@ namespace lvlup.DataFerry.Collections
             @stripes = newStripes;
         }
 
-        private TPriority DeterminePriority(TElement item) => default!;
-
         public int Count => _queue.UnorderedItems.Skip(0).Count();
 
         public bool IsSynchronized => true;
@@ -200,34 +198,136 @@ namespace lvlup.DataFerry.Collections
         public bool TryAdd(TElement item, TPriority priority)
         {
             _threadLocalBuffer.Value ??= [];
-            _threadLocalBuffer.Value.Add(item);
+            _threadLocalBuffer.Value.Add(new(item, priority));
             return true;
         }
 
         public bool TryTake(out TElement item)
         {
-            // return _queue.TryTake(out item);
-            throw new NotImplementedException();
+            // Potential contention; increment counter
+            if (Environment.TickCount64 - _prevContentionTimestamp < ContentionWindowTime)
+            {
+                Interlocked.Increment(ref _contentionIndicators);
+            }
+
+            // Access the thread-specific lock
+            int stripeIndex = GetStripeIndexForCurrentThread();
+            @stripes[stripeIndex].Enter();
+            try
+            {
+                // Check for contention
+                if (Environment.TickCount64 - _prevContentionTimestamp > ContentionWaitTimeThreshold)
+                {
+                    _prevContentionTimestamp = Environment.TickCount64;
+                }
+                else
+                {
+                    Interlocked.Decrement(ref _contentionIndicators);
+                }
+
+                // Check our local buffer and/or main queue
+                if (TryLocalBufferOrMainQueue(out item)) return true;
+            }
+            finally
+            {
+                @stripes[stripeIndex].Exit();
+            }
+
+            return false;
         }
 
         public void CopyTo(TElement[] array, int index)
         {
-            throw new NotImplementedException();
+            // Acquire all locks
+            Enumerable.Range(0, _stripeCount)
+                .ToList()
+                .ForEach(i => @stripes[i].Enter());
+
+            try
+            {
+                _queue.UnorderedItems
+                    .OrderBy(tuple => tuple.Priority, _queue.Comparer)
+                    .Select(tuple => tuple.Element)
+                    .ToArray()
+                    .CopyTo(array, index);
+            }
+            finally
+            {
+                // Release all locks
+                Enumerable.Range(0, _stripeCount)
+                    .ToList()
+                    .ForEach(i => @stripes[i].Exit());
+            }
         }
 
         public void CopyTo(Array array, int index)
         {
-            throw new NotImplementedException();
+            // Acquire all locks
+            Enumerable.Range(0, _stripeCount)
+                .ToList()
+                .ForEach(i => @stripes[i].Enter());
+
+            try
+            {
+                _queue.UnorderedItems
+                    .OrderBy(tuple => tuple.Priority, _queue.Comparer)
+                    .Select(tuple => tuple.Element)
+                    .ToArray()
+                    .CopyTo(array, index);
+            }
+            finally
+            {
+                // Release all locks
+                Enumerable.Range(0, _stripeCount)
+                    .ToList()
+                    .ForEach(i => @stripes[i].Exit());
+            }
         }
 
         public TElement[] ToArray()
         {
-            throw new NotImplementedException();
+            // Acquire all locks
+            Enumerable.Range(0, _stripeCount)
+                .ToList()
+                .ForEach(i => @stripes[i].Enter());
+
+            try
+            {
+                return _queue.UnorderedItems
+                    .Select(tuple => tuple.Element)
+                    .ToArray();
+            }
+            finally
+            {
+                // Release all locks
+                Enumerable.Range(0, _stripeCount)
+                    .ToList()
+                    .ForEach(i => @stripes[i].Exit());
+            }
         }
 
         public IEnumerator<TElement> GetEnumerator()
         {
-            throw new NotImplementedException();
+            // Acquire all locks
+            Enumerable.Range(0, _stripeCount)
+                .ToList()
+                .ForEach(i => @stripes[i].Enter());
+
+            try
+            {
+                // Return an enumerator that iterates over the elements in priority order
+                return _queue.UnorderedItems
+                    .OrderBy(tuple => tuple.Priority, _queue.Comparer)
+                    .Select(tuple => tuple.Element)
+                    .GetEnumerator();
+            }
+            finally
+            {
+                // Release all locks
+                Enumerable.Range(0, _stripeCount)
+                    .ToList()
+                    .ForEach(i => @stripes[i].Exit());
+            }
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -235,7 +335,7 @@ namespace lvlup.DataFerry.Collections
         public bool TryAdd(TElement item) => 
             throw new NotImplementedException("Use `TryAdd(TElement item, TPriority priority)` instead.");
 
-        private void InternalTryAdd(TElement item)
+        private void InternalTryAdd(ItemWithPriority item)
         {
             // Don't add new items if we are at capacity
             if (Count > _queueCapacity) return;
@@ -252,8 +352,7 @@ namespace lvlup.DataFerry.Collections
             try
             {
                 // Enqueue item
-                TPriority priority = DeterminePriority(item);
-                _queue.Enqueue(item, priority);
+                _queue.Enqueue(item.Item, item.Priority);
 
                 // Check for contention
                 if (Environment.TickCount64 - _prevContentionTimestamp > ContentionWaitTimeThreshold)
@@ -269,6 +368,62 @@ namespace lvlup.DataFerry.Collections
             {
                 @stripes[stripeIndex].Exit();
             }
+        }
+
+        // We need to check the local buffer for high priority items
+        // before TryTake ops since we batch the Enqueue operations.
+        private bool TryLocalBufferOrMainQueue(out TElement item)
+        {
+            item = default!;
+
+            // Check if ANY local buffer has items
+            if (!_threadLocalBuffer.Values.Any(buffer => !buffer.IsEmpty))
+            {
+                return false;
+            }
+
+            // Find the candidates to compare against
+            ConcurrentBag<ItemWithPriority>? candidateBuffer = null;
+            ItemWithPriority? candidateItem = default;
+
+            foreach (var buffer in _threadLocalBuffer.Values)
+            {
+                var curr = buffer.MaxBy(item => item.Priority, _queue.Comparer);
+
+                if (!curr.Equals(default) && (candidateItem.Equals(default) 
+                    || _queue.Comparer.Compare(curr.Priority, candidateItem.Value.Priority) > 0))
+                {
+                    candidateBuffer = buffer;
+                    candidateItem = curr;
+                }
+            }
+
+            if (candidateBuffer is null || candidateItem is null) return false;
+
+            // Check if the queue has an item with lower priority
+            if (_queue.TryPeek(out var existingItem, out var existingPriority))
+            {
+                switch (_queue.Comparer.Compare(candidateItem.Value.Priority, existingPriority))
+                {
+                    case < 0: // Existing item has higher priority
+                        item = candidateItem.Value.Item;
+                        candidateBuffer = new(candidateBuffer.Where(item => !item.Equals(candidateItem.Value)));
+                        break;
+                    default: // Candidate has higher priority or priorities are equal
+                        _queue.TryDequeue(out existingItem, out _);
+                        item = existingItem ?? default!;
+                        break;
+                }
+                return true;
+            }
+
+            return false;
+        }
+
+        public readonly struct ItemWithPriority(TElement item, TPriority priority)
+        {
+            public TElement Item { get; } = item;
+            public TPriority Priority { get; } = priority;
         }
     }
 }

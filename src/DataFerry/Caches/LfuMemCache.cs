@@ -44,7 +44,7 @@ namespace lvlup.DataFerry.Caches
             _cache = new();
             _window = new();
             _cms = new(MaxSize);
-            _windowQueue = new(Comparer<int>.Default);
+            _windowQueue = new(Comparer<int>.Create((x, y) => y.CompareTo(x)), _sampleSize / 10);
             _recentKeys = Channel.CreateBounded<TKey>(_sampleSize);
             _evictionChannel = Channel.CreateUnbounded<bool>();
             _cleanUpTimer = new Timer(
@@ -278,19 +278,14 @@ namespace lvlup.DataFerry.Caches
                     while (_recentKeys.Reader.TryRead(out var key))
                     {
                         _cms.Increment(key);
+                        _windowQueue.TryAdd(key, _cms.EstimateFrequency(key));
 
                         if (RequiresEviction())
                         {
-                            // Add the new key to the priority queue
-                            _windowQueue.TryAdd(key, _cms.EstimateFrequency(key));
-
-                            if (_windowQueue.Count >= _sampleSize)
+                            // Dequeue the least frequently used item (lowest priority)
+                            if (_windowQueue.TryTake(out var lfuKey))
                             {
-                                // Dequeue the least frequently used item (lowest priority)
-                                if (_windowQueue.TryTake(out var lfuKey))
-                                {
-                                    Remove(lfuKey);
-                                }
+                                Remove(lfuKey);
                             }
                         }
                     }
