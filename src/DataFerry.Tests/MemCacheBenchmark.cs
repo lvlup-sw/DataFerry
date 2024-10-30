@@ -16,7 +16,7 @@ namespace lvlup.DataFerry.Tests
         private readonly ConcurrentLfu<string, Payload> _bitfaster;
         private readonly LfuMemCache<string, Payload> _dataferry;
         private readonly BitfasterMemCache<string, Payload> _bfdataferry;
-        private readonly FastMemCache<string, Payload> _fastcache;
+        private readonly TtlMemCache<string, Payload> _fastcache;
 
         public MemCacheBenchmark()
         {

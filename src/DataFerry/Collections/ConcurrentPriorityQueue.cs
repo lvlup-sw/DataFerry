@@ -7,46 +7,41 @@ namespace lvlup.DataFerry.Collections
 {
     public class ConcurrentPriorityQueue<TElement, TPriority> : IProducerConsumerCollection<TElement>
     {
+        // Queues
         private readonly PriorityQueue<TElement, TPriority> _queue;
         private readonly ConcurrentQueue<int> _queueLengthHistory;
-        private readonly Timer _batchTimer;
 
-        // Primitives
-        private readonly double _lockWaitTimeThreshold;
-        private readonly int _queueLengthThreshold;
-        private readonly int _queueLengthHistoryWindowSize;
-        private readonly int _queueCapacity;
-        private readonly int _contentionIndicatorThreshold = 10;
-        private int _contentionIndicators;
-        private int _stripeCount;
-
-        // Channels
+        // Channels/Timers
         private readonly Channel<bool> _contentionChannel;
+        private readonly Timer _batchTimer;
 
         // Locks/Semaphores
         private Lock[] @stripes;
         private readonly Lock @syncLock = new();
         private readonly SemaphoreSlim _batchSemaphore = new(1, 1);
+        
+        // Thread-local buffer for batch processing
+        private static readonly ThreadLocal<ConcurrentBag<TElement>> _threadLocalBuffer = new(() => []);
 
-        [ThreadStatic]
-        private static ConcurrentBag<TElement>? _threadLocalBuffer;
+        // Constants
+        private const double ContentionWaitTimeThreshold = 10.0;
+        private const int ContentionSizeThreshold = 1000;
+        private const int ContentionWindowSize = 10;
+        private const int ContentionIndicatorThreshold = 10;
+
+        // Settings
+        private readonly int _queueCapacity;
+        private int _contentionIndicators;
+        private int _stripeCount = 10;
 
         public ConcurrentPriorityQueue(
             IComparer<TPriority> comparer, 
             int capacity = 100,
-            int initialStripeCount = 10,
-            int batchInterval = 100, 
-            double contentionThreshold = 10.0, 
-            int contentionSize = 1000, 
-            int contentionWindowSize = 10)
+            int batchInterval = 100)
         {
             _queue = new(comparer);
             _queueLengthHistory = new();
             _queueCapacity = capacity;
-            _stripeCount = initialStripeCount;
-            _lockWaitTimeThreshold = contentionThreshold;
-            _queueLengthThreshold = contentionSize;
-            _queueLengthHistoryWindowSize = contentionWindowSize;
             _contentionChannel = Channel.CreateUnbounded<bool>();
             @stripes = new Lock[_stripeCount];
             @stripes = Enumerable.Range(0, _stripeCount)
@@ -63,14 +58,14 @@ namespace lvlup.DataFerry.Collections
 
         private async Task BatchProcessItemsJob()
         {
-            // To avoid resource wastage from concurrent jobs in multiple instances, we use a Semaphore to serialize 
-            // cleanup execution. This mitigates CPU-intensive operations. User-initiated eviction is still allowed.
-            // A Semaphore is preferred over a traditional lock to prevent thread starvation.
+            // To avoid resource wastage from concurrent jobs in multiple instances,
+            // we use a Semaphore to serialize cleanup execution. This mitigates
+            // CPU-intensive operations. User-initiated eviction is still allowed.
 
             await _batchSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
-                BatchProcessItems();
+                await BatchProcessItems().ConfigureAwait(false);
             }
             finally
             {
@@ -78,26 +73,53 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        private void BatchProcessItems()
+        // Revisit whether this should be a synchronous method
+        private async Task BatchProcessItems()
         {
             if (!Monitor.TryEnter(_batchTimer)) return;
 
             try
             {
-                // Gather updates from thread-local buffers
-                var allUpdates = _threadLocalBuffer?.ToArray();
-                _threadLocalBuffer?.Clear();
+                // Gather updates from all thread-local buffers
+                var allUpdates = _threadLocalBuffer.Values
+                    .SelectMany(buffer => buffer.ToArray())
+                    .ToArray();
 
                 if (allUpdates is null || !allUpdates.Any()) return;
 
-                // Process the batch in parallel
-                Parallel.ForEach(allUpdates, item => { InternalTryAdd(item); });
+                // Clear all buffers
+                foreach (var buffer in _threadLocalBuffer.Values)
+                {
+                    buffer.Clear();
+                }
 
-                if (_contentionIndicators > _contentionIndicatorThreshold)
+                // Process the batch
+                var blockingCollection = new BlockingCollection<TElement>();
+                allUpdates.ToList().ForEach(blockingCollection.Add);
+                blockingCollection.CompleteAdding();
+
+                // Create tasks according to available resources
+                var tasks = Enumerable.Range(0, Environment.ProcessorCount).Select(_ => Task.Run(() =>
+                {
+                    while (blockingCollection.TryTake(out var item))
+                    {
+                        InternalTryAdd(item);
+                    }
+                })).ToArray();
+
+                // Task.WaitAll(tasks);
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                // Contention detection
+                // Revisit this decrement logic..
+                if (_contentionIndicators > ContentionIndicatorThreshold)
+                {
                     _contentionChannel.Writer.TryWrite(true);
-
-                if (_contentionIndicators > 0)
+                }
+                else if (_contentionIndicators > 0)
+                {
                     Interlocked.Decrement(ref _contentionIndicators);
+                }
             }
             finally
             {
@@ -136,7 +158,7 @@ namespace lvlup.DataFerry.Collections
             int queueLength = _queue.Count;
             _queueLengthHistory.Enqueue(queueLength);
 
-            if (_queueLengthHistory.Count > _queueLengthHistoryWindowSize)
+            if (_queueLengthHistory.Count > ContentionWindowSize)
             {
                 _queueLengthHistory.TryDequeue(out _);
             }
@@ -144,8 +166,8 @@ namespace lvlup.DataFerry.Collections
             double averageQueueLength = _queueLengthHistory.Average();
 
             // Is there contention?
-            return averageLockWaitTime > _lockWaitTimeThreshold 
-                || averageQueueLength > _queueLengthThreshold;
+            return averageLockWaitTime > ContentionWaitTimeThreshold 
+                || averageQueueLength > ContentionSizeThreshold;
         }
 
         private int GetStripeIndexForCurrentThread()
@@ -179,24 +201,24 @@ namespace lvlup.DataFerry.Collections
         public object SyncRoot => @syncLock;
 #pragma warning restore CS9216
 
+        public bool TryAdd(TElement item, TPriority priority)
+        {
+            // _threadLocalBuffer.Value.Add(item);
+            throw new NotImplementedException();
+        }
+
+        public bool TryTake(out TElement item)
+        {
+            // return _queue.TryTake(out item);
+            throw new NotImplementedException();
+        }
+
         public void CopyTo(TElement[] array, int index)
         {
             throw new NotImplementedException();
         }
-        public IEnumerator<TElement> GetEnumerator()
-        {
-            throw new NotImplementedException();
-        }
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        public bool TryAdd(TElement item, TPriority priority)
-        {
-            throw new NotImplementedException();
-        }
-
-        public bool TryAdd(TElement item) => throw new NotImplementedException();
-
-        public bool TryTake(out TElement item)
+        public void CopyTo(Array array, int index)
         {
             throw new NotImplementedException();
         }
@@ -206,10 +228,15 @@ namespace lvlup.DataFerry.Collections
             throw new NotImplementedException();
         }
 
-        public void CopyTo(Array array, int index)
+        public IEnumerator<TElement> GetEnumerator()
         {
             throw new NotImplementedException();
         }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        public bool TryAdd(TElement item) => 
+            throw new NotImplementedException("Use `TryAdd(TElement item, TPriority priority)` instead.");
 
         private void InternalTryAdd(TElement item)
         {
