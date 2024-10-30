@@ -7,6 +7,7 @@ using lvlup.DataFerry.Caches;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
+using Microsoft.VisualStudio.TestPlatform.TestHost;
 
 namespace lvlup.DataFerry.Tests
 {
@@ -37,6 +38,24 @@ namespace lvlup.DataFerry.Tests
             {
                 AddJob(Job.ShortRun.WithToolchain(InProcessEmitToolchain.Instance));
             }
+        }
+
+        public static void Main(string[] args)
+        {
+            _ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
+            //_ = BenchmarkRunner.Run<MemCacheBenchmark>(new DebugInProcessConfig());
+            //BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, new DebugInProcessConfig());
+            //_ = BenchmarkRunner.Run<MemCacheBenchmark>();
+        }
+
+        private static List<Payload> GenerateUsers(int count)
+        {
+            var users = new List<Payload>(count);
+            for (int i = 1; i <= count; i++)
+            {
+                users.Add(new Payload { Identifier = $"user{i}", Data = TestUtils.GenerateRandomString(100) });
+            }
+            return users;
         }
 
         /*
@@ -154,21 +173,6 @@ namespace lvlup.DataFerry.Tests
                 var key = $"user{keyIndex}";
                 _bitfaster.TryGet(key, out var _);
             }
-        }
-        
-        private static List<Payload> GenerateUsers(int count)
-        {
-            var users = new List<Payload>(count);
-            for (int i = 1; i <= count; i++)
-            {
-                users.Add(new Payload { Identifier = $"user{i}", Data = TestUtils.GenerateRandomString(100) });
-            }
-            return users;
-        }
-
-        public static void Main(string[] args)
-        {
-            _ = BenchmarkRunner.Run<MemCacheBenchmark>();
         }
     }
 }

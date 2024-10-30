@@ -19,9 +19,9 @@ namespace lvlup.DataFerry.Collections
         private Lock[] @stripes;
         private readonly Lock @syncLock = new();
         private readonly SemaphoreSlim _batchSemaphore = new(1, 1);
-        
+
         // Thread-local buffer for batch processing
-        private static readonly ThreadLocal<ConcurrentBag<ItemWithPriority>> _threadLocalBuffer = new(() => []);
+        private static readonly ThreadLocal<ConcurrentBag<ItemWithPriority>> _threadLocalBuffer = new(() => [], trackAllValues: true);
 
         // Constants
         private const double ContentionWaitTimeThreshold = 10.0;
