@@ -32,12 +32,6 @@ namespace lvlup.DataFerry.Caches
         private static readonly SemaphoreSlim _globalEvictionSemaphore = new(1, 1);
         private async Task EvictExpiredJob()
         {
-            // In scenarios with numerous FastMemCache instances, prevent concurrent timer-based cleanup jobs.
-            // Cleanup involves CPU-intensive collection iteration and computations.
-            // Employ a Semaphore to serialize cleanup execution, avoiding resource wastage.
-            // Explicit user-initiated eviction remains permissible.
-            // Opt for a Semaphore over a traditional lock to mitigate thread starvation risks.
-
             await _globalEvictionSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -129,20 +123,6 @@ namespace lvlup.DataFerry.Caches
                 {
                     _dict.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
                 }
-
-                /* EXPLANATION:
-                 * When an item is found but expired, it should be treated as "not found" and removed.
-                 * To ensure atomicity (preventing another thread from adding a new item with the same key while we're evicting the expired one), 
-                 * we could use a lock. However, this introduces performance overhead.
-                 * 
-                 * Instead, we opt for a lock-free approach:
-                 * 1. Check if the key exists and retrieve its associated value.
-                 * 2. If the value is expired, remove the item by both key AND value. 
-                 * 
-                 * This strategy prevents accidental removal of newly added items with the same key, as their values would differ.
-                 * 
-                 * Avoiding locks significantly improves performance, making this approach preferable.
-                 */
 
                 return false;
             }

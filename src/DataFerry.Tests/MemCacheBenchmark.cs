@@ -134,6 +134,7 @@ namespace lvlup.DataFerry.Tests
         }
         */
 
+        /*
         [Benchmark]
         public void BitFaster()
         {
@@ -150,5 +151,6 @@ namespace lvlup.DataFerry.Tests
                 _bitfaster.TryGet(key, out var _);
             }
         }
+        */
     }
 }

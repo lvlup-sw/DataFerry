@@ -1,6 +1,5 @@
 ﻿using System.Collections;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Reactive.Linq;
 
 namespace lvlup.DataFerry.Caches
@@ -127,12 +126,14 @@ namespace lvlup.DataFerry.Caches
                 await _evictionSemaphore.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
+                    /*
                     int evictionBatch = _frequencyQueue.Count / 10;
                     for (int i = 0; i < evictionBatch; i++)
                     {
                         _frequencyQueue.TryTake(out var lfuItem);
                         Remove(lfuItem);
                     }
+                    */
                 }
                 finally
                 {
