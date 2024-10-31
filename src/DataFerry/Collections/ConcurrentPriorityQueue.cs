@@ -73,7 +73,7 @@ namespace lvlup.DataFerry.Collections
             await _batchSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
-                await BatchProcessItems().ConfigureAwait(false);
+                BatchProcessItems();
             }
             finally
             {
@@ -81,7 +81,7 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        private async ValueTask BatchProcessItems()
+        private void BatchProcessItems()
         {
             if (!Monitor.TryEnter(_batchTimer)) return;
 
@@ -115,7 +115,7 @@ namespace lvlup.DataFerry.Collections
                 })).ToArray();
 
                 // Task.WaitAll(tasks);
-                await Task.WhenAll(tasks).ConfigureAwait(false);
+                Task.WaitAll(tasks);
 
                 // Contention detection
                 if (_contentionIndicators > ContentionIndicatorThreshold)
@@ -141,6 +141,12 @@ namespace lvlup.DataFerry.Collections
                     }
                 }
             }
+        }
+
+        private int GetStripeIndexForCurrentThread()
+        {
+            int threadId = Environment.CurrentManagedThreadId;
+            return threadId % _stripeCount;
         }
 
         private bool IsContentionDetected()
@@ -170,12 +176,6 @@ namespace lvlup.DataFerry.Collections
             // Is there contention?
             return averageLockWaitTime > ContentionWaitTimeThreshold 
                 || averageQueueLength > ContentionSizeThreshold;
-        }
-
-        private int GetStripeIndexForCurrentThread()
-        {
-            int threadId = Environment.CurrentManagedThreadId;
-            return threadId % _stripeCount;
         }
 
         private void ResizeStripeBuffer()
@@ -208,16 +208,59 @@ namespace lvlup.DataFerry.Collections
             return true;
         }
 
-        private void InternalTryAdd(ItemWithPriority item)
+        private void IncrementCounterIfPotentialContention()
         {
-            // Don't add new items if we are at capacity
-            if (Count > _queueCapacity) return;
-
-            // Potential contention; increment counter
             if (Environment.TickCount64 - _prevContentionTimestamp < ContentionWindowTime)
             {
                 Interlocked.Increment(ref _contentionIndicators);
             }
+        }
+
+        private void CheckForContention()
+        {
+            if (Environment.TickCount64 - _prevContentionTimestamp > ContentionWaitTimeThreshold)
+            {
+                _prevContentionTimestamp = Environment.TickCount64;
+            }
+            else
+            {
+                Interlocked.Decrement(ref _contentionIndicators);
+            }
+        }
+
+        private void EvictItemIfAtCapacity(ItemWithPriority item)
+        {
+            // If the queue is at capacity, the new item has higher priority, 
+            // and the new item is NOT already in the queue, then evict 
+            // the current lowest frequency item to make space.
+            if (Count >= _queueCapacity &&
+                _queue.TryPeek(out var currLfu, out var currPriority) &&
+                currLfu is not null &&
+                _queue.Comparer.Compare(currPriority, item.Priority) < 0 &&
+                !currLfu.Equals(item.Item))
+            {
+                IncrementCounterIfPotentialContention();
+
+                // Access the thread-specific lock
+                int stripeIndex = GetStripeIndexForCurrentThread();
+                @stripes[stripeIndex].Enter();
+                try
+                {
+                    _queue.TryDequeue(out _, out _);
+                    CheckForContention();
+                }
+                finally
+                {
+                    @stripes[stripeIndex].Exit();
+                }
+            }
+        }
+
+        private void InternalTryAdd(ItemWithPriority item)
+        {
+            // If the queue is full, we need to evict an item
+            EvictItemIfAtCapacity(item);
+            IncrementCounterIfPotentialContention();
 
             // Access the thread-specific lock
             int stripeIndex = GetStripeIndexForCurrentThread();
@@ -226,16 +269,7 @@ namespace lvlup.DataFerry.Collections
             {
                 // Enqueue item
                 _queue.Enqueue(item.Item, item.Priority);
-
-                // Check for contention
-                if (Environment.TickCount64 - _prevContentionTimestamp > ContentionWaitTimeThreshold)
-                {
-                    _prevContentionTimestamp = Environment.TickCount64;
-                }
-                else
-                {
-                    Interlocked.Decrement(ref _contentionIndicators);
-                }
+                CheckForContention();
             }
             finally
             {
@@ -245,29 +279,15 @@ namespace lvlup.DataFerry.Collections
 
         public bool TryTake(out TElement item)
         {
-            // Potential contention; increment counter
-            if (Environment.TickCount64 - _prevContentionTimestamp < ContentionWindowTime)
-            {
-                Interlocked.Increment(ref _contentionIndicators);
-            }
+            IncrementCounterIfPotentialContention();
 
             // Access the thread-specific lock
             int stripeIndex = GetStripeIndexForCurrentThread();
             @stripes[stripeIndex].Enter();
             try
             {
-                // Check for contention
-                if (Environment.TickCount64 - _prevContentionTimestamp > ContentionWaitTimeThreshold)
-                {
-                    _prevContentionTimestamp = Environment.TickCount64;
-                }
-                else
-                {
-                    Interlocked.Decrement(ref _contentionIndicators);
-                }
-
-                // Check our local buffer and/or main queue
-                if (TryLocalBufferOrMainQueue(out item)) return true;
+                CheckForContention();
+                if (TryLocalBufferThenMainQueue(out item)) return true;
             }
             finally
             {
@@ -279,7 +299,7 @@ namespace lvlup.DataFerry.Collections
 
         // We need to check the local buffer for high priority items
         // before TryTake ops since we batch the Enqueue operations.
-        private bool TryLocalBufferOrMainQueue(out TElement item)
+        private bool TryLocalBufferThenMainQueue(out TElement item)
         {
             item = default!;
 

@@ -42,10 +42,9 @@ namespace lvlup.DataFerry.Tests
 
         public static void Main(string[] args)
         {
-            _ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
-            //_ = BenchmarkRunner.Run<MemCacheBenchmark>(new DebugInProcessConfig());
-            //BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args, new DebugInProcessConfig());
-            //_ = BenchmarkRunner.Run<MemCacheBenchmark>();
+            // Uncomment to debug
+            //_ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
+            _ = BenchmarkRunner.Run<MemCacheBenchmark>();
         }
 
         private static List<Payload> GenerateUsers(int count)
@@ -115,6 +114,7 @@ namespace lvlup.DataFerry.Tests
             }
         }
 
+        
         [Benchmark]
         public void BfDataFerry()
         {
@@ -134,31 +134,6 @@ namespace lvlup.DataFerry.Tests
 
         /*
         [Benchmark]
-        public void FastMemCache()
-        {
-            foreach (var user in _users)
-            {
-                _fastcache.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
-            }
-
-            int hits = 0;
-            var random = new Random();
-            for (int i = 0; i < 10000; i++)
-            {
-                var keyIndex = random.Next(CacheSize * 2);
-                var key = $"user{keyIndex}";
-                if (_fastcache.TryGet(key, out var _))
-                {
-                    hits++;
-                }
-            }
-
-            double hitRate = (double)hits / 10000 * 100;
-            Console.WriteLine($"FastMemCache hit rate: {hitRate:F2}%");
-        }
-        */
-
-        [Benchmark]
         public void BitFaster()
         {
             foreach (var user in _users)
@@ -174,5 +149,6 @@ namespace lvlup.DataFerry.Tests
                 _bitfaster.TryGet(key, out var _);
             }
         }
+        */
     }
 }

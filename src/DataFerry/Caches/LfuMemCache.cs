@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Concurrent;
-using System.Threading.Channels;
+using System.Collections.Generic;
+using System.Reactive.Linq;
 
 namespace lvlup.DataFerry.Caches
 {
@@ -15,17 +16,18 @@ namespace lvlup.DataFerry.Caches
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
-        private readonly ConcurrentPriorityQueue<TKey, int> _windowQueue;
+        private readonly ConcurrentPriorityQueue<TKey, int> _frequencyQueue;
         private readonly CountMinSketch<TKey> _cms;
         private readonly Timer _cleanUpTimer;
-        private readonly int _sampleSize;
+        private readonly int _maxWindowSize;
+        private int _currentSize;
 
-        // Channels
-        private Channel<TKey> _recentKeys;
-        private readonly Channel<bool> _evictionChannel;
+        // Signalers
+        private CancellationTokenSource? _evictionCancellationToken;
+        private long _evictionJobStarted = 0;
 
         // Locks/Semaphores
-        private static readonly SemaphoreSlim _windowSemaphore = new(1, 1);
+        private static readonly SemaphoreSlim _evictionSemaphore = new(1, 1);
         private static readonly SemaphoreSlim _clearSemaphore = new(1, 1);
         private static readonly SemaphoreSlim _ttlSemaphore = new(1, 1);
 
@@ -39,34 +41,36 @@ namespace lvlup.DataFerry.Caches
         /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
         public LfuMemCache(int maxSize = 10000, int cleanupJobInterval = 10000)
         {
+            // Cache sizes
             MaxSize = maxSize;
-            _sampleSize = maxSize / 10;
+            _maxWindowSize = maxSize / 10;
+
+            // Caches
             _cache = new();
             _window = new();
+
+            // Helper data structures
             _cms = new(MaxSize);
-            _windowQueue = new(Comparer<int>.Create((x, y) => y.CompareTo(x)), _sampleSize / 10);
-            _recentKeys = Channel.CreateBounded<TKey>(_sampleSize);
-            _evictionChannel = Channel.CreateUnbounded<bool>();
+            // We create a concurrent priority queue to hold LFU candidates
+            // This comparer gives lower frequency items higher priority
+            _frequencyQueue = new(Comparer<int>.Create((x, y) => y.CompareTo(x)), _maxWindowSize / 10);
+
+            // Timer to trigger TTL-based eviction
             _cleanUpTimer = new Timer(
-                async s => await EvictExpiredJob(),
+                async s => await EvictExpiredAsyncJob(),
                 default,
                 TimeSpan.FromMilliseconds(cleanupJobInterval),
                 TimeSpan.FromMilliseconds(cleanupJobInterval));
-
-            // We should only run the task when >50% capacity is reached
-            _ = Task.Run(EvictLFUAsync);
         }
 
-        private async Task EvictExpiredJob()
+        private async Task EvictExpiredAsyncJob()
         {
-            // To avoid resource wastage from concurrent cleanup jobs in multiple LfuMemCache instances, 
-            // we use a Semaphore to serialize cleanup execution. This mitigates CPU-intensive operations.
-            // User-initiated eviction is still allowed.
+            // Lock the thread
             // A Semaphore is preferred over a traditional lock to prevent thread starvation.
-
             await _ttlSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
+                // Synchronously remove expired items according to TTL
                 EvictExpired();
             }
             finally
@@ -113,6 +117,33 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
+        /// <summary>
+        /// Evicts the least frequently used (LFU) items from the cache.
+        /// </summary>
+        internal async Task EvictLFUAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await _evictionSemaphore.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    int evictionBatch = _frequencyQueue.Count / 10;
+                    for (int i = 0; i < evictionBatch; i++)
+                    {
+                        _frequencyQueue.TryTake(out var lfuItem);
+                        Remove(lfuItem);
+                    }
+                }
+                finally
+                {
+                    _evictionSemaphore.Release();
+                }
+            }
+
+            // Reset the eviction task status when the task completes
+            Interlocked.Exchange(ref _evictionJobStarted, 0);
+        }
+
         /// <inheritdoc/>
         // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
         public int Count => _window.Skip(0).Count() + _cache.Skip(0).Count();
@@ -126,8 +157,7 @@ namespace lvlup.DataFerry.Caches
                 _window.Clear();
                 _cache.Clear();
                 _cms.Clear();
-                _recentKeys.Writer.Complete();
-                _recentKeys = Channel.CreateBounded<TKey>(_sampleSize);
+                //_frequencyQueue.Clear();
             }
             finally
             { 
@@ -152,43 +182,46 @@ namespace lvlup.DataFerry.Caches
                     _cache.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
                 }
 
-                // When an item is found but expired, it should be treated as "not found" and removed.
-                // To ensure atomicity (preventing another thread from adding a new item with the same key while we're evicting the expired one), 
-                // we could use a lock. However, this introduces performance overhead.
-                // 
-                // Instead, we opt for a lock-free approach:
-                // 1. Check if the key exists and retrieve its associated value.
-                // 2. If the value is expired, remove the item by both key AND value. 
-                // 
-                // This strategy prevents accidental removal of newly added items with the same key, as their values would differ.
-                // 
-                // Avoiding locks significantly improves performance, making this approach preferable.
-
                 return false;
             }
 
             // Found and not expired
             value = ttlValue.Value;
+            // Update frequencies
             _cms.Increment(key);
+            //_frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
             return true;
         }
+
+        private bool TriggerEvictionJob() => _currentSize >= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 1, 0) == 0;
+        private bool TerminateEvictionJob() => _currentSize <= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 0, 1) == 1;
 
         /// <inheritdoc/>
         public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
         {
-            _cms.Increment(key);
-
-            // Determine the target cache
-            var targetCache = _window.ContainsKey(key) ? _window
-                            : _cache.ContainsKey(key) ? _cache
-                            : _window.Count < _sampleSize ? _window
-                            : _cache;
+            // Determine where the key exists, if anywhere
+            bool isInWindow = _window.ContainsKey(key);
+            var targetCache = isInWindow || _cache.ContainsKey(key) ? _cache : _window;
 
             // Add a new key-value pair or update an existing one
             targetCache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
+            if (isInWindow) _window.TryRemove(key, out _);
 
-            _recentKeys.Writer.TryWrite(key);
-            _evictionChannel.Writer.TryWrite(true);
+            // Update the frequency of the key
+            _cms.Increment(key);
+            Interlocked.Increment(ref _currentSize);
+            //_frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
+
+            // Check if eviction is necessary
+            if (TriggerEvictionJob())
+            {
+                _evictionCancellationToken = new();
+                _ = Task.Run(() => EvictLFUAsync(_evictionCancellationToken.Token));
+            }
+            else if (TerminateEvictionJob())
+            {
+                _evictionCancellationToken?.Cancel();
+            }
         }
 
         /// <inheritdoc/>
@@ -249,51 +282,6 @@ namespace lvlup.DataFerry.Caches
             {
                 var ttlValue = new TtlValue(value.Value, ttl);
                 (_window.ContainsKey(key) ? _window : _cache)[key] = ttlValue;
-            }
-        }
-
-        /// <summary>
-        /// Checks if the cache requires eviction of items.
-        /// Eviction is required when the number of items in the cache is greater than or equal to the maximum size of the cache.
-        /// </summary>
-        /// <returns>
-        /// true if the cache requires eviction; otherwise, false.
-        /// </returns>
-        private bool RequiresEviction() => Count >= MaxSize;
-
-        /// <summary>
-        /// Evicts the least frequently used (LFU) item from the cache.
-        /// If the cache does not require eviction, no action is taken.
-        /// If the cache is empty, no action is taken.
-        internal async Task EvictLFUAsync()
-        {
-            while (true)
-            {
-                await _evictionChannel.Reader.ReadAsync().ConfigureAwait(false);
-
-                // Lock the entire eviction logic to ensure consistency
-                await _windowSemaphore.WaitAsync().ConfigureAwait(false);
-                try
-                {
-                    while (_recentKeys.Reader.TryRead(out var key))
-                    {
-                        _cms.Increment(key);
-                        _windowQueue.TryAdd(key, _cms.EstimateFrequency(key));
-
-                        if (RequiresEviction())
-                        {
-                            // Dequeue the least frequently used item (lowest priority)
-                            if (_windowQueue.TryTake(out var lfuKey))
-                            {
-                                Remove(lfuKey);
-                            }
-                        }
-                    }
-                }
-                finally
-                {
-                    _windowSemaphore.Release();
-                }
             }
         }
 
