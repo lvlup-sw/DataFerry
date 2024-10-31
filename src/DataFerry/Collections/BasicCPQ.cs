@@ -62,8 +62,8 @@ namespace lvlup.DataFerry.Collections
 
         public bool TryAdd(TElement item, TPriority priority)
         {
-            InternalTryAdd(new(item, priority));
-            //InternalTryAddWithSingleLock(new(item, priority));
+            //InternalTryAdd(new(item, priority));
+            InternalTryAddWithSingleLock(new(item, priority));
             return true;
         }
 
@@ -131,6 +131,7 @@ namespace lvlup.DataFerry.Collections
 
         public bool TryTake(out TElement item)
         {
+            return TryTakeWithSingleLock(out item);
             // Access the thread-specific lock
             int stripeIndex = GetStripeIndexForCurrentThread();
             @stripes[stripeIndex].Enter();

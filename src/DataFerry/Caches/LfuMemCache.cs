@@ -15,7 +15,9 @@ namespace lvlup.DataFerry.Caches
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
+        // Sophisticated optimizations: 13.142 us ???
         private readonly ConcurrentPriorityQueue<TKey, int> _frequencyQueue;
+        // Basic synchronization: 8.231 us
         //private readonly BasicCPQ<TKey, int> _frequencyQueue;
         // Baseline with unsynchronized priority queue is 7.834 μs
         //private readonly PriorityQueue<TKey, int> _frequencyQueue;
