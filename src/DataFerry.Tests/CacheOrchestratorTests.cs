@@ -17,7 +17,7 @@ namespace lvlup.DataFerry.Tests
     {
         private CacheOrchestrator _cache = default!;
         private Mock<IConnectionMultiplexer> _redis = default!;
-        private Mock<ILfuMemCache<string, byte[]>> _memCache = default!;
+        private Mock<IMemCache<string, byte[]>> _memCache = default!;
         private Mock<ILogger<CacheOrchestrator>> _logger = default!;
         private readonly IOptions<CacheSettings> _settings = Options.Create(new CacheSettings
         {
@@ -40,7 +40,7 @@ namespace lvlup.DataFerry.Tests
         {
             // Setup dependencies
             _redis = new Mock<IConnectionMultiplexer>();
-            _memCache = new Mock<ILfuMemCache<string, byte[]>>();
+            _memCache = new Mock<IMemCache<string, byte[]>>();
             _logger = new Mock<ILogger<CacheOrchestrator>>();
 
             // Create the CacheOrchestrator instance

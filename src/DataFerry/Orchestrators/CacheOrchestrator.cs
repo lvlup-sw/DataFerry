@@ -13,7 +13,7 @@ namespace lvlup.DataFerry.Orchestrators
     public class CacheOrchestrator : ICacheOrchestrator
     {
         private readonly IConnectionMultiplexer _cache;
-        private readonly ILfuMemCache<string, byte[]> _memCache;
+        private readonly IMemCache<string, byte[]> _memCache;
         private readonly CacheSettings _settings;
         private readonly ILogger<CacheOrchestrator> _logger;
         private readonly ReaderWriterLockSlim _policyLock;
@@ -27,7 +27,7 @@ namespace lvlup.DataFerry.Orchestrators
         /// <exception cref="ArgumentNullException"></exception>""
         public CacheOrchestrator(
             IConnectionMultiplexer cache,
-            ILfuMemCache<string, byte[]> memCache,
+            IMemCache<string, byte[]> memCache,
             IOptions<CacheSettings> settings,
             ILogger<CacheOrchestrator> logger)
         {

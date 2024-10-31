@@ -11,11 +11,14 @@ namespace lvlup.DataFerry.Caches
     /// <remarks>
     /// This class utilizes a <see cref="ConcurrentDictionary{TKey, TValue}"/> and <see cref="CountMinSketch{TKey}"/> behind the scenes.
     /// </remarks> 
-    public class LfuMemCache<TKey, TValue> : ILfuMemCache<TKey, TValue> where TKey : notnull
+    public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : notnull
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
         private readonly ConcurrentPriorityQueue<TKey, int> _frequencyQueue;
+        //private readonly BasicCPQ<TKey, int> _frequencyQueue;
+        // Baseline with unsynchronized priority queue is 7.834 μs
+        //private readonly PriorityQueue<TKey, int> _frequencyQueue;
         private readonly CountMinSketch<TKey> _cms;
         private readonly Timer _cleanUpTimer;
         private readonly int _maxWindowSize;
@@ -126,14 +129,14 @@ namespace lvlup.DataFerry.Caches
                 await _evictionSemaphore.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
-                    /*
-                    int evictionBatch = _frequencyQueue.Count / 10;
+                    int evictionBatch = (int) Math.Sqrt(_frequencyQueue.Count);
                     for (int i = 0; i < evictionBatch; i++)
                     {
                         _frequencyQueue.TryTake(out var lfuItem);
                         Remove(lfuItem);
+                        //_frequencyQueue.TryDequeue(out var lfuItem, out _);
+                        //if (lfuItem is not null) Remove(lfuItem);
                     }
-                    */
                 }
                 finally
                 {
@@ -190,7 +193,8 @@ namespace lvlup.DataFerry.Caches
             value = ttlValue.Value;
             // Update frequencies
             _cms.Increment(key);
-            //_frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
+            _frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
+            //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
             return true;
         }
 
@@ -211,7 +215,8 @@ namespace lvlup.DataFerry.Caches
             // Update the frequency of the key
             _cms.Increment(key);
             Interlocked.Increment(ref _currentSize);
-            //_frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
+            _frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
+            //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
 
             // Check if eviction is necessary
             if (TriggerEvictionJob())

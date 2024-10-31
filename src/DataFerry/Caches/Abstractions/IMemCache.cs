@@ -6,7 +6,7 @@
     /// <typeparam name="TKey">The type of the keys in the cache.</typeparam>
     /// <typeparam name="TValue">The type of the values in the cache.</typeparam>
     /// <remarks>Based on FastCache and BitFaster.</remarks>
-    public interface ILfuMemCache<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>>, IDisposable where TKey : notnull
+    public interface IMemCache<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>>, IDisposable where TKey : notnull
     {
         /// <summary>
         /// Returns the total number of items in the cache, 

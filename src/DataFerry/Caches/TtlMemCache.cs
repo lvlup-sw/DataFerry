@@ -10,7 +10,7 @@ namespace lvlup.DataFerry.Caches
     /// <remarks>
     /// This class utilizes a <see cref="ConcurrentDictionary{TKey, TValue}"/> behind the scenes.
     /// </remarks> 
-    public class TtlMemCache<TKey, TValue> : ILfuMemCache<TKey, TValue> where TKey : notnull
+    public class TtlMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : notnull
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _dict = new();
 
