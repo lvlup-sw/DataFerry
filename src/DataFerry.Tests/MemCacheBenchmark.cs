@@ -19,8 +19,6 @@ namespace lvlup.DataFerry.Tests
         private readonly IMemoryCache _memoryCache;
         private readonly ConcurrentLfu<string, Payload> _bitfaster;
         private readonly LfuMemCache<string, Payload> _dataferry;
-        private readonly BitfasterMemCache<string, Payload> _bfdataferry;
-        private readonly TtlMemCache<string, Payload> _fastcache;
 
         public MemCacheBenchmark()
         {
@@ -28,8 +26,6 @@ namespace lvlup.DataFerry.Tests
             _memoryCache = new MemoryCache(new MemoryCacheOptions() { SizeLimit = CacheSize });
             _bitfaster = new(CacheSize);
             _dataferry = new(CacheSize);
-            _bfdataferry = new(CacheSize);
-            _fastcache = new(CacheSize);
         }
 
         [Config(typeof(Config))]
@@ -59,20 +55,6 @@ namespace lvlup.DataFerry.Tests
         }
 
         /*
-        [Benchmark(OperationsPerInvoke = 1000)]
-        public void DataFerryThroughput()
-        {
-            var random = new Random();
-            for (int i = 0; i < 1000; i++)
-            {
-                var keyIndex = random.Next(CacheSize * 2);
-                var key = $"user{keyIndex}";
-                _dataferry.TryGet(key, out var _);
-            }
-        }
-        */
-
-        /*
         [Benchmark]
         public void MemoryCache()
         {
@@ -98,7 +80,7 @@ namespace lvlup.DataFerry.Tests
         }
         */
 
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 100)]
         public void DataFerry()
         {
             foreach (var user in _users)
@@ -115,27 +97,7 @@ namespace lvlup.DataFerry.Tests
             }
         }
 
-        /*
-        [Benchmark]
-        public void BfDataFerry()
-        {
-            foreach (var user in _users)
-            {
-                _bfdataferry.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
-            }
-
-            var random = new Random();
-            for (int i = 0; i < 10000; i++)
-            {
-                var keyIndex = random.Next(CacheSize * 2);
-                var key = $"user{keyIndex}";
-                _bfdataferry.TryGet(key, out var _);
-            }
-        }
-        */
-
-        /*
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 100)]
         public void BitFaster()
         {
             foreach (var user in _users)
@@ -151,6 +113,5 @@ namespace lvlup.DataFerry.Tests
                 _bitfaster.TryGet(key, out var _);
             }
         }
-        */
     }
 }
