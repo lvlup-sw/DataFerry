@@ -7,10 +7,11 @@ using lvlup.DataFerry.Caches;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
-using Microsoft.VisualStudio.TestPlatform.TestHost;
 
 namespace lvlup.DataFerry.Tests
 {
+    [ShortRunJob]
+    [MemoryDiagnoser]
     public class MemCacheBenchmark
     {
         private const int CacheSize = 1000;
@@ -114,7 +115,7 @@ namespace lvlup.DataFerry.Tests
             }
         }
 
-        
+        /*
         [Benchmark]
         public void BfDataFerry()
         {
@@ -131,8 +132,8 @@ namespace lvlup.DataFerry.Tests
                 _bfdataferry.TryGet(key, out var _);
             }
         }
+        */
 
-        /*
         [Benchmark]
         public void BitFaster()
         {
@@ -149,6 +150,5 @@ namespace lvlup.DataFerry.Tests
                 _bitfaster.TryGet(key, out var _);
             }
         }
-        */
     }
 }
