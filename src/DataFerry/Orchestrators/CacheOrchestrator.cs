@@ -1,4 +1,5 @@
-﻿using lvlup.DataFerry.Orchestrators.Abstractions;
+﻿using lvlup.DataFerry.Buffers;
+using lvlup.DataFerry.Orchestrators.Abstractions;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -51,7 +52,7 @@ namespace lvlup.DataFerry.Orchestrators
             get
             {
                 _policyLock.EnterReadLock();
-                try { return _syncPolicy; }
+                try     { return _syncPolicy; }
                 finally {  _policyLock.ExitReadLock(); }
             }
             set
@@ -70,18 +71,16 @@ namespace lvlup.DataFerry.Orchestrators
             get
             {
                 _policyLock.EnterReadLock();
-                try { return _asyncPolicy; }
+                try     { return _asyncPolicy; }
                 finally { _policyLock.ExitReadLock(); }
             }
             set
             {
                 _policyLock.EnterWriteLock();
-                try
-                {
+                try {
                     ArgumentNullException.ThrowIfNull(value);
                     _asyncPolicy = value;
-                }
-                finally { _policyLock.ExitWriteLock(); }
+                } finally { _policyLock.ExitWriteLock(); }
             }
         }
 

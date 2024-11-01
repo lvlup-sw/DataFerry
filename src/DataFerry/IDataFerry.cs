@@ -36,7 +36,7 @@ namespace lvlup.DataFerry
             Func<TState, string, CancellationToken, ValueTask<T>> factory,
             HybridCacheEntryOptions? options = null,
             IEnumerable<string>? tags = null,
-            [EnumeratorCancellation] CancellationToken cancellationToken = default);
+            CancellationToken cancellationToken = default);
 
         IAsyncEnumerable<ValueTask> SetBatchAsync<T>(
             IEnumerable<string> keys,

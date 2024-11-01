@@ -3,7 +3,7 @@ using System.Numerics;
 using System.Runtime.Intrinsics.X86;
 using System.Runtime.Intrinsics;
 
-namespace lvlup.DataFerry.Algorithms
+namespace lvlup.DataFerry.Collections
 {
     /// <summary>
     /// A probabilistic data structure that provides an approximate count for the frequency of an item in a stream.
@@ -50,12 +50,12 @@ namespace lvlup.DataFerry.Algorithms
         /// <summary>
         /// Gets the size of the sketch after the last reset.
         /// </summary>
-        public int ResetSampleSize => this.sampleSize;
+        public int ResetSampleSize => sampleSize;
 
         /// <summary>
         /// Gets the current size of the sketch.
         /// </summary>
-        public int Size => this.size;
+        public int Size => size;
 
         /// <summary>
         /// Estimates the frequency of the specified item in the sketch.
@@ -77,11 +77,11 @@ namespace lvlup.DataFerry.Algorithms
             counterHashVector = Avx2.ShiftRightLogicalVariable(counterHashVector.AsUInt32(), Vector128.Create(0U, 8U, 16U, 24U)).AsInt32();
 
             // Calculate index and offset vectors
-            Vector128<int> index = Avx2.ShiftRightLogical(counterHashVector, 1);
-            index = Avx2.And(index, Vector128.Create(15));
-            Vector128<int> offset = Avx2.And(counterHashVector, Vector128.Create(1));
-            Vector128<int> blockOffset = Avx2.Add(Vector128.Create(block), offset);
-            blockOffset = Avx2.Add(blockOffset, Vector128.Create(0, 2, 4, 6));
+            Vector128<int> index = Sse2.ShiftRightLogical(counterHashVector, 1);
+            index = Sse2.And(index, Vector128.Create(15));
+            Vector128<int> offset = Sse2.And(counterHashVector, Vector128.Create(1));
+            Vector128<int> blockOffset = Sse2.Add(Vector128.Create(block), offset);
+            blockOffset = Sse2.Add(blockOffset, Vector128.Create(0, 2, 4, 6));
 
             // Gather elements from the table into a vector using the block offset
             fixed (long* tablePtr = table)
@@ -89,7 +89,7 @@ namespace lvlup.DataFerry.Algorithms
                 Vector256<long> tableVector = Avx2.GatherVector256(tablePtr, blockOffset, 8);
 
                 // Shift the table vector elements by the index
-                index = Avx2.ShiftLeftLogical(index, 2);
+                index = Sse2.ShiftLeftLogical(index, 2);
                 Vector256<long> indexLong = Vector256.Create(index, Vector128<int>.Zero).AsInt64();
                 Vector256<int> permuteMask2 = Vector256.Create(0, 4, 1, 5, 2, 5, 3, 7);
                 indexLong = Avx2.PermuteVar8x32(indexLong.AsInt32(), permuteMask2).AsInt64();
@@ -101,10 +101,10 @@ namespace lvlup.DataFerry.Algorithms
                 Vector128<ushort> count = Avx2.PermuteVar8x32(tableVector.AsInt32(), permuteMask).GetLower().AsUInt16();
 
                 // Set the zeroed high parts of the long value to ushort.Max
-                count = Avx2.Blend(count, Vector128.Create(ushort.MaxValue), 0b10101010);
+                count = Sse41.Blend(count, Vector128.Create(ushort.MaxValue), 0b10101010);
 
                 // Return the minimum value in the count vector
-                return Avx2.MinHorizontal(count).GetElement(0);
+                return Sse41.MinHorizontal(count).GetElement(0);
             }
         }
 
@@ -127,11 +127,11 @@ namespace lvlup.DataFerry.Algorithms
             counterHashVector = Avx2.ShiftRightLogicalVariable(counterHashVector.AsUInt32(), Vector128.Create(0U, 8U, 16U, 24U)).AsInt32();
 
             // Calculate index and offset vectors
-            Vector128<int> index = Avx2.ShiftRightLogical(counterHashVector, 1);
-            index = Avx2.And(index, Vector128.Create(15));
-            Vector128<int> offset = Avx2.And(counterHashVector, Vector128.Create(1));
-            Vector128<int> blockOffset = Avx2.Add(Vector128.Create(block), offset);
-            blockOffset = Avx2.Add(blockOffset, Vector128.Create(0, 2, 4, 6));
+            Vector128<int> index = Sse2.ShiftRightLogical(counterHashVector, 1);
+            index = Sse2.And(index, Vector128.Create(15));
+            Vector128<int> offset = Sse2.And(counterHashVector, Vector128.Create(1));
+            Vector128<int> blockOffset = Sse2.Add(Vector128.Create(block), offset);
+            blockOffset = Sse2.Add(blockOffset, Vector128.Create(0, 2, 4, 6));
 
             // Gather elements from the table into a vector using the block offset
             fixed (long* tablePtr = table)
@@ -139,7 +139,7 @@ namespace lvlup.DataFerry.Algorithms
                 Vector256<long> tableVector = Avx2.GatherVector256(tablePtr, blockOffset, 8);
 
                 // Shift the index left by 2 bits to prepare for the mask calculation
-                index = Avx2.ShiftLeftLogical(index, 2);
+                index = Sse2.ShiftLeftLogical(index, 2);
 
                 // Convert index from int to long via permute
                 Vector256<long> offsetLong = Vector256.Create(index, Vector128<int>.Zero).AsInt64();
@@ -160,7 +160,7 @@ namespace lvlup.DataFerry.Algorithms
 
                 // Check if any elements were incremented
                 Vector256<byte> result = Avx2.CompareEqual(masked.AsByte(), Vector256<byte>.Zero);
-                bool wasInc = Avx2.MoveMask(result.AsByte()) == unchecked((int)(0b1111_1111_1111_1111_1111_1111_1111_1111));
+                bool wasInc = Avx2.MoveMask(result.AsByte()) == unchecked((int)0b1111_1111_1111_1111_1111_1111_1111_1111);
 
                 // Increment the elements of the table
                 tablePtr[blockOffset.GetElement(0)] += inc.GetElement(0);
@@ -169,7 +169,7 @@ namespace lvlup.DataFerry.Algorithms
                 tablePtr[blockOffset.GetElement(3)] += inc.GetElement(3);
 
                 // If the size has reached the sample size, reset the sketch
-                if (wasInc && (++size == sampleSize))
+                if (wasInc && ++size == sampleSize)
                 {
                     Reset();
                 }
@@ -200,7 +200,7 @@ namespace lvlup.DataFerry.Algorithms
 
             // Calculate the block mask and sample size
             blockMask = (int)((uint)table.Length >> 3) - 1;
-            sampleSize = (maximumSize == 0) ? 10 : (10 * maximum);
+            sampleSize = maximumSize == 0 ? 10 : 10 * maximum;
 
             // Reset the size
             size = 0;
@@ -214,7 +214,7 @@ namespace lvlup.DataFerry.Algorithms
         private static int Rehash(int x)
         {
             // Multiply by a constant, then right shift and XOR to mix the bits
-            x = (int)(x * 0x31848bab);
+            x = x * 0x31848bab;
             x ^= (int)((uint)x >> 14);
             return x;
         }
@@ -263,10 +263,10 @@ namespace lvlup.DataFerry.Algorithms
             }
 
             // Add up the counters
-            count0 = (count0 + count1) + (count2 + count3);
+            count0 = count0 + count1 + count2 + count3;
 
             // Update the size
-            size = (size - (count0 >> 2)) >> 1;
+            size = size - (count0 >> 2) >> 1;
         }
     }
 }

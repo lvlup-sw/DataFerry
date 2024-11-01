@@ -101,31 +101,37 @@ namespace lvlup.DataFerry
             T value,
             HybridCacheEntryOptions? options = null,
             IEnumerable<string>? tags = null,
-            CancellationToken cancellationToken = default)
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             yield break;
             throw new NotImplementedException();
         }
 
-        public async IAsyncEnumerable<ValueTask> RefreshBatchAsync(IEnumerable<string> keys, HybridCacheEntryOptions options, CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<ValueTask> RefreshBatchAsync(
+            IEnumerable<string> keys, 
+            HybridCacheEntryOptions options, 
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             yield break;
             throw new NotImplementedException();
         }
 
-        public async IAsyncEnumerable<ValueTask> RefreshByTagBatchAsync(IEnumerable<string> tags, HybridCacheEntryOptions options, CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<ValueTask> RefreshByTagBatchAsync(
+            IEnumerable<string> tags, 
+            HybridCacheEntryOptions options, 
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             yield break;
             throw new NotImplementedException();
         }
 
-        public async IAsyncEnumerable<ValueTask> RemoveBatchAsync(IEnumerable<string> keys, CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<ValueTask> RemoveBatchAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             yield break;
             throw new NotImplementedException();
         }
 
-        public async IAsyncEnumerable<ValueTask> RemoveByTagBatchAsync(IEnumerable<string> keys, CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<ValueTask> RemoveByTagBatchAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             yield break;
             throw new NotImplementedException();

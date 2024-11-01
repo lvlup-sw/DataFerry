@@ -1,7 +1,7 @@
 ﻿using System.Buffers;
 using System.Runtime.CompilerServices;
 
-namespace lvlup.DataFerry.Collections
+namespace lvlup.DataFerry.Buffers
 {
     /// <summary>
     /// Represents a buffer writer that rents arrays from an <see cref="ArrayPool{T}"/> to minimize new allocations.

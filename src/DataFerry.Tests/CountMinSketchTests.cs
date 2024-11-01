@@ -1,4 +1,4 @@
-﻿using lvlup.DataFerry.Algorithms;
+﻿using lvlup.DataFerry.Collections;
 using lvlup.DataFerry.Tests.TestModels;
 
 namespace lvlup.DataFerry.Tests

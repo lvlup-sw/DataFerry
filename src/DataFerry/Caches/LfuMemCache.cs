@@ -207,6 +207,9 @@ namespace lvlup.DataFerry.Caches
         public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
         {
             // Determine where the key exists, if anywhere
+            // Right now, we are simply promoting if the item has been
+            // accessed before. We'll need to change this to have more
+            // sophisticated logic, especially regarding access order.
             bool isInWindow = _window.ContainsKey(key);
             var targetCache = isInWindow || _cache.ContainsKey(key) ? _cache : _window;
 
