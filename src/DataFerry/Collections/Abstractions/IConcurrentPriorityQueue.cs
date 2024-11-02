@@ -1,4 +1,4 @@
-﻿namespace lvlup.DataFerry.Collections
+﻿namespace lvlup.DataFerry.Collections.Abstractions
 {
     public interface IConcurrentPriorityQueue<TPriority, TElement>
     {
@@ -61,5 +61,19 @@
         /// <returns>true if the key was removed successfully; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
         bool TryRemove(TPriority key);
+
+        /// <summary>
+        /// Attempts to remove the element with the minimum priority from the ConcurrentPriorityQueue and return its value.
+        /// </summary>
+        /// <param name="element">When this method returns, contains the value of the removed element, 
+        /// if the ConcurrentPriorityQueue is not empty; otherwise, the default value for the type of the <paramref name="element"/> parameter. 
+        /// This parameter is passed uninitialized.</param>
+        /// <returns>true if an element was removed successfully; otherwise, false.</returns>
+        bool TryRemoveMin(out TElement element);
+
+        /// <summary>
+        /// Gets the number of nodes in the SkipList.
+        /// </summary>
+        int GetCount();
     }
 }

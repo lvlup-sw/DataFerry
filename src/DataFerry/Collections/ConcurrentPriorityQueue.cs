@@ -53,6 +53,11 @@ namespace lvlup.DataFerry.Collections
         internal const int BottomLevel = 0;
 
         /// <summary>
+        /// Default size limit
+        /// </summary>
+        internal const int DefaultMaxSize = 10000;
+
+        /// <summary>
         /// Default number of levels
         /// </summary>
         internal const int DefaultNumberOfLevels = 32;
@@ -61,6 +66,11 @@ namespace lvlup.DataFerry.Collections
         /// Default promotion chance for each level. [0, 1).
         /// </summary>
         private const double DefaultPromotionProbability = 0.5;
+
+        /// <summary>
+        /// The maximum number of elements allowed in the queue.
+        /// </summary>
+        private readonly int maxSize;
 
         /// <summary>
         /// Number of levels in the skip list.
@@ -76,6 +86,11 @@ namespace lvlup.DataFerry.Collections
         /// The promotion chance for each level. [0, 1).
         /// </summary>
         private readonly double promotionProbability;
+
+        /// <summary>
+        /// The number of nodes in the SkipList.
+        /// </summary>
+        private int count;
 
         /// <summary>
         /// Head of the skip list.
@@ -96,7 +111,7 @@ namespace lvlup.DataFerry.Collections
         /// Initializes a new instance of the ConcurrentSkipList class.
         /// </summary>
         /// <param name="keyComparer">The key comparer for the chosen key type.</param>
-        public ConcurrentPriorityQueue(IComparer<TPriority> keyComparer) : this(keyComparer, DefaultNumberOfLevels, DefaultPromotionProbability)
+        public ConcurrentPriorityQueue(IComparer<TPriority> keyComparer) : this(keyComparer, DefaultMaxSize, DefaultNumberOfLevels, DefaultPromotionProbability)
         {
         }
 
@@ -109,7 +124,7 @@ namespace lvlup.DataFerry.Collections
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="keyComparer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
-        public ConcurrentPriorityQueue(IComparer<TPriority> keyComparer, int numberOfLevels = 32, double promotionProbability = 0.5)
+        public ConcurrentPriorityQueue(IComparer<TPriority> keyComparer, int maxSize = 10000, int numberOfLevels = 32, double promotionProbability = 0.5)
         {
             ArgumentNullException.ThrowIfNull(keyComparer, nameof(keyComparer));
             ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(numberOfLevels, 0, nameof(numberOfLevels));
@@ -119,6 +134,7 @@ namespace lvlup.DataFerry.Collections
             this.keyComparer = keyComparer;
             this.numberOfLevels = numberOfLevels;
             this.promotionProbability = promotionProbability;
+            this.maxSize = maxSize;
             topLevel = numberOfLevels - 1;
 
             head = new Node(Node.NodeType.Head, topLevel);
@@ -128,6 +144,7 @@ namespace lvlup.DataFerry.Collections
             for (int level = 0; level <= topLevel; level++)
             {
                 head.SetNextNode(level, tail);
+                Interlocked.Increment(ref count);
             }
 
             head.IsInserted = true;
@@ -254,6 +271,7 @@ namespace lvlup.DataFerry.Collections
 
                     // Linearization point: MemoryBarrier not required since IsInserted is a volatile member (hence implicitly uses MemoryBarrier). 
                     newNode.IsInserted = true;
+                    if (Interlocked.Increment(ref count) > maxSize) TryRemoveMin(out _);
                     return true;
                 }
                 finally
@@ -331,6 +349,55 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
+        public bool TryRemoveMin(out TElement element)
+        {
+            while (true)
+            {
+                Node? firstNode = head.GetNextNode(0);
+
+                // If the first node is the tail, the list is empty
+                if (firstNode.Type == Node.NodeType.Tail)
+                {
+                    element = default!;
+                    return false;
+                }
+
+                // Try to logically delete the first node
+                firstNode.Lock();
+                try
+                {
+                    if (firstNode.IsDeleted || !firstNode.IsInserted)
+                    {
+                        // Node is already deleted or not fully linked, retry
+                        continue;
+                    }
+
+                    firstNode.IsDeleted = true;
+
+                    // Physically remove the node from all levels
+                    for (int level = 0; level <= firstNode.TopLevel; level++)
+                    {
+                        // Find the predecessor at each level and update its next pointer
+                        Node predecessor = head;
+                        while (predecessor.GetNextNode(level) != firstNode)
+                        {
+                            predecessor = predecessor.GetNextNode(level);
+                        }
+                        predecessor.SetNextNode(level, firstNode.GetNextNode(level));
+                    }
+
+                    element = firstNode.Value;
+                    Interlocked.Decrement(ref count);
+                    return true;
+                }
+                finally
+                {
+                    firstNode.Unlock();
+                }
+            }
+        }
+
+        /// <inheritdoc/>
         public bool TryRemove(TPriority key)
         {
             ArgumentNullException.ThrowIfNull(key, nameof(key));
@@ -395,7 +462,7 @@ namespace lvlup.DataFerry.Collections
                     }
 
                     nodeToBeDeleted.Unlock();
-
+                    Interlocked.Decrement(ref count);
                     return true;
                 }
                 finally
@@ -408,39 +475,8 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        /// <summary>
-        /// Gets the number of nodes at the specified level. This method is intended for testing purposes only.
-        /// </summary>
-        /// <param name="level">The level to count nodes at.</param>
-        /// <returns>The number of nodes at the specified level.</returns>
-        internal int GetCount(int level)
-        {
-            int count = 0;
-            Node current = head.GetNextNode(level);
-
-            while (current.Type != Node.NodeType.Tail)
-            {
-                count++;
-                current = current.GetNextNode(level);
-            }
-
-            return count;
-        }
-
-        /// <summary>
-        /// Verifies the internal consistency of the SkipList. This method is intended for testing purposes only.
-        /// </summary>
-        internal void Verify()
-        {
-            // Verify the invariant that lower level lists are always supersets of higher-level lists.
-            for (int i = BottomLevel; i < topLevel; i++)
-            {
-                var lowLevelCount = GetCount(i);
-                var highLevelCount = GetCount(i + 1);
-
-                ArgumentOutOfRangeException.ThrowIfLessThan(lowLevelCount, highLevelCount, nameof(lowLevelCount));
-            }
-        }
+        /// <inheritdoc/>
+        public int GetCount() => count;
 
         /// <summary>
         /// Waits (spins) until the specified node is marked as logically inserted, 

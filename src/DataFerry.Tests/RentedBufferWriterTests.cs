@@ -1,4 +1,5 @@
-﻿using lvlup.DataFerry.Collections;
+﻿using lvlup.DataFerry.Buffers;
+using lvlup.DataFerry.Collections;
 
 namespace lvlup.DataFerry.Tests
 {
