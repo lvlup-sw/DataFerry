@@ -1,7 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Collections;
 
-namespace lvlup.DataFerry.Collections
+namespace lvlup.DataFerry.Collections.temp
 {
     public class BasicCPQ<TElement, TPriority> : IProducerConsumerCollection<TElement>
     {
@@ -47,7 +47,7 @@ namespace lvlup.DataFerry.Collections
         public object SyncRoot => @syncLock;
 #pragma warning restore CS9216
 
-        private bool IsPowerOfTwo(int x) => (x & (x - 1)) == 0;
+        private bool IsPowerOfTwo(int x) => (x & x - 1) == 0;
 
         private int NextPowerOfTwo(int x)
         {

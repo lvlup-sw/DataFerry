@@ -1,449 +1,708 @@
-﻿using System.Collections.Concurrent;
-using System.Collections;
-using System.Threading.Channels;
-using System.Diagnostics;
+﻿using lvlup.DataFerry.Collections.Abstractions;
 
 namespace lvlup.DataFerry.Collections
 {
-    public class ConcurrentPriorityQueue<TElement, TPriority> : IProducerConsumerCollection<TElement>
+    /// <summary>
+    /// A concurrent priority queue implemented as a lock-based SkipList.
+    /// </summary>
+    /// <typeparam name="TPriority">The key.</typeparam>
+    /// <typeparam name="TElement">The value.</typeparam>
+    /// <remarks>
+    /// <para>
+    /// A SkipList is a probabilistic data structure that provides efficient search, insertion, and deletion operations with an expected logarithmic time complexity. 
+    /// Unlike balanced search trees (e.g., AVL trees, Red-Black trees), SkipLists achieve efficiency through probabilistic balancing, making them well-suited for concurrent implementations.
+    /// </para>
+    /// <para>
+    /// This concurrent SkipList implementation offers:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>Expected O(log n) time complexity for `ContainsKey`, `TryGeTElement`, `TryAdd`, `Update`, and `TryRemove` operations.</item> 
+    /// <item>Lock-free and wait-free `ContainsKey` and `TryGeTElement` operations.</item>
+    /// <item>Lock-free key enumerations.</item>
+    /// </list>
+    /// <para>
+    /// <b>Implementation Details:</b>
+    /// </para>
+    /// <para>
+    /// This implementation employs logical deletion and insertion to optimize performance and ensure thread safety. 
+    /// Nodes are marked as deleted logically before being physically removed, and they are inserted level by level to maintain consistency.
+    /// </para>
+    /// <para>
+    /// <b>Invariants:</b>
+    /// </para>
+    /// <para>
+    /// The list at a lower level is always a subset of the list at a higher level. This invariant ensures that nodes are added from the bottom up and removed from the top down.
+    /// </para>
+    /// <para>
+    /// <b>Locking:</b>
+    /// </para>
+    /// <para>
+    /// Locks are acquired in a bottom-up manner to prevent deadlocks. The order of lock release is not critical.
+    /// </para>
+    /// </remarks>
+    public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
     {
-        // Queues
-        private readonly PriorityQueue<TElement, TPriority> _queue;
-        private readonly ConcurrentQueue<int> _queueLengthHistory;
+        /// <summary>
+        /// Invalid level.
+        /// </summary>
+        internal const int InvalidLevel = -1;
 
-        // Channels/Timers
-        private readonly Channel<bool> _contentionChannel;
-        private readonly Timer _batchTimer;
+        /// <summary>
+        /// Bottom level.
+        /// </summary>
+        internal const int BottomLevel = 0;
 
-        // Locks/Semaphores
-        private Lock[] @stripes;
-        private readonly Lock @syncLock = new();
-        private readonly SemaphoreSlim _batchSemaphore = new(1, 1);
+        /// <summary>
+        /// Default number of levels
+        /// </summary>
+        internal const int DefaultNumberOfLevels = 32;
 
-        // Thread-local buffer for batch processing
-        private static readonly ThreadLocal<ConcurrentBag<ItemWithPriority>> _threadLocalBuffer = new(() => [], trackAllValues: true);
+        /// <summary>
+        /// Default promotion chance for each level. [0, 1).
+        /// </summary>
+        private const double DefaultPromotionProbability = 0.5;
 
-        // Constants
-        private const double ContentionWaitTimeThreshold = 10.0;
-        private const int ContentionSizeThreshold = 1000;
-        private const int ContentionWindowSize = 10;
-        private const int ContentionWindowTime = 50;
-        private const int ContentionIndicatorThreshold = 10;
+        /// <summary>
+        /// Number of levels in the skip list.
+        /// </summary>
+        private readonly int numberOfLevels;
 
-        // Settings
-        private readonly int _queueCapacity;
-        private long _prevContentionTimestamp;
-        private int _contentionIndicators;
-        private int _stripeCount = 10;
+        /// <summary>
+        /// Heighest level allowed in the skip list,
+        /// </summary>
+        private readonly int topLevel;
 
-        public ConcurrentPriorityQueue(
-            IComparer<TPriority> comparer, 
-            int capacity = 1000,
-            int batchInterval = 100)
+        /// <summary>
+        /// The promotion chance for each level. [0, 1).
+        /// </summary>
+        private readonly double promotionProbability;
+
+        /// <summary>
+        /// Head of the skip list.
+        /// </summary>
+        private readonly Node head;
+
+        /// <summary>
+        /// Key comparer used to order the keys.
+        /// </summary>
+        private readonly IComparer<TPriority> keyComparer;
+
+        /// <summary>
+        /// Random number generator.
+        /// </summary>
+        private static readonly Random RandomGenerator = new();
+
+        /// <summary>
+        /// Initializes a new instance of the ConcurrentSkipList class.
+        /// </summary>
+        /// <param name="keyComparer">The key comparer for the chosen key type.</param>
+        public ConcurrentPriorityQueue(IComparer<TPriority> keyComparer) : this(keyComparer, DefaultNumberOfLevels, DefaultPromotionProbability)
         {
-            _queue = new(comparer);
-            _queueLengthHistory = new();
-            _queueCapacity = capacity;
-            _contentionChannel = Channel.CreateUnbounded<bool>();
-            @stripes = new Lock[_stripeCount];
-            @stripes = Enumerable.Range(0, _stripeCount)
-                .Select(_ => new Lock())
-                .ToArray();
-            _batchTimer = new Timer(
-                async s => await BatchProcessItemsJob(),
-                default,
-                TimeSpan.FromMilliseconds(batchInterval),
-                TimeSpan.FromMilliseconds(batchInterval));
-
-            _ = Task.Run(MonitorContentionAsync);
         }
 
-        public readonly struct ItemWithPriority(TElement item, TPriority priority)
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ConcurrentSkipList{TPriority, TElement}"/> class.
+        /// </summary>
+        /// <param name="keyComparer">The comparer used to compare keys.</param>
+        /// <param name="numberOfLevels">The maximum number of levels in the SkipList.</param>
+        /// <param name="promotionProbability">The probability of promoting a node to a higher level.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="keyComparer"/> is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
+        public ConcurrentPriorityQueue(IComparer<TPriority> keyComparer, int numberOfLevels = 32, double promotionProbability = 0.5)
         {
-            public TElement Item { get; } = item;
-            public TPriority Priority { get; } = priority;
+            ArgumentNullException.ThrowIfNull(keyComparer, nameof(keyComparer));
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(numberOfLevels, 0, nameof(numberOfLevels));
+            ArgumentOutOfRangeException.ThrowIfLessThan(promotionProbability, 0, nameof(promotionProbability));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(promotionProbability, 1, nameof(promotionProbability));
+
+            this.keyComparer = keyComparer;
+            this.numberOfLevels = numberOfLevels;
+            this.promotionProbability = promotionProbability;
+            topLevel = numberOfLevels - 1;
+
+            head = new Node(Node.NodeType.Head, topLevel);
+            var tail = new Node(Node.NodeType.Tail, topLevel);
+
+            // Link head to tail at all levels
+            for (int level = 0; level <= topLevel; level++)
+            {
+                head.SetNextNode(level, tail);
+            }
+
+            head.IsInserted = true;
+            tail.IsInserted = true;
         }
 
-        private async Task BatchProcessItemsJob()
+
+        /// <inheritdoc/>
+        public IEnumerator<TPriority> GetEnumerator()
         {
-            // To avoid resource wastage from concurrent jobs in multiple instances,
-            // we use a Semaphore to serialize cleanup execution. This mitigates
-            // CPU-intensive operations. User-initiated eviction is still allowed.
-
-            await _batchSemaphore.WaitAsync().ConfigureAwait(false);
-            try
+            Node current = head;
+            while (true)
             {
-                BatchProcessItems();
-            }
-            finally
-            {
-                _batchSemaphore.Release();
-            }
-        }
+                current = current.GetNextNode(BottomLevel);
 
-        private void BatchProcessItems()
-        {
-            if (!Monitor.TryEnter(_batchTimer)) return;
+                // If current is tail, this must be the end of the list.
+                if (current.Type == Node.NodeType.Tail) yield break;
 
-            try
-            {
-                // Gather updates from all thread-local buffers
-                var allUpdates = _threadLocalBuffer.Values
-                    .SelectMany(buffer => buffer.ToArray())
-                    .ToArray();
+                // Takes advantage of the fact that next is set before 
+                // the node is physically linked.
+                if (!current.IsInserted || current.IsDeleted) continue;
 
-                if (allUpdates is null || !allUpdates.Any()) return;
-
-                // Clear all buffers
-                foreach (var buffer in _threadLocalBuffer.Values)
-                {
-                    buffer.Clear();
-                }
-
-                // Process the batch
-                var blockingCollection = new BlockingCollection<ItemWithPriority>();
-                allUpdates.ToList().ForEach(blockingCollection.Add);
-                blockingCollection.CompleteAdding();
-
-                // Create tasks according to available resources
-                var tasks = Enumerable.Range(0, Environment.ProcessorCount).Select(_ => Task.Run(() =>
-                {
-                    while (blockingCollection.TryTake(out var item))
-                    {
-                        InternalTryAdd(item);
-                    }
-                })).ToArray();
-
-                // Task.WaitAll(tasks);
-                Task.WaitAll(tasks);
-
-                // Contention detection
-                if (_contentionIndicators > ContentionIndicatorThreshold)
-                {
-                    _contentionChannel.Writer.TryWrite(true);
-                }
-            }
-            finally
-            {
-                Monitor.Exit(_batchTimer);
+                yield return current.Key;
             }
         }
 
-        private async Task MonitorContentionAsync()
+        /// <inheritdoc/>
+        public bool Contains(TPriority key)
         {
-            while (await _contentionChannel.Reader.WaitToReadAsync())
-            {
-                if (_contentionChannel.Reader.TryRead(out _))
-                {
-                    if (IsContentionDetected())
-                    {
-                        ResizeStripeBuffer();
-                    }
-                }
-            }
+            ArgumentNullException.ThrowIfNull(key, nameof(key));
+
+            var searchResult = WeakSearch(key);
+
+            // If node is not found, not logically inserted or logically removed, return false.
+            return searchResult.IsFound
+                && searchResult.GetNodeFound().IsInserted
+                && !searchResult.GetNodeFound().IsDeleted;
         }
 
-        private int GetStripeIndexForCurrentThread()
+        /// <inheritdoc/>
+        public bool TryGetValue(TPriority key, out TElement value)
         {
-            int threadId = Environment.CurrentManagedThreadId;
-            return threadId % _stripeCount;
-        }
+            ArgumentNullException.ThrowIfNull(key, nameof(key));
 
-        private bool IsContentionDetected()
-        {
-            // Lock wait time (average over multiple attempts across stripes)
-            double averageLockWaitTime = Enumerable.Range(0, 3)
-                .Select(_ =>
-                {
-                    int stripeIndex = GetStripeIndexForCurrentThread();
-                    var stopwatch = Stopwatch.StartNew();
-                    lock (@stripes[stripeIndex]) { }
-                    return stopwatch.ElapsedMilliseconds;
-                })
-                .Average();
+            var searchResult = WeakSearch(key);
 
-            // Queue length (using a simple moving average)
-            int queueLength = _queue.Count;
-            _queueLengthHistory.Enqueue(queueLength);
-
-            if (_queueLengthHistory.Count > ContentionWindowSize)
+            if (searchResult.IsFound 
+                && searchResult.GetNodeFound().IsInserted 
+                && !searchResult.GetNodeFound().IsDeleted)
             {
-                _queueLengthHistory.TryDequeue(out _);
-            }
-
-            double averageQueueLength = _queueLengthHistory.Average();
-
-            // Is there contention?
-            return averageLockWaitTime > ContentionWaitTimeThreshold 
-                || averageQueueLength > ContentionSizeThreshold;
-        }
-
-        private void ResizeStripeBuffer()
-        {
-            // Determine the new number of stripes
-            int newStripeCount = _stripeCount * 2;
-
-            // Create a new array of stripes
-            var newStripes = Enumerable.Range(0, newStripeCount)
-                .Select(_ => new Lock())
-                .ToArray();
-
-            // Update the stripe count and stripes array
-            _stripeCount = newStripeCount;
-            @stripes = newStripes;
-        }
-
-        public int Count => _queue.UnorderedItems.Skip(0).Count();
-
-        public bool IsSynchronized => true;
-
-#pragma warning disable CS9216
-        public object SyncRoot => @syncLock;
-#pragma warning restore CS9216
-
-        public bool TryAdd(TElement item, TPriority priority)
-        {
-            _threadLocalBuffer.Value ??= [];
-            _threadLocalBuffer.Value.Add(new(item, priority));
-            return true;
-        }
-
-        private void IncrementCounterIfPotentialContention()
-        {
-            if (Environment.TickCount64 - _prevContentionTimestamp < ContentionWindowTime)
-            {
-                Interlocked.Increment(ref _contentionIndicators);
-            }
-        }
-
-        private void CheckForContention()
-        {
-            if (Environment.TickCount64 - _prevContentionTimestamp > ContentionWaitTimeThreshold)
-            {
-                _prevContentionTimestamp = Environment.TickCount64;
-            }
-            else
-            {
-                Interlocked.Decrement(ref _contentionIndicators);
-            }
-        }
-
-        private void EvictItemIfAtCapacity(ItemWithPriority item)
-        {
-            // If the queue is at capacity, the new item has higher priority, 
-            // and the new item is NOT already in the queue, then evict 
-            // the current lowest frequency item to make space.
-            if (Count >= _queueCapacity &&
-                _queue.TryPeek(out var currLfu, out var currPriority) &&
-                currLfu is not null &&
-                _queue.Comparer.Compare(currPriority, item.Priority) < 0 &&
-                !currLfu.Equals(item.Item))
-            {
-                IncrementCounterIfPotentialContention();
-
-                // Access the thread-specific lock
-                int stripeIndex = GetStripeIndexForCurrentThread();
-                @stripes[stripeIndex].Enter();
-                try
-                {
-                    _queue.TryDequeue(out _, out _);
-                    CheckForContention();
-                }
-                finally
-                {
-                    @stripes[stripeIndex].Exit();
-                }
-            }
-        }
-
-        private void InternalTryAdd(ItemWithPriority item)
-        {
-            // If the queue is full, we need to evict an item
-            EvictItemIfAtCapacity(item);
-            IncrementCounterIfPotentialContention();
-
-            // Access the thread-specific lock
-            int stripeIndex = GetStripeIndexForCurrentThread();
-            @stripes[stripeIndex].Enter();
-            try
-            {
-                // Enqueue item
-                _queue.Enqueue(item.Item, item.Priority);
-                CheckForContention();
-            }
-            finally
-            {
-                @stripes[stripeIndex].Exit();
-            }
-        }
-
-        public bool TryTake(out TElement item)
-        {
-            IncrementCounterIfPotentialContention();
-
-            // Access the thread-specific lock
-            int stripeIndex = GetStripeIndexForCurrentThread();
-            @stripes[stripeIndex].Enter();
-            try
-            {
-                CheckForContention();
-                if (TryLocalBufferThenMainQueue(out item)) return true;
-            }
-            finally
-            {
-                @stripes[stripeIndex].Exit();
-            }
-
-            return false;
-        }
-
-        // We need to check the local buffer for high priority items
-        // before TryTake ops since we batch the Enqueue operations.
-        private bool TryLocalBufferThenMainQueue(out TElement item)
-        {
-            item = default!;
-
-            // Check if ANY local buffer has items
-            if (!_threadLocalBuffer.Values.Any(buffer => !buffer.IsEmpty))
-            {
-                return false;
-            }
-
-            // Find the candidates to compare against
-            ConcurrentBag<ItemWithPriority>? candidateBuffer = null;
-            ItemWithPriority? candidateItem = default;
-
-            foreach (var buffer in _threadLocalBuffer.Values)
-            {
-                var curr = buffer.MaxBy(item => item.Priority, _queue.Comparer);
-
-                if (!curr.Equals(default) && (candidateItem.Equals(default)
-                    || _queue.Comparer.Compare(curr.Priority, candidateItem.Value.Priority) > 0))
-                {
-                    candidateBuffer = buffer;
-                    candidateItem = curr;
-                }
-            }
-
-            if (candidateBuffer is null || candidateItem is null) return false;
-
-            // Check if the queue has an item with lower priority
-            if (_queue.TryPeek(out var existingItem, out var existingPriority))
-            {
-                switch (_queue.Comparer.Compare(candidateItem.Value.Priority, existingPriority))
-                {
-                    case < 0: // Existing item has higher priority
-                        item = candidateItem.Value.Item;
-                        candidateBuffer = new(candidateBuffer.Where(item => !item.Equals(candidateItem.Value)));
-                        break;
-                    default: // Candidate has higher priority or priorities are equal
-                        _queue.TryDequeue(out existingItem, out _);
-                        item = existingItem ?? default!;
-                        break;
-                }
+                value = searchResult.GetNodeFound().Value;
                 return true;
             }
 
+            value = default!;
             return false;
         }
 
-        public void CopyTo(TElement[] array, int index)
+        /// <inheritdoc/>
+        public bool TryAdd(TPriority key, TElement value)
         {
-            // Acquire all locks
-            Enumerable.Range(0, _stripeCount)
-                .ToList()
-                .ForEach(i => @stripes[i].Enter());
+            ArgumentNullException.ThrowIfNull(key, nameof(key));
 
-            try
+            int insertLevel = GenerateLevel();
+
+            while (true)
             {
-                _queue.UnorderedItems
-                    .OrderBy(tuple => tuple.Priority, _queue.Comparer)
-                    .Select(tuple => tuple.Element)
-                    .ToArray()
-                    .CopyTo(array, index);
-            }
-            finally
-            {
-                // Release all locks
-                Enumerable.Range(0, _stripeCount)
-                    .ToList()
-                    .ForEach(i => @stripes[i].Exit());
+                var searchResult = WeakSearch(key);
+                if (searchResult.IsFound)
+                {
+                    if (searchResult.GetNodeFound().IsDeleted)
+                    {
+                        continue;
+                    }
+
+                    // Spin until the duplicate key is logically inserted.
+                    WaitUntilIsInserted(searchResult.GetNodeFound());
+                    return false;
+                }
+
+                int highestLevelLocked = InvalidLevel;
+                try
+                {
+                    bool isValid = true;
+                    for (int level = 0; isValid && level <= insertLevel; level++)
+                    {
+                        var predecessor = searchResult.GetPredecessor(level);
+                        var successor = searchResult.GetSuccessor(level);
+
+                        predecessor.Lock();
+                        highestLevelLocked = level;
+
+                        // If predecessor is locked and the predecessor is still pointing at the successor, successor cannot be deleted.
+                        isValid = IsValidLevel(predecessor, successor, level);
+                    }
+
+                    if (isValid == false)
+                    {
+                        continue;
+                    }
+
+                    // Create the new node and initialize all the next pointers.
+                    var newNode = new Node(key, value, insertLevel);
+                    for (int level = 0; level <= insertLevel; level++)
+                    {
+                        newNode.SetNextNode(level, searchResult.GetSuccessor(level));
+                    }
+
+                    // Ensure that the node is fully initialized before physical linking starts.
+                    Thread.MemoryBarrier();
+
+                    for (int level = 0; level <= insertLevel; level++)
+                    {
+                        // Note that this is required for correctness.
+                        // Remove takes a dependency of the fact that if found at expected level, all the predecessors have already been correctly linked.
+                        // Hence we only need to use a MemoryBarrier before linking in the top level. 
+                        if (level == insertLevel)
+                        {
+                            Thread.MemoryBarrier();
+                        }
+
+                        searchResult.GetPredecessor(level).SetNextNode(level, newNode);
+                    }
+
+                    // Linearization point: MemoryBarrier not required since IsInserted is a volatile member (hence implicitly uses MemoryBarrier). 
+                    newNode.IsInserted = true;
+                    return true;
+                }
+                finally
+                {
+                    // Unlock order is not important.
+                    for (int level = highestLevelLocked; level >= 0; level--)
+                    {
+                        searchResult.GetPredecessor(level).Unlock();
+                    }
+                }
             }
         }
 
-        public void CopyTo(Array array, int index)
+        /// <inheritdoc/>
+        public void Update(TPriority key, TElement value)
         {
-            // Acquire all locks
-            Enumerable.Range(0, _stripeCount)
-                .ToList()
-                .ForEach(i => @stripes[i].Enter());
+            ArgumentNullException.ThrowIfNull(key, nameof(key));
 
+            var searchResult = WeakSearch(key);
+
+            if (!searchResult.IsFound 
+                || !searchResult.GetNodeFound().IsInserted 
+                || searchResult.GetNodeFound().IsDeleted)
+            {
+                throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+            }
+
+            Node nodeToBeUpdated = searchResult.GetNodeFound();
+            nodeToBeUpdated.Lock();
             try
             {
-                _queue.UnorderedItems
-                    .OrderBy(tuple => tuple.Priority, _queue.Comparer)
-                    .Select(tuple => tuple.Element)
-                    .ToArray()
-                    .CopyTo(array, index);
+                if (nodeToBeUpdated.IsDeleted)
+                {
+                    throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+                }
+
+                nodeToBeUpdated.Value = value;
             }
             finally
             {
-                // Release all locks
-                Enumerable.Range(0, _stripeCount)
-                    .ToList()
-                    .ForEach(i => @stripes[i].Exit());
+                nodeToBeUpdated.Unlock();
             }
         }
 
-        public TElement[] ToArray()
+        /// <inheritdoc/>
+        public void Update(TPriority key, Func<TPriority, TElement, TElement> updateFunction)
         {
-            // Acquire all locks
-            Enumerable.Range(0, _stripeCount)
-                .ToList()
-                .ForEach(i => @stripes[i].Enter());
+            ArgumentNullException.ThrowIfNull(key, nameof(key));
+            ArgumentNullException.ThrowIfNull(updateFunction, nameof(updateFunction));
 
+            var searchResult = WeakSearch(key);
+
+            if (!searchResult.IsFound 
+                || !searchResult.GetNodeFound().IsInserted 
+                || searchResult.GetNodeFound().IsDeleted)
+            {
+                throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+            }
+
+            Node nodeToBeUpdated = searchResult.GetNodeFound();
+            nodeToBeUpdated.Lock();
             try
             {
-                return _queue.UnorderedItems
-                    .Select(tuple => tuple.Element)
-                    .ToArray();
+                if (nodeToBeUpdated.IsDeleted)
+                {
+                    throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+                }
+
+                nodeToBeUpdated.Value = updateFunction(key, nodeToBeUpdated.Value);
             }
             finally
             {
-                // Release all locks
-                Enumerable.Range(0, _stripeCount)
-                    .ToList()
-                    .ForEach(i => @stripes[i].Exit());
+                nodeToBeUpdated.Unlock();
             }
         }
 
-        public IEnumerator<TElement> GetEnumerator()
+        /// <inheritdoc/>
+        public bool TryRemove(TPriority key)
         {
-            // Acquire all locks
-            Enumerable.Range(0, _stripeCount)
-                .ToList()
-                .ForEach(i => @stripes[i].Enter());
+            ArgumentNullException.ThrowIfNull(key, nameof(key));
 
-            try
+            Node? nodeToBeDeleted = null;
+            bool isLogicallyDeleted = false;
+
+            // Level at which the to be deleted node was found.
+            int topLevel = InvalidLevel;
+
+            while (true)
             {
-                // Return an enumerator that iterates over the elements in priority order
-                return _queue.UnorderedItems
-                    .OrderBy(tuple => tuple.Priority, _queue.Comparer)
-                    .Select(tuple => tuple.Element)
-                    .GetEnumerator();
-            }
-            finally
-            {
-                // Release all locks
-                Enumerable.Range(0, _stripeCount)
-                    .ToList()
-                    .ForEach(i => @stripes[i].Exit());
+                var searchResult = WeakSearch(key);
+                nodeToBeDeleted ??= searchResult.GetNodeFound();
+
+                // Ensure node is fully linked and not already deleted
+                if (!isLogicallyDeleted
+                    && (!nodeToBeDeleted.IsInserted
+                        || nodeToBeDeleted.TopLevel != searchResult.LevelFound
+                        || nodeToBeDeleted.IsDeleted))
+                {
+                    return false; // Node not fully linked or already deleted
+                }
+
+                // Logically delete the node if not already done
+                if (!isLogicallyDeleted)
+                {
+                    topLevel = searchResult.LevelFound;
+                    nodeToBeDeleted.Lock();
+                    if (nodeToBeDeleted.IsDeleted)
+                    {
+                        nodeToBeDeleted.Unlock();
+                        return false;
+                    }
+
+                    // Linearization point: IsDeleted is volatile.
+                    nodeToBeDeleted.IsDeleted = true;
+                    isLogicallyDeleted = true;
+                }
+
+                int highestLevelLocked = InvalidLevel;
+                try
+                {
+                    bool isValid = true;
+                    for (int level = 0; isValid && level <= topLevel; level++)
+                    {
+                        var predecessor = searchResult.GetPredecessor(level);
+                        predecessor.Lock();
+                        highestLevelLocked = level;
+                        isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == nodeToBeDeleted;
+                    }
+
+                    if (isValid == false) continue;
+
+                    // To preserve the invariant that lower levels are super-set of higher levels, always unlink top to bottom.
+                    for (int level = topLevel; level >= 0; level--)
+                    {
+                        var predecessor = searchResult.GetPredecessor(level);
+                        var newLink = nodeToBeDeleted.GetNextNode(level);
+
+                        predecessor.SetNextNode(level, newLink);
+                    }
+
+                    nodeToBeDeleted.Unlock();
+
+                    return true;
+                }
+                finally
+                {
+                    for (int level = highestLevelLocked; level >= 0; level--)
+                    {
+                        searchResult.GetPredecessor(level).Unlock();
+                    }
+                }
             }
         }
 
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        /// <summary>
+        /// Gets the number of nodes at the specified level. This method is intended for testing purposes only.
+        /// </summary>
+        /// <param name="level">The level to count nodes at.</param>
+        /// <returns>The number of nodes at the specified level.</returns>
+        internal int GetCount(int level)
+        {
+            int count = 0;
+            Node current = head.GetNextNode(level);
 
-        public bool TryAdd(TElement item) => 
-            throw new NotImplementedException("Use `TryAdd(TElement item, TPriority priority)` instead.");
+            while (current.Type != Node.NodeType.Tail)
+            {
+                count++;
+                current = current.GetNextNode(level);
+            }
+
+            return count;
+        }
+
+        /// <summary>
+        /// Verifies the internal consistency of the SkipList. This method is intended for testing purposes only.
+        /// </summary>
+        internal void Verify()
+        {
+            // Verify the invariant that lower level lists are always supersets of higher-level lists.
+            for (int i = BottomLevel; i < topLevel; i++)
+            {
+                var lowLevelCount = GetCount(i);
+                var highLevelCount = GetCount(i + 1);
+
+                ArgumentOutOfRangeException.ThrowIfLessThan(lowLevelCount, highLevelCount, nameof(lowLevelCount));
+            }
+        }
+
+        /// <summary>
+        /// Waits (spins) until the specified node is marked as logically inserted, 
+        /// meaning it has been physically inserted at every level.
+        /// </summary>
+        /// <param name="node">The node to wait for.</param>
+        private static void WaitUntilIsInserted(Node node)
+        {
+            SpinWait.SpinUntil(() => node.IsInserted);
+        }
+
+        /// <summary>
+        /// Generates a random level for a new node based on the promotion probability.
+        /// The probability of picking a given level is P(L) = p ^ -(L + 1) where p = PromotionChance.
+        /// </summary>
+        /// <returns>The generated level.</returns>
+        private int GenerateLevel()
+        {
+            int level = 0;
+
+            while (level < topLevel && RandomGenerator.NextDouble() <= promotionProbability)
+            {
+                level++;
+            }
+
+            return level;
+        }
+
+        /// <summary>
+        /// Performs a lock-free search for the node with the specified key.
+        /// </summary>
+        /// <param name="key">The key to search for.</param>
+        /// <returns>A <see cref="SearchResult"/> instance containing the results of the search.</returns>
+        /// <remarks>
+        /// <para>
+        /// If the key is found, the <see cref="SearchResult.IsFound"/> property will be true, 
+        /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/> 
+        /// will contain the predecessor and successor nodes at each level.
+        /// </para>
+        /// <para>
+        /// If the key is not found, the <see cref="SearchResult.IsFound"/> property will be false, 
+        /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/> 
+        /// will contain the nodes that would have been the predecessor and successor of the node with the 
+        /// specified key if it existed.
+        /// </para>
+        /// </remarks>
+        private SearchResult WeakSearch(TPriority key)
+        {
+            int levelFound = InvalidLevel;
+            Node[] predecessorArray = new Node[numberOfLevels];
+            Node[] successorArray = new Node[numberOfLevels];
+
+            Node predecessor = head;
+            for (int level = topLevel; level >= 0; level--)
+            {
+                Node current = predecessor.GetNextNode(level);
+
+                while (Compare(current, key) < 0)
+                {
+                    predecessor = current;
+                    current = predecessor.GetNextNode(level);
+                }
+
+                // At this point, current is >= searchKey
+                if (levelFound == InvalidLevel && Compare(current, key) == 0)
+                {
+                    levelFound = level;
+                }
+
+                predecessorArray[level] = predecessor;
+                successorArray[level] = current;
+            }
+
+            return new SearchResult(levelFound, predecessorArray, successorArray);
+        }
+
+        private int Compare(Node node, TPriority key)
+        {
+            return node.Type switch
+            {
+                Node.NodeType.Head => -1,
+                Node.NodeType.Tail => 1,
+                _ => keyComparer.Compare(node.Key, key)
+            };
+        }
+
+        private static bool IsValidLevel(Node predecessor, Node successor, int level)
+        {
+            ArgumentNullException.ThrowIfNull(predecessor, nameof(predecessor));
+            ArgumentNullException.ThrowIfNull(successor, nameof(successor));
+
+            return !predecessor.IsDeleted
+                   && !successor.IsDeleted
+                   && predecessor.GetNextNode(level) == successor;
+        }
+
+        /// <summary>
+        /// Represents a node in the SkipList.
+        /// </summary>
+        public class Node
+        {
+            private readonly Lock nodeLock = new();
+            private readonly Node[] nextNodeArray;
+            private volatile bool isInserted;
+            private volatile bool isDeleted;
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="Node"/> class.
+            /// </summary>
+            /// <param name="nodeType">The type of the node.</param>
+            /// <param name="height">The height (level) of the node.</param>
+            public Node(NodeType nodeType, int height)
+            {
+                Key = default!;
+                Value = default!;
+                Type = nodeType;
+                nextNodeArray = new Node[height + 1];
+            }
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="Node"/> class.
+            /// </summary>
+            /// <param name="key">The key associated with the node.</param>
+            /// <param name="value">The value associated with the node.</param>
+            /// <param name="height">The height (level) of the node.</param>
+            public Node(TPriority key, TElement value, int height)
+            {
+                Key = key;
+                Value = value;
+                Type = NodeType.Data;
+                nextNodeArray = new Node[height + 1];
+            }
+
+            /// <summary>
+            /// Defines the types of nodes in the SkipList.
+            /// </summary>
+            public enum NodeType : byte
+            {
+                /// <summary>
+                /// Represents the head node of the SkipList.
+                /// </summary>
+                Head = 0,
+
+                /// <summary>
+                /// Represents the tail node of the SkipList.
+                /// </summary>
+                Tail = 1,
+
+                /// <summary>
+                /// Represents a regular data node in the SkipList.
+                /// </summary>
+                Data = 2
+            }
+
+            /// <summary>
+            /// Gets the key associated with the node.
+            /// </summary>
+            public TPriority Key { get; }
+
+            /// <summary>
+            /// Gets or sets the value associated with the node.
+            /// </summary>
+            public TElement Value { get; set; }
+
+            /// <summary>
+            /// Gets or sets the type of the node.
+            /// </summary>
+            public NodeType Type { get; set; }
+
+            /// <summary>
+            /// Gets or sets a value indicating whether the node has been logically inserted.
+            /// </summary>
+            public bool IsInserted { get => isInserted; set => isInserted = value; }
+
+            /// <summary>
+            /// Gets or sets a value indicating whether the node has been logically deleted.
+            /// </summary>
+            public bool IsDeleted { get => isDeleted; set => isDeleted = value; }
+
+            /// <summary>
+            /// Gets the top level (highest index) of the node in the SkipList.
+            /// </summary>
+            public int TopLevel => nextNodeArray.Length - 1;
+
+            /// <summary>
+            /// Gets the next node at the specified height (level).
+            /// </summary>
+            /// <param name="height">The height (level) at which to get the next node.</param>
+            /// <returns>The next node at the specified height.</returns>
+            public Node GetNextNode(int height) => nextNodeArray[height];
+
+            /// <summary>
+            /// Sets the next node at the specified height (level).
+            /// </summary>
+            /// <param name="height">The height (level) at which to set the next node.</param>
+            /// <param name="next">The next node to set.</param>
+            public void SetNextNode(int height, Node next) => nextNodeArray[height] = next;
+
+            /// <summary>
+            /// Acquires the lock associated with the node.
+            /// </summary>
+            public void Lock() => nodeLock.Enter();
+
+            /// <summary>
+            /// Releases the lock associated with the node.
+            /// </summary>
+            public void Unlock() => nodeLock.Exit();
+        }
+
+        /// <summary>
+        /// Represents the result of a search operation in the SkipList.
+        /// </summary>
+        /// <param name="LevelFound">The level at which the key was found (or <see cref="NotFoundLevel"/> if not found).</param>
+        /// <param name="PredecessorArray">An array of predecessor nodes at each level.</param>
+        /// <param name="SuccessorArray">An array of successor nodes at each level.</param>
+        private record SearchResult(int LevelFound, Node[] PredecessorArray, Node[] SuccessorArray)
+        {
+            /// <summary>
+            /// Represents the level value when a key is not found in the SkipList.
+            /// </summary>
+            public const int NotFoundLevel = -1;
+
+            /// <summary>
+            /// Gets a value indicating whether the key was found in the SkipList.
+            /// </summary>
+            public bool IsFound => LevelFound != NotFoundLevel;
+
+            /// <summary>
+            /// Gets the predecessor node at the specified level.
+            /// </summary>
+            /// <param name="level">The level at which to get the predecessor node.</param>
+            /// <returns>The predecessor node at the specified level.</returns>
+            /// <exception cref="ArgumentNullException">Thrown if <see cref="PredecessorArray"/> is null.</exception>
+            public Node GetPredecessor(int level)
+            {
+                ArgumentNullException.ThrowIfNull(PredecessorArray, nameof(PredecessorArray));
+                return PredecessorArray[level];
+            }
+
+            /// <summary>
+            /// Gets the successor node at the specified level.
+            /// </summary>
+            /// <param name="level">The level at which to get the successor node.</param>
+            /// <returns>The successor node at the specified level.</returns>
+            /// <exception cref="ArgumentNullException">Thrown if <see cref="SuccessorArray"/> is null.</exception>
+            public Node GetSuccessor(int level)
+            {
+                ArgumentNullException.ThrowIfNull(SuccessorArray, nameof(SuccessorArray));
+                return SuccessorArray[level];
+            }
+
+            /// <summary>
+            /// Gets the node that was found during the search.
+            /// </summary>
+            /// <returns>The node that was found.</returns>
+            /// <exception cref="InvalidOperationException">Thrown if the key was not found (<see cref="IsFound"/> is false).</exception>
+            public Node GetNodeFound()
+            {
+                if (!IsFound) throw new InvalidOperationException("Cannot get node found when the key was not found.");
+
+                return SuccessorArray[LevelFound];
+            }
+        }
     }
 }

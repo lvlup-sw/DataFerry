@@ -27,10 +27,10 @@ namespace lvlup.DataFerry.Orchestrators
         /// <summary>
         /// Initializes a new instance of the TaskOrchestrator class.
         /// </summary>
-        public TaskOrchestrator(CacheSettings settings, ILogger<TaskOrchestrator> logger, int workerCount = 4)
+        public TaskOrchestrator(CacheSettings settings, ILogger<TaskOrchestrator> logger, int workerCount = 2)
         {
             _logger = logger;
-            _retryPolicy = PollyPolicyGenerator.GenerateSyncPolicy(logger, settings);
+            _retryPolicy = GeneratePolicy();
 
             _workerTasks = Enumerable.Range(0, workerCount)
                 .Select(_ => Task.Factory.StartNew(
@@ -98,6 +98,26 @@ namespace lvlup.DataFerry.Orchestrators
         /// Get the last recorded exception.
         /// </summary>
         public Exception? GetLastException() => _lastException;
+
+
+        /// <summary>
+        /// Generate a synchronous Polly retry policy.
+        /// </summary>
+        private static PolicyWrap<object> GeneratePolicy()
+        {
+            // First layer: timeouts
+            var timeoutPolicy = Policy.Timeout(
+                TimeSpan.FromMilliseconds(50));
+
+            // Last resort: return default value
+            var fallbackPolicy = Policy<object>
+                .Handle<Exception>()
+                .Fallback(
+                    fallbackValue: string.Empty,
+                    onFallback: (exception, context) => { });
+
+            return fallbackPolicy.Wrap(timeoutPolicy);
+        }
 
         /// <summary>
         /// Terminate the background thread.
