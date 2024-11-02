@@ -21,8 +21,9 @@ namespace lvlup.DataFerry.Caches
         /// Initializes a new instance of <see cref="TtlMemCache{TKey, TValue}"/>
         /// </summary>
         /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
-        public TtlMemCache(ITaskOrchestrator taskOrchestrator, int cleanupJobInterval = 10000)
+        public TtlMemCache(ITaskOrchestrator taskOrchestrator, int maxSize = 10000, int cleanupJobInterval = 10000)
         {
+            MaxSize = maxSize;
             _taskOrchestrator = taskOrchestrator;
             _cleanUpTimer = new Timer(
                 _ => _taskOrchestrator.Run(EvictExpired),
@@ -49,17 +50,12 @@ namespace lvlup.DataFerry.Caches
 
                 var currTime = Environment.TickCount64;
 
-                // Identify the keys of expired entries
-                // Less contention at the cost of an
-                // intermediate list allocation.
-                var expiredKeys = _dict
-                    .Where(pair => currTime > pair.Value._expirationTicks)
-                    .Select(pair => pair.Key)
-                    .ToList();
-
-                foreach (var key in expiredKeys)
+                foreach (var pair in _dict)
                 {
-                    _dict.TryRemove(key, out _);
+                    if (currTime > pair.Value._expirationTicks)
+                    {
+                        _dict.TryRemove(pair.Key, out _);
+                    }
                 }
             }
             finally
@@ -72,7 +68,8 @@ namespace lvlup.DataFerry.Caches
         // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
         public int Count => _dict.Skip(0).Count();
 
-        public int MaxSize { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+        /// <inheritdoc/>
+        public int MaxSize { get; set; }
 
         /// <inheritdoc/>
         public void Clear() => _dict.Clear();

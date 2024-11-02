@@ -27,7 +27,7 @@ namespace lvlup.DataFerry.Orchestrators
         /// <summary>
         /// Initializes a new instance of the TaskOrchestrator class.
         /// </summary>
-        public TaskOrchestrator(CacheSettings settings, ILogger<TaskOrchestrator> logger, int workerCount = 2)
+        public TaskOrchestrator(ILogger<TaskOrchestrator> logger, int workerCount = 2)
         {
             _logger = logger;
             _retryPolicy = GeneratePolicy();

@@ -1,4 +1,8 @@
 using lvlup.DataFerry.Caches;
+using lvlup.DataFerry.Orchestrators;
+using lvlup.DataFerry.Orchestrators.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace lvlup.DataFerry.Tests
 {
@@ -6,11 +10,16 @@ namespace lvlup.DataFerry.Tests
     public class LfuMemCacheTests
     {
         private LfuMemCache<string, int> _cache = default!;
+        private ITaskOrchestrator _taskOrchestrator = default!;
 
         [TestInitialize]
         public void Setup()
         {
-            _cache = new(1000, 200);
+            _taskOrchestrator = new TaskOrchestrator(
+                LoggerFactory.Create(builder => builder.Services.AddLogging())
+                             .CreateLogger<TaskOrchestrator>()
+            );
+            _cache = new(_taskOrchestrator, 1000, 200);
         }
 
         [TestCleanup]
@@ -36,7 +45,7 @@ namespace lvlup.DataFerry.Tests
             var list = new List<LfuMemCache<int, int>>();
             for (int i = 0; i < 20; i++)
             {
-                var cache = new LfuMemCache<int, int>(cleanupJobInterval: 200);
+                var cache = new LfuMemCache<int, int>(_taskOrchestrator, cleanupJobInterval: 200);
                 cache.AddOrUpdate(42, 42, TimeSpan.FromMilliseconds(100));
                 list.Add(cache);
             }

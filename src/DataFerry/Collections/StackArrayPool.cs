@@ -18,7 +18,7 @@ namespace lvlup.DataFerry.Collections
         private const int MaxPowOf2 = 30;
 
         // This is our central pool of arrays
-        private readonly LfuMemCache<int, ConcurrentQueue<T[]>> _buckets;
+        private readonly ConcurrentDictionary<int, ConcurrentQueue<T[]>> _buckets;
         private readonly int[] _bucketSizes;
 
         // This is our local cache on each thread
@@ -26,9 +26,6 @@ namespace lvlup.DataFerry.Collections
         // Therefore, we don't need to implement any explicit locking mechanism to handle contention
         [ThreadStatic]
         private static T[][]? threadLocalCache;
-
-        // Time-to-live; tracked by LfuMemCache
-        public TimeSpan ArrayTTL { get; set; } = TimeSpan.FromMinutes(5);
 
         /// <summary>
         /// Initializes a new instance of the `StackArrayPool` class, pre-allocating arrays for efficient reuse.
@@ -46,12 +43,13 @@ namespace lvlup.DataFerry.Collections
             for (int i = 0; i < _bucketSizes.Length; i++)
             {
                 var preallocatedArrays = Enumerable.Range(0, preallocation)
-                    .Select(_ => new T[_bucketSizes[i]]);
+                    .Select(_ => new T[_bucketSizes[i]])
+                    .ToArray();
 
                 _buckets.AddOrUpdate(
-                    _bucketSizes[i], 
-                    new ConcurrentQueue<T[]>(preallocatedArrays), 
-                    ArrayTTL
+                    _bucketSizes[i],
+                    new ConcurrentQueue<T[]>(preallocatedArrays),
+                    (_, existingQueue) => existingQueue
                 );
             }
         }
@@ -88,7 +86,7 @@ namespace lvlup.DataFerry.Collections
             }
 
             // Next, try to get an array from the central pool
-            if (_buckets.TryGet(_bucketSizes[bucketIndex], out var queue) && queue.TryDequeue(out var array))
+            if (_buckets.TryGetValue(_bucketSizes[bucketIndex], out var queue) && queue.TryDequeue(out var array))
             {
                 return array;
             }
@@ -129,7 +127,7 @@ namespace lvlup.DataFerry.Collections
             _buckets.AddOrUpdate(
                 _bucketSizes[bucketIndex],
                 new ConcurrentQueue<T[]>([array]),
-                ArrayTTL
+                (_, existingQueue) => existingQueue
             );
         }
 

@@ -1,20 +1,20 @@
 ﻿namespace lvlup.DataFerry.Collections.Abstractions
 {
-    public interface IConcurrentPriorityQueue<TPriority, TElement>
+    public interface IConcurrentPriorityQueue<TKey, TPriority>
     {
         /// <summary>
         /// Provides a lock-free enumeration of the keys in the ConcurrentPriorityQueue. 
         /// Note that this enumeration provides READ COMMITTED semantics.
         /// </summary>
         /// <returns>An enumerator that represents the keys in the ConcurrentPriorityQueue.</returns>
-        IEnumerator<TPriority> GetEnumerator();
+        IEnumerator<TKey> GetEnumerator();
 
         /// <summary>
         /// Determines whether the ConcurrentPriorityQueue contains the specified key.
         /// </summary>
         /// <param name="key">The key to locate.</param>
         /// <returns>true if the ConcurrentPriorityQueue contains the specified key; otherwise, false.</returns>
-        bool Contains(TPriority key);
+        bool Contains(TKey key);
 
         /// <summary>
         /// Attempts to get the value associated with the specified key from the ConcurrentPriorityQueue.
@@ -25,7 +25,7 @@
         /// This parameter is passed uninitialized.</param>
         /// <returns>true if the ConcurrentPriorityQueue contains an element with the specified key; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
-        bool TryGetValue(TPriority key, out TElement value);
+        bool TryGetValue(TKey key, out TPriority value);
 
         /// <summary>
         /// Attempts to add the specified key and value to the ConcurrentPriorityQueue.
@@ -34,7 +34,7 @@
         /// <param name="value">The value of the element to add.</param>
         /// <returns>true if the key/value pair was added to the ConcurrentPriorityQueue successfully; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
-        bool TryAdd(TPriority key, TElement value);
+        bool TryAdd(TKey key, TPriority value);
 
         /// <summary>
         /// Updates the value associated with the specified key.
@@ -43,7 +43,7 @@
         /// <param name="value">The new value.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
         /// <exception cref="ArgumentException">Thrown if the key does not exist or is being deleted.</exception>
-        void Update(TPriority key, TElement value);
+        void Update(TKey key, TPriority value);
 
         /// <summary>
         /// Updates the value associated with the specified key using the provided update function.
@@ -52,7 +52,7 @@
         /// <param name="updateFunction">The function used to generate the new value.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> or <paramref name="updateFunction"/> is null.</exception>
         /// <exception cref="ArgumentException">Thrown if the key does not exist or is being deleted.</exception>
-        void Update(TPriority key, Func<TPriority, TElement, TElement> updateFunction);
+        void Update(TKey key, Func<TKey, TPriority, TPriority> updateFunction);
 
         /// <summary>
         /// Attempts to remove the specified key from the ConcurrentPriorityQueue.
@@ -60,16 +60,16 @@
         /// <param name="key">The key to remove.</param>
         /// <returns>true if the key was removed successfully; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
-        bool TryRemove(TPriority key);
+        bool TryRemove(TKey key);
 
         /// <summary>
         /// Attempts to remove the element with the minimum priority from the ConcurrentPriorityQueue and return its value.
         /// </summary>
-        /// <param name="element">When this method returns, contains the value of the removed element, 
-        /// if the ConcurrentPriorityQueue is not empty; otherwise, the default value for the type of the <paramref name="element"/> parameter. 
+        /// <param name="item">When this method returns, contains the value of the removed element, 
+        /// if the ConcurrentPriorityQueue is not empty; otherwise, the default value for the type of the <paramref name="item"/> parameter. 
         /// This parameter is passed uninitialized.</param>
         /// <returns>true if an element was removed successfully; otherwise, false.</returns>
-        bool TryRemoveMin(out TElement element);
+        bool TryRemoveMin(out TKey item);
 
         /// <summary>
         /// Gets the number of nodes in the SkipList.

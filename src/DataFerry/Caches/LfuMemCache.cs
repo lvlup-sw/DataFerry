@@ -1,4 +1,6 @@
-﻿using System.Collections;
+﻿using lvlup.DataFerry.Orchestrators;
+using lvlup.DataFerry.Orchestrators.Abstractions;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Reactive.Linq;
 
@@ -16,11 +18,12 @@ namespace lvlup.DataFerry.Caches
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
         // Sophisticated optimizations: 13.142 us ???
-        private readonly ConcurrentPriorityQueue<int, TKey> _frequencyQueue;
+        private readonly ConcurrentPriorityQueue<TKey, int> _frequencyQueue;
         // Basic synchronization: 8.231 us
         //private readonly BasicCPQ<TKey, int> _frequencyQueue;
         // Baseline with unsynchronized priority queue is 7.834 μs
         //private readonly PriorityQueue<TKey, int> _frequencyQueue;
+        private readonly ITaskOrchestrator _taskOrchestrator;
         private readonly CountMinSketch<TKey> _cms;
         private readonly Timer _cleanUpTimer;
         private readonly int _maxWindowSize;
@@ -33,7 +36,6 @@ namespace lvlup.DataFerry.Caches
         // Locks/Semaphores
         private static readonly SemaphoreSlim _evictionSemaphore = new(1, 1);
         private static readonly SemaphoreSlim _clearSemaphore = new(1, 1);
-        private static readonly SemaphoreSlim _ttlSemaphore = new(1, 1);
 
         /// <inheritdoc/>
         public int MaxSize { get; set; }
@@ -43,7 +45,7 @@ namespace lvlup.DataFerry.Caches
         /// </summary>
         /// <param name="maxSize">The maximum number of items allowed in the cache.</param>        
         /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
-        public LfuMemCache(int maxSize = 10000, int cleanupJobInterval = 10000)
+        public LfuMemCache(ITaskOrchestrator taskOrchestrator, int maxSize = 10000, int cleanupJobInterval = 10000)
         {
             // Cache sizes
             MaxSize = maxSize;
@@ -55,36 +57,22 @@ namespace lvlup.DataFerry.Caches
 
             // Helper data structures
             _cms = new(MaxSize);
+            _taskOrchestrator = taskOrchestrator;
             // We create a concurrent priority queue to hold LFU candidates
             // This comparer gives lower frequency items higher priority
             // We also calculate the optimal number of levels based on size
             _frequencyQueue = new(
+                _taskOrchestrator,
                 Comparer<int>.Create((x, y) => y.CompareTo(x)), 
                 _maxWindowSize,
                 (int)Math.Ceiling(Math.Log(_maxWindowSize / 10, 1 / 0.5)));
 
             // Timer to trigger TTL-based eviction
             _cleanUpTimer = new Timer(
-                async s => await EvictExpiredAsyncJob(),
+                _ => _taskOrchestrator.Run(EvictExpired),
                 default,
                 TimeSpan.FromMilliseconds(cleanupJobInterval),
                 TimeSpan.FromMilliseconds(cleanupJobInterval));
-        }
-
-        private async Task EvictExpiredAsyncJob()
-        {
-            // Lock the thread
-            // A Semaphore is preferred over a traditional lock to prevent thread starvation.
-            await _ttlSemaphore.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                // Synchronously remove expired items according to TTL
-                EvictExpired();
-            }
-            finally
-            {
-                _ttlSemaphore.Release();
-            }
         }
 
         /// <summary>
@@ -199,7 +187,7 @@ namespace lvlup.DataFerry.Caches
             value = ttlValue.Value;
             // Update frequencies
             _cms.Increment(key);
-            _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
+            _frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
             //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
             return true;
         }
@@ -224,7 +212,7 @@ namespace lvlup.DataFerry.Caches
             // Update the frequency of the key
             _cms.Increment(key);
             Interlocked.Increment(ref _currentSize);
-            _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
+            _frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
             //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
 
             // Check if eviction is necessary

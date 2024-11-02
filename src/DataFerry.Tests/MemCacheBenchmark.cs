@@ -7,6 +7,10 @@ using lvlup.DataFerry.Caches;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
+using lvlup.DataFerry.Orchestrators.Abstractions;
+using lvlup.DataFerry.Orchestrators;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lvlup.DataFerry.Tests
 {
@@ -19,13 +23,18 @@ namespace lvlup.DataFerry.Tests
         private readonly IMemoryCache _memoryCache;
         private readonly ConcurrentLfu<string, Payload> _bitfaster;
         private readonly LfuMemCache<string, Payload> _dataferry;
+        private readonly ITaskOrchestrator _taskOrchestrator;
 
         public MemCacheBenchmark()
         {
+            _taskOrchestrator = new TaskOrchestrator(
+                LoggerFactory.Create(builder => builder.Services.AddLogging())
+                             .CreateLogger<TaskOrchestrator>()
+            );
             _users = GenerateUsers(CacheSize);
             _memoryCache = new MemoryCache(new MemoryCacheOptions() { SizeLimit = CacheSize });
             _bitfaster = new(CacheSize);
-            _dataferry = new(CacheSize);
+            _dataferry = new(_taskOrchestrator, CacheSize);
         }
 
         [Config(typeof(Config))]
