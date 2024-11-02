@@ -1,6 +1,8 @@
-﻿/*
-using lvlup.DataFerry.Buffers;
-using lvlup.DataFerry.Orchestrators.Abstractions;
+﻿using lvlup.DataFerry.Orchestrators.Abstractions;
+using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Wrap;
+using System.Threading.Channels;
 
 namespace lvlup.DataFerry.Orchestrators
 {
@@ -11,90 +13,99 @@ namespace lvlup.DataFerry.Orchestrators
         /// </summary>
         public const int MaxBacklog = 16;
 
-        private int count;
-        private readonly CancellationTokenSource cts = new();
-        private readonly SemaphoreSlim semaphore = new(0, MaxBacklog);
-        private readonly ConcurrentSkipList<Action> work = new(MaxBacklog);
-        readonly TaskCompletionSource<bool> completion = new();
+        // Backers
+        private readonly Channel<Action> _workChannel = Channel.CreateBounded<Action>(MaxBacklog);
+        private readonly CancellationTokenSource _cts = new();
+        private readonly Task[] _workerTasks;
+        private Exception? _lastException;
+
+        // Inputs
+        private readonly ILogger<TaskOrchestrator> _logger;
+        private readonly PolicyWrap<object> _retryPolicy;
+        private long _runCount;
 
         /// <summary>
-        /// Initializes a new instance of the BackgroundThreadScheduler class.
+        /// Initializes a new instance of the TaskOrchestrator class.
         /// </summary>
-        public BackgroundThreadScheduler()
+        public TaskOrchestrator(CacheSettings settings, ILogger<TaskOrchestrator> logger, int workerCount = 4)
         {
-            // dedicated thread
-            _ = Task.Factory.StartNew(async () => await Background().ConfigureAwait(false), cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            _logger = logger;
+            _retryPolicy = PollyPolicyGenerator.GenerateSyncPolicy(logger, settings);
+
+            _workerTasks = Enumerable.Range(0, workerCount)
+                .Select(_ => Task.Factory.StartNew(
+                    () => Worker(_cts.Token),
+                    _cts.Token,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default))
+                .ToArray();
         }
 
-        ///<inheritdoc/>
-        public Task Completion => completion.Task;
+        /// <summary>
+        /// Completes all the existing queued tasks.
+        /// </summary>
+        public Task CompleteAll => Task.WhenAll(_workerTasks);
 
-        ///<inheritdoc/>
+        /// <inheritdoc/>
         public bool IsBackground => true;
 
-        ///<inheritdoc/>
-        public long RunCount => count;
+        /// <inheritdoc/>
+        public long RunCount => _runCount;
 
-
-        ///<inheritdoc/>
+        /// <inheritdoc/>
         public void Run(Action action)
         {
-            if (work.TryAdd(action) == BufferStatus.Success)
+            object result = _retryPolicy.Execute((ctx) =>
             {
-                semaphore.Release();
-                count++;
-            }
+                if (!_workChannel.Writer.TryWrite(action))
+                {
+                    _lastException = new InvalidOperationException("Task backlog full.");
+                    _logger.LogError(_lastException, _lastException.Message);
+                    throw _lastException;
+                };
+
+                return Task.CompletedTask;
+            }, new Context($"TaskOrchestrator.Run_{Environment.CurrentManagedThreadId}"));
+
+            Interlocked.Increment(ref _runCount);
         }
 
-        private async Task Background()
+        private async Task Worker(CancellationToken cancellationToken)
         {
-            var spinner = new SpinWait();
+            _logger.LogDebug("Worker thread started with ID: {ThreadId}", Environment.CurrentManagedThreadId);
 
-            while (true)
+            await foreach (var action in _workChannel.Reader.ReadAllAsync(cancellationToken))
             {
                 try
                 {
-                    await semaphore.WaitAsync(cts.Token).ConfigureAwait(false);
-
-                    BufferStatus s;
-                    do
+                    object result = _retryPolicy.Execute((ctx) =>
                     {
-                        s = work.TryTake(out var action);
-
-                        if (s == BufferStatus.Success)
-                        {
-                            action!();
-                        }
-                        else
-                        {
-                            spinner.SpinOnce();
-                        }
-                    }
-                    while (s == BufferStatus.Contended);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
+                        action();
+                        return Task.CompletedTask;
+                    }, new Context($"TaskOrchestrator.Worker_{Environment.CurrentManagedThreadId}"));
                 }
                 catch (Exception ex)
                 {
-                    this.lastException = new Optional<Exception>(ex);
+                    _lastException = ex;
+                    _logger.LogError(ex.GetBaseException(), "Error occurred in worker thread.");
                 }
-
-                spinner.SpinOnce();
             }
 
-            completion.SetResult(true);
+            _logger.LogDebug("Worker thread exiting with ID: {ThreadId}", Environment.CurrentManagedThreadId);
         }
+
+        /// <summary>
+        /// Get the last recorded exception.
+        /// </summary>
+        public Exception? GetLastException() => _lastException;
 
         /// <summary>
         /// Terminate the background thread.
         /// </summary>
         public void Dispose()
         {
-            // prevent hang when cancel runs on the same thread
-            this.cts.CancelAfter(TimeSpan.Zero);
+            _cts.Cancel();
+            _workChannel.Writer.Complete();
         }
     }
 }
-*/

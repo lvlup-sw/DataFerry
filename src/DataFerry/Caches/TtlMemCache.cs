@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using lvlup.DataFerry.Orchestrators.Abstractions;
+using System.Collections;
 using System.Collections.Concurrent;
 
 namespace lvlup.DataFerry.Caches
@@ -13,34 +14,21 @@ namespace lvlup.DataFerry.Caches
     public class TtlMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : notnull
     {
         private readonly ConcurrentDictionary<TKey, TtlValue> _dict = new();
-
+        private readonly ITaskOrchestrator _taskOrchestrator;
         private readonly Timer _cleanUpTimer;
 
         /// <summary>
         /// Initializes a new instance of <see cref="TtlMemCache{TKey, TValue}"/>
         /// </summary>
         /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
-        public TtlMemCache(int cleanupJobInterval = 10000)
+        public TtlMemCache(ITaskOrchestrator taskOrchestrator, int cleanupJobInterval = 10000)
         {
+            _taskOrchestrator = taskOrchestrator;
             _cleanUpTimer = new Timer(
-                async s => await EvictExpiredJob(),
+                _ => _taskOrchestrator.Run(EvictExpired),
                 default,
                 TimeSpan.FromMilliseconds(cleanupJobInterval),
                 TimeSpan.FromMilliseconds(cleanupJobInterval));
-        }
-
-        private static readonly SemaphoreSlim _globalEvictionSemaphore = new(1, 1);
-        private async Task EvictExpiredJob()
-        {
-            await _globalEvictionSemaphore.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                EvictExpired();
-            }
-            finally
-            {
-                _globalEvictionSemaphore.Release();
-            }
         }
 
         /// <summary>
@@ -49,8 +37,7 @@ namespace lvlup.DataFerry.Caches
         /// </summary>
         public void EvictExpired()
         {
-            if (!Monitor.TryEnter(_cleanUpTimer))
-                return;
+            if (!Monitor.TryEnter(_cleanUpTimer)) return;
 
             try
             {
@@ -62,13 +49,17 @@ namespace lvlup.DataFerry.Caches
 
                 var currTime = Environment.TickCount64;
 
-                // Use ToList() to avoid modifying the _dict directly
-                foreach (var pair in _dict.ToList())
+                // Identify the keys of expired entries
+                // Less contention at the cost of an
+                // intermediate list allocation.
+                var expiredKeys = _dict
+                    .Where(pair => currTime > pair.Value._expirationTicks)
+                    .Select(pair => pair.Key)
+                    .ToList();
+
+                foreach (var key in expiredKeys)
                 {
-                    if (currTime > pair.Value._expirationTicks)
-                    {
-                        _dict.TryRemove(pair.Key, out _);
-                    }
+                    _dict.TryRemove(key, out _);
                 }
             }
             finally
@@ -77,49 +68,34 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
-        /// <summary>
-        /// Returns the total number of items in the cache, 
-        /// including expired items that have not yet been removed by the cleanup process.
-        /// </summary>
-        public int Count => _dict.Count;
+        /// <inheritdoc/>
+        // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
+        public int Count => _dict.Skip(0).Count();
 
         public int MaxSize { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-        /// <summary>
-        /// Clears all items from the cache.
-        /// </summary>
+        /// <inheritdoc/>
         public void Clear() => _dict.Clear();
 
-        /// <summary>
-        /// Adds or updates an item in the cache. If the item already exists, its value and TTL are updated.
-        /// </summary>
-        /// <param name="key">The unique identifier for the item.</param>
-        /// <param name="value">The data associated with the key.</param>
-        /// <param name="ttl">The time-to-live (TTL) for the item, after which it will expire.</param>
+        /// <inheritdoc/>
         public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
         {   // ConcurrentDictionary is thread-safe
             var ttlValue = new TtlValue(value, ttl);
             _dict.AddOrUpdate(key, ttlValue, (existingKey, existingValue) => ttlValue);
         }
 
-        /// <summary>
-        /// Attempts to retrieve the value associated with the given key.
-        /// </summary>
-        /// <param name="key">The key of the item to retrieve.</param>
-        /// <param name="value">
-        /// If the key is found, this output parameter will contain its corresponding value; otherwise, it will contain the default value for the type.
-        /// </param>
-        /// <returns>True if the key was found and its value was retrieved; otherwise, false.</returns>
+        /// <inheritdoc/>
         public bool TryGet(TKey key, out TValue value)
         {
             value = default!;
 
-            if (!_dict.TryGetValue(key, out TtlValue? ttlValue) || ttlValue.IsExpired())
+            // Not found or expired
+            if (!_dict.TryGetValue(key, out TtlValue ttlValue) || ttlValue.IsExpired())
             {
                 // Utilizes atomic conditional removal to eliminate the need for locks, 
                 // ensuring only items matching both key and value are removed.
                 // See: https://devblogs.microsoft.com/pfxteam/little-known-gems-atomic-conditional-removals-from-concurrentdictionary/
-                if (ttlValue is not null)
+                if (ttlValue.HasValue)
                 {
                     _dict.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
                 }
@@ -132,13 +108,7 @@ namespace lvlup.DataFerry.Caches
             return true;
         }
 
-        /// <summary>
-        /// Adds a key-value pair to the cache if the key does not already exist. 
-        /// If the key exists, returns the existing value without updating it.
-        /// </summary>
-        /// <param name="key">The key of the item to add or retrieve.</param>
-        /// <param name="valueFactory">A function to generate the value if the key is not found.</param>
-        /// <param name="ttl">The time-to-live (TTL) for the item, after which it will expire.</param>
+        /// <inheritdoc/>
         public TValue GetOrAdd(TKey key, Func<TKey, TValue> valueFactory, TimeSpan ttl)
         {
             if (TryGet(key, out var value)) return value;
@@ -147,15 +117,7 @@ namespace lvlup.DataFerry.Caches
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
-        /// <summary>
-        /// Adds a key-value pair to the cache if the key does not already exist, 
-        /// using the provided factory function to generate the value. 
-        /// If the key exists, returns the existing value without updating it.
-        /// </summary>
-        /// <param name="key">The key of the item to add or retrieve.</param>
-        /// <param name="valueFactory">A function to generate the value if the key is not found.</param>
-        /// <param name="ttl">The time-to-live (TTL) for the item, after which it will expire.</param>
-        /// <param name="factoryArgument">An argument to pass to the `valueFactory` function.</param>
+        /// <inheritdoc/>
         public TValue GetOrAdd<TArg>(TKey key, Func<TKey, TArg, TValue> valueFactory, TimeSpan ttl, TArg factoryArgument)
         {
             if (TryGet(key, out var value)) return value;
@@ -164,13 +126,7 @@ namespace lvlup.DataFerry.Caches
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
-        /// <summary>
-        /// Adds a key-value pair to the cache if the key does not already exist. 
-        /// If the key exists, its value is returned without any updates.
-        /// </summary>
-        /// <param name="key">The key of the item to add or retrieve.</param>
-        /// <param name="value">The value to add if the key is not found.</param>
-        /// <param name="ttl">The time-to-live (TTL) for the item, after which it will expire.</param>
+        /// <inheritdoc/>
         public TValue GetOrAdd(TKey key, TValue value, TimeSpan ttl)
         {
             if (TryGet(key, out var existingValue)) return existingValue;
@@ -179,15 +135,20 @@ namespace lvlup.DataFerry.Caches
             return _dict.GetOrAdd(key, ttlValue).Value;
         }
 
-        /// <summary>
-        /// Attempts to remove the item associated with the specified key from the cache.
-        /// </summary>
-        /// <param name="key">The key of the item to remove.</param>
+        /// <inheritdoc/>
         public void Remove(TKey key) => _dict.TryRemove(key, out _);
 
-        /// <summary>
-        /// Returns an enumerator that iterates through the non-expired key-value pairs in the cache.
-        /// </summary>
+        /// <inheritdoc/>
+        public void Refresh(TKey key, TimeSpan ttl)
+        {
+            if (_dict.TryGetValue(key, out var value))
+            {
+                var ttlValue = new TtlValue(value.Value, ttl);
+                _dict[key] = ttlValue;
+            }
+        }
+
+        /// <inheritdoc/>
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
         {
             var validEntries = _dict
@@ -200,16 +161,16 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
-        /// <summary>
-        /// Returns an enumerator that iterates through the non-expired key-value pairs in the cache.
-        /// (Explicit implementation of the IEnumerable.GetEnumerator method.)
-        /// </summary>
+        /// <inheritdoc/>
+        public void CheckBackplane() { }
+
+        /// <inheritdoc/>
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
         /// <summary>
         /// Represents a value with an associated time-to-live (TTL) for expiration.
         /// </summary>
-        private sealed class TtlValue
+        private readonly struct TtlValue
         {
             /// <summary>
             /// The stored value.
@@ -236,10 +197,23 @@ namespace lvlup.DataFerry.Caches
             /// Determines if this value has expired.
             /// </summary>
             /// <returns>True if the value has expired; otherwise, false.</returns>
-            public bool IsExpired() => Environment.TickCount64 > _expirationTicks;
+            public readonly bool IsExpired() => Environment.TickCount64 > _expirationTicks;
+
+            public readonly bool HasValue => !IsNullOrEmpty;
+
+            private readonly bool IsNullOrEmpty
+            {
+                get
+                {
+                    if (Value != null) return true;
+                    if (_expirationTicks > 0) return true;
+                    return false;
+                }
+            }
         }
 
-        //IDisposable members
+        #region IDisposable
+
         private bool _disposedValue;
 
         public void Dispose()
@@ -263,14 +237,6 @@ namespace lvlup.DataFerry.Caches
             }
         }
 
-        public void Refresh(TKey key, TimeSpan ttl)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void CheckBackplane()
-        {
-            throw new NotImplementedException();
-        }
+        #endregion
     }
 }

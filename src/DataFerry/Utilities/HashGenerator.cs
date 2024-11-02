@@ -23,17 +23,8 @@ namespace lvlup.DataFerry.Utilities
             // Read the object as bytes
             ReadOnlySpan<byte> bytes = ConvertToBytes(obj);
 
-            // Generate the hash
-            var hash = Hash32(ref bytes, seed);
-
-            // Convert hash to a byte array
-            var hashBytes = BitConverter.GetBytes(hash);
-
-            // Encode the byte array as a string (using Base64)
-            var hashString = Convert.ToBase64String(hashBytes);
-
-            // Construct the cache key
-            return $"{prefix}:{hashString}";
+            // Return the prefix + hashed bytes converted to Base64 string
+            return $"{prefix}:{Convert.ToBase64String(BitConverter.GetBytes(Hash32(ref bytes, seed)))}";
         }
 
         /// <summary>

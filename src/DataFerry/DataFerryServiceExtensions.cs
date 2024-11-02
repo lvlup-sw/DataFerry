@@ -1,10 +1,8 @@
-﻿using lvlup.DataFerry.Buffers;
-using lvlup.DataFerry.Orchestrators;
+﻿using lvlup.DataFerry.Orchestrators;
 using lvlup.DataFerry.Orchestrators.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IO;
-using System.Buffers;
 
 namespace lvlup.DataFerry
 {
@@ -28,8 +26,9 @@ namespace lvlup.DataFerry
             services.TryAddSingleton<RecyclableMemoryStreamManager>();
 
             // Add and return services
-            services.TryAddScoped<IBufferWriter<byte>, RentedBufferWriter<byte>>();
             services.TryAddSingleton<IDataFerrySerializer, DataFerrySerializer>();
+            services.TryAddSingleton<ITaskOrchestrator, TaskOrchestrator>();
+            services.TryAddSingleton<IMemCache<string, byte[]>, TtlMemCache<string, byte[]>>();
             services.TryAddSingleton<ICacheOrchestrator, CacheOrchestrator>();
             services.TryAddSingleton<IDataFerry, DataFerry>();
             return services;
