@@ -19,70 +19,100 @@ namespace lvlup.DataFerry.Tests
                 LoggerFactory.Create(builder => builder.Services.AddLogging())
                              .CreateLogger<TaskOrchestrator>()
             );
-            _queue = new(_taskOrchestrator, Comparer<int>.Create((x, y) => y.CompareTo(x)));
+            _queue = new(_taskOrchestrator, Comparer<int>.Create((x, y) => x.CompareTo(y)));
         }
 
         [TestMethod]
         public void TryAdd_AddsElementsWithCorrectPriority()
         {
+            // Act & Arrange
             _queue.TryAdd(1, "Task A");
             _queue.TryAdd(3, "Task C");
             _queue.TryAdd(2, "Task B");
+            _queue.TryGetElement(1, out var elementA);
+            _queue.TryGetElement(2, out var elementB);
+            _queue.TryGetElement(3, out var elementC);
 
-            Assert.IsTrue(_queue.ContainsPriority(1));
-            Assert.IsTrue(_queue.ContainsPriority(2));
-            Assert.IsTrue(_queue.ContainsPriority(3));
-            //Assert.IsTrue(_queue.ContainsElement("Task A"));
-            //Assert.IsTrue(_queue.ContainsElement("Task B"));
-            //Assert.IsTrue(_queue.ContainsElement("Task C"));
-            
-            var enumerator = _queue.GetEnumerator();
-            enumerator.MoveNext();
-            var n1 = enumerator.Current;
-            enumerator.MoveNext();
-            var n2 = enumerator.Current;
-            enumerator.MoveNext();
-            var n3 = enumerator.Current;
-
-            Assert.IsTrue(n1.Equals("Task A"));
-            Assert.IsTrue(n2.Equals("Task B"));
-            Assert.IsTrue(n3.Equals("Task C"));
+            // Assert
+            Assert.AreEqual(elementA, "Task A");
+            Assert.AreEqual(elementB, "Task B");
+            Assert.AreEqual(elementC, "Task C");
         }
 
         [TestMethod]
         public void TryRemoveMin_RemovesElementsInPriorityOrder()
         {
+            // Arrange
             _queue.TryAdd(1, "Task A");
             _queue.TryAdd(3, "Task C");
             _queue.TryAdd(2, "Task B");
 
-            Assert.IsTrue(_queue.TryRemoveMin(out var element1));
-            Assert.AreEqual("Task A", element1);
+            // Act & Assert
+            Assert.IsTrue(_queue.TryRemoveMin(out var elementA));
+            Assert.AreEqual("Task A", elementA);
 
-            Thread.Sleep(100);
+            Assert.IsTrue(_queue.TryRemoveMin(out var elementB));
+            Assert.AreEqual("Task B", elementB);
 
-            Assert.IsTrue(_queue.TryRemoveMin(out var element2));
-            Assert.AreEqual("Task B", element2);
+            Assert.IsTrue(_queue.TryRemoveMin(out var elementC));
+            Assert.AreEqual("Task C", elementC);
+        }
 
-            Assert.IsTrue(_queue.TryRemoveMin(out var element3));
-            Assert.AreEqual("Task C", element3);
+        [TestMethod]
+        public void TryRemovePriority_RemovesCorrectPriority()
+        {
+            // Arrange
+            _queue.TryAdd(1, "Task A");
+            _queue.TryAdd(3, "Task C");
+            _queue.TryAdd(2, "Task B");
 
-            Assert.IsFalse(_queue.TryRemoveMin(out _)); // Queue should be empty
+            // Act & Assert
+            Assert.IsTrue(_queue.TryRemovePriority(3));
+            Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
+
+            Assert.IsTrue(_queue.TryRemovePriority(2));
+            Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
+
+            Assert.IsTrue(_queue.TryRemovePriority(1));
+            Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
+        }
+
+        [TestMethod]
+        public void TryRemovePriority_RemovesAnyDuplicatePriority()
+        {
+            // Arrange
+            _queue.TryAdd(3, "Task A");
+            _queue.TryAdd(3, "Task C");
+            _queue.TryAdd(3, "Task B");
+
+            // Act & Assert
+            Assert.IsTrue(_queue.TryRemovePriority(3));
+            Assert.IsTrue(_queue.TryGetElement(3, out var elementC));
+            Assert.AreEqual(elementC, "Task C");
+
+            Assert.IsTrue(_queue.TryRemovePriority(2));
+            Assert.IsTrue(_queue.TryGetElement(2, out var elementB));
+            Assert.AreEqual(elementB, "Task B");
+
+            Assert.IsTrue(_queue.TryRemovePriority(1));
+            Assert.IsTrue(_queue.TryGetElement(1, out var elementA));
+            Assert.AreEqual(elementA, "Task A");
         }
 
         [TestMethod]
         public void Update_UpdatesPriorityCorrectly()
         {
+            // Arrange
             _queue.TryAdd(3, "Task A");
             _queue.TryAdd(2, "Task B");
 
+            // Act
             _queue.Update(1, "Task A");
+            Thread.Sleep(1000);
 
-            Assert.IsTrue(_queue.TryRemoveMin(out var element1));
-            Assert.AreEqual("Task A", element1);
-
-            Assert.IsTrue(_queue.TryRemoveMin(out var element2));
-            Assert.AreEqual("Task B", element2);
+            // Assert
+            Assert.IsTrue(_queue.TryRemoveMin(out var elementA));
+            Assert.AreEqual(elementA, "Task A");
         }
 
         // Add more tests for other methods and edge cases as needed

@@ -1,7 +1,7 @@
 ﻿namespace lvlup.DataFerry.Orchestrators.Abstractions
 {
     /// <summary>
-    /// Represents a scheduler that handles the low-level work of queuing tasks onto threads.
+    /// Represents a contract for a scheduler that handles the low-level work of queuing tasks onto threads.
     /// </summary>
     public interface ITaskOrchestrator
     {

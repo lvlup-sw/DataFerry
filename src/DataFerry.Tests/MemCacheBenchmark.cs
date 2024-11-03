@@ -29,8 +29,8 @@ namespace lvlup.DataFerry.Tests
         {
             _taskOrchestrator = new TaskOrchestrator(
                 LoggerFactory.Create(builder => builder.Services.AddLogging())
-                             .CreateLogger<TaskOrchestrator>()
-            );
+                             .CreateLogger<TaskOrchestrator>());
+
             _users = GenerateUsers(CacheSize);
             _memoryCache = new MemoryCache(new MemoryCacheOptions() { SizeLimit = CacheSize });
             _bitfaster = new(CacheSize);

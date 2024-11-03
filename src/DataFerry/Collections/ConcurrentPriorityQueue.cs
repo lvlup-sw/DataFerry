@@ -332,6 +332,7 @@ namespace lvlup.DataFerry.Collections
         } 
 
         /// <inheritdoc/>
+        // Needs to be revised
         public void Update(TPriority priority, TElement element)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -363,6 +364,7 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
+        // Needs to be revised
         public void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -434,6 +436,7 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
+        // Needs to be revised
         public bool TryRemovePriority(TPriority priority)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));

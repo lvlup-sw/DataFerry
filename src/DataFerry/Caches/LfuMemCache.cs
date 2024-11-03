@@ -62,7 +62,7 @@ namespace lvlup.DataFerry.Caches
             // This comparer gives lower frequency items higher priority
             _frequencyQueue = new(
                 _taskOrchestrator,
-                Comparer<int>.Create((x, y) => y.CompareTo(x)), 
+                Comparer<int>.Create((x, y) => x.CompareTo(y)), 
                 maxSize: _maxWindowSize);
 
             // Timer to trigger TTL-based eviction

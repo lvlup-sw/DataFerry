@@ -70,6 +70,11 @@ namespace lvlup.DataFerry.Orchestrators
             Interlocked.Increment(ref _runCount);
         }
 
+        /// <summary>
+        /// Worker task which continuously processes work items as they are published to the channel.
+        /// </summary>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         private async Task Worker(CancellationToken cancellationToken)
         {
             _logger.LogDebug("Worker thread started with ID: {ThreadId}", Environment.CurrentManagedThreadId);
