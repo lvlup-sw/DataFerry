@@ -1,75 +1,93 @@
 ﻿namespace lvlup.DataFerry.Collections.Abstractions
 {
-    public interface IConcurrentPriorityQueue<TKey, TPriority>
+    /// <summary>
+    /// A contract for interacting with a concurrent PriorityQueue implemented as a SkipList.
+    /// </summary>
+    public interface IConcurrentPriorityQueue<TPriority, TElement>
     {
         /// <summary>
-        /// Provides a lock-free enumeration of the keys in the ConcurrentPriorityQueue. 
+        /// Provides a lock-free enumeration of the prioritys in the ConcurrentPriorityQueue. 
         /// Note that this enumeration provides READ COMMITTED semantics.
         /// </summary>
-        /// <returns>An enumerator that represents the keys in the ConcurrentPriorityQueue.</returns>
-        IEnumerator<TKey> GetEnumerator();
+        /// <returns>An enumerator that represents the prioritys in the ConcurrentPriorityQueue.</returns>
+        IEnumerator<TPriority> GetEnumerator();
 
         /// <summary>
-        /// Determines whether the ConcurrentPriorityQueue contains the specified key.
+        /// Determines whether the ConcurrentPriorityQueue contains the specified priority.
         /// </summary>
-        /// <param name="key">The key to locate.</param>
-        /// <returns>true if the ConcurrentPriorityQueue contains the specified key; otherwise, false.</returns>
-        bool Contains(TKey key);
+        /// <param name="priority">The frequency to locate.</param>
+        /// <returns>true if the ConcurrentPriorityQueue contains the specified priority; otherwise, false.</returns>
+        bool ContainsPriority(TPriority priority);
 
         /// <summary>
-        /// Attempts to get the value associated with the specified key from the ConcurrentPriorityQueue.
+        /// Determines whether the ConcurrentPriorityQueue contains the specified element.
         /// </summary>
-        /// <param name="key">The key to locate.</param>
-        /// <param name="value">When this method returns, contains the value associated with the specified key, 
-        /// if the key is found; otherwise, the default value for the type of the <paramref name="value" /> parameter. 
+        /// <param name="element">The frequency to locate.</param>
+        /// <returns>true if the ConcurrentPriorityQueue contains the specified element; otherwise, false.</returns>
+        bool ContainsElement(TElement element);
+
+        /// <summary>
+        /// Attempts to get the element associated with the specified priority from the ConcurrentPriorityQueue.
+        /// </summary>
+        /// <param name="priority">The priority to locate.</param>
+        /// <param name="element">When this method returns, contains the element associated with the specified priority, 
+        /// if the priority is found; otherwise, the default element for the type of the <paramref name="element" /> parameter. 
         /// This parameter is passed uninitialized.</param>
-        /// <returns>true if the ConcurrentPriorityQueue contains an element with the specified key; otherwise, false.</returns>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
-        bool TryGetValue(TKey key, out TPriority value);
+        /// <returns>true if the ConcurrentPriorityQueue contains an element with the specified priority; otherwise, false.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+        bool TryGetElement(TPriority priority, out TElement element);
 
         /// <summary>
-        /// Attempts to add the specified key and value to the ConcurrentPriorityQueue.
+        /// Attempts to add the specified priority and element to the ConcurrentPriorityQueue.
         /// </summary>
-        /// <param name="key">The key of the element to add.</param>
-        /// <param name="value">The value of the element to add.</param>
-        /// <returns>true if the key/value pair was added to the ConcurrentPriorityQueue successfully; otherwise, false.</returns>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
-        bool TryAdd(TKey key, TPriority value);
+        /// <param name="priority">The priority of the element to add.</param>
+        /// <param name="element">The element of the element to add.</param>
+        /// <returns>true if the priority/element pair was added to the ConcurrentPriorityQueue successfully; otherwise, false.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+        bool TryAdd(TPriority priority, TElement element);
 
         /// <summary>
-        /// Updates the value associated with the specified key.
+        /// Updates the element associated with the specified priority.
         /// </summary>
-        /// <param name="key">The key of the element to update.</param>
-        /// <param name="value">The new value.</param>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
-        /// <exception cref="ArgumentException">Thrown if the key does not exist or is being deleted.</exception>
-        void Update(TKey key, TPriority value);
+        /// <param name="priority">The priority of the element to update.</param>
+        /// <param name="element">The new element.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
+        void Update(TPriority priority, TElement element);
 
         /// <summary>
-        /// Updates the value associated with the specified key using the provided update function.
+        /// Updates the element associated with the specified priority using the provided update function.
         /// </summary>
-        /// <param name="key">The key of the element to update.</param>
-        /// <param name="updateFunction">The function used to generate the new value.</param>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> or <paramref name="updateFunction"/> is null.</exception>
-        /// <exception cref="ArgumentException">Thrown if the key does not exist or is being deleted.</exception>
-        void Update(TKey key, Func<TKey, TPriority, TPriority> updateFunction);
+        /// <param name="priority">The priority of the element to update.</param>
+        /// <param name="updateFunction">The function used to generate the new element.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="updateFunction"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
+        void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction);
 
         /// <summary>
-        /// Attempts to remove the specified key from the ConcurrentPriorityQueue.
+        /// Attempts to remove the specified priority from the ConcurrentPriorityQueue.
         /// </summary>
-        /// <param name="key">The key to remove.</param>
-        /// <returns>true if the key was removed successfully; otherwise, false.</returns>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="key"/> is null.</exception>
-        bool TryRemove(TKey key);
+        /// <param name="priority">The priority to remove.</param>
+        /// <returns>true if the priority was removed successfully; otherwise, false.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+        bool TryRemovePriority(TPriority priority);
 
         /// <summary>
-        /// Attempts to remove the element with the minimum priority from the ConcurrentPriorityQueue and return its value.
+        /// Attempts to remove the specified element from the ConcurrentPriorityQueue.
         /// </summary>
-        /// <param name="item">When this method returns, contains the value of the removed element, 
-        /// if the ConcurrentPriorityQueue is not empty; otherwise, the default value for the type of the <paramref name="item"/> parameter. 
+        /// <param name="priority">The element to remove.</param>
+        /// <returns>true if the element was removed successfully; otherwise, false.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="element"/> is null.</exception>
+        bool TryRemoveElement(TElement element);
+
+        /// <summary>
+        /// Attempts to remove the element with the minimum priority from the ConcurrentPriorityQueue and return its element.
+        /// </summary>
+        /// <param name="item">When this method returns, contains the element of the removed element, 
+        /// if the ConcurrentPriorityQueue is not empty; otherwise, the default element for the type of the <paramref name="item"/> parameter. 
         /// This parameter is passed uninitialized.</param>
         /// <returns>true if an element was removed successfully; otherwise, false.</returns>
-        bool TryRemoveMin(out TKey item);
+        bool TryRemoveMin(out TElement item);
 
         /// <summary>
         /// Gets the number of nodes in the SkipList.

@@ -18,7 +18,7 @@ namespace lvlup.DataFerry.Caches
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
         private readonly ConcurrentDictionary<TKey, TtlValue> _window;
         // Sophisticated optimizations: 13.142 us ???
-        private readonly ConcurrentPriorityQueue<TKey, int> _frequencyQueue;
+        private readonly ConcurrentPriorityQueue<int, TKey> _frequencyQueue;
         // Basic synchronization: 8.231 us
         //private readonly BasicCPQ<TKey, int> _frequencyQueue;
         // Baseline with unsynchronized priority queue is 7.834 μs
@@ -60,12 +60,10 @@ namespace lvlup.DataFerry.Caches
             _taskOrchestrator = taskOrchestrator;
             // We create a concurrent priority queue to hold LFU candidates
             // This comparer gives lower frequency items higher priority
-            // We also calculate the optimal number of levels based on size
             _frequencyQueue = new(
                 _taskOrchestrator,
                 Comparer<int>.Create((x, y) => y.CompareTo(x)), 
-                _maxWindowSize,
-                (int)Math.Ceiling(Math.Log(_maxWindowSize / 10, 1 / 0.5)));
+                maxSize: _maxWindowSize);
 
             // Timer to trigger TTL-based eviction
             _cleanUpTimer = new Timer(
@@ -187,7 +185,7 @@ namespace lvlup.DataFerry.Caches
             value = ttlValue.Value;
             // Update frequencies
             _cms.Increment(key);
-            _frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
+            _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
             //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
             return true;
         }
@@ -212,7 +210,7 @@ namespace lvlup.DataFerry.Caches
             // Update the frequency of the key
             _cms.Increment(key);
             Interlocked.Increment(ref _currentSize);
-            _frequencyQueue.TryAdd(key, _cms.EstimateFrequency(key));
+            _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
             //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
 
             // Check if eviction is necessary

@@ -1,14 +1,13 @@
 ﻿using lvlup.DataFerry.Collections.Abstractions;
 using lvlup.DataFerry.Orchestrators.Abstractions;
-using Microsoft.Extensions.Logging;
 
 namespace lvlup.DataFerry.Collections
 {
     /// <summary>
-    /// A concurrent priority queue implemented as a lock-based SkipList.
+    /// A concurrent PriorityQueue implemented as a lock-based SkipList.
     /// </summary>
-    /// <typeparam name="TPriority">The key.</typeparam>
-    /// <typeparam name="TElement">The value.</typeparam>
+    /// <typeparam name="TPriority">The priority.</typeparam>
+    /// <typeparam name="TElement">The element.</typeparam>
     /// <remarks>
     /// <para>
     /// A SkipList is a probabilistic data structure that provides efficient search, insertion, and deletion operations with an expected logarithmic time complexity. 
@@ -18,9 +17,9 @@ namespace lvlup.DataFerry.Collections
     /// This concurrent SkipList implementation offers:
     /// </para>
     /// <list type="bullet">
-    /// <item>Expected O(log n) time complexity for `ContainsKey`, `TryGetValue`, `TryAdd`, `Update`, and `TryRemove` operations.</item> 
-    /// <item>Lock-free and wait-free `ContainsKey` and `TryGetValue` operations.</item>
-    /// <item>Lock-free key enumerations.</item>
+    /// <item>Expected O(log n) time complexity for `Containspriority`, `TryGetelement`, `TryAdd`, `Update`, and `TryRemove` operations.</item> 
+    /// <item>Lock-free and wait-free `Containspriority` and `TryGetelement` operations.</item>
+    /// <item>Lock-free priority enumerations.</item>
     /// </list>
     /// <para>
     /// <b>Implementation Details:</b>
@@ -42,7 +41,7 @@ namespace lvlup.DataFerry.Collections
     /// Locks are acquired in a bottom-up manner to prevent deadlocks. The order of lock release is not critical.
     /// </para>
     /// </remarks>
-    public class ConcurrentPriorityQueue<TKey, TPriority> : IConcurrentPriorityQueue<TKey, TPriority>
+    public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
     {
         /// <summary>
         /// Invalid level.
@@ -100,9 +99,14 @@ namespace lvlup.DataFerry.Collections
         private readonly Node _head;
 
         /// <summary>
-        /// Key comparer used to order the keys.
+        /// Priority comparer used to order the priorities.
         /// </summary>
         private readonly IComparer<TPriority> _comparer;
+
+        /// <summary>
+        /// Element comparer used to order the elements.
+        /// </summary>
+        private readonly IComparer<TElement> _elementComparer;
 
         /// <summary>
         /// Background task processor which handles node removal.
@@ -115,27 +119,29 @@ namespace lvlup.DataFerry.Collections
         private static readonly Random RandomGenerator = new();
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ConcurrentSkipList{TPriority, TElement}"/> class.
+        /// Initializes a new instance of the <see cref="ConcurrentPriorityQueue{TPriority, TElement}"/> class.
         /// </summary>
-        /// <param name="keyComparer">The comparer used to compare keys.</param>
+        /// <param name="comparer">The comparer used to compare prioritys.</param>
         /// <param name="numberOfLevels">The maximum number of levels in the SkipList.</param>
         /// <param name="promotionProbability">The probability of promoting a node to a higher level.</param>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="keyComparer"/> is null.</exception>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="comparer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
-        public ConcurrentPriorityQueue(ITaskOrchestrator taskOrchestrator, IComparer<TPriority> comparer, int maxSize = 10000, int numberOfLevels = 32, double promotionProbability = 0.5)
+        public ConcurrentPriorityQueue(ITaskOrchestrator taskOrchestrator, IComparer<TPriority> comparer, IComparer<TElement>? elementComparer = default, int maxSize = 10000, int? numberOfLevels = default, double promotionProbability = 0.5)
         {
             ArgumentNullException.ThrowIfNull(comparer, nameof(comparer));
-            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(numberOfLevels, 0, nameof(numberOfLevels));
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSize, nameof(maxSize));
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(numberOfLevels ?? 1, 0, nameof(numberOfLevels));
             ArgumentOutOfRangeException.ThrowIfLessThan(promotionProbability, 0, nameof(promotionProbability));
             ArgumentOutOfRangeException.ThrowIfGreaterThan(promotionProbability, 1, nameof(promotionProbability));
 
             _taskOrchestrator = taskOrchestrator;
             _comparer = comparer;
-            _numberOfLevels = numberOfLevels;
+            _elementComparer = elementComparer ?? Comparer<TElement>.Default;
+            _numberOfLevels = numberOfLevels ?? (int)Math.Ceiling(Math.Log(maxSize / 10, 1 / 0.5));
             _promotionProbability = promotionProbability;
             _maxSize = maxSize;
-            _topLevel = numberOfLevels - 1;
+            _topLevel = _numberOfLevels - 1;
 
             _head = new Node(Node.NodeType.Head, _topLevel);
             var tail = new Node(Node.NodeType.Tail, _topLevel);
@@ -180,7 +186,7 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        public IEnumerator<TKey> GetEnumerator()
+        public IEnumerator<TPriority> GetEnumerator()
         {
             Node current = _head;
             while (true)
@@ -194,16 +200,16 @@ namespace lvlup.DataFerry.Collections
                 // the node is physically linked.
                 if (!current.IsInserted || current.IsDeleted) continue;
 
-                yield return current.Key;
+                yield return current.Priority;
             }
         }
 
         /// <inheritdoc/>
-        public bool Contains(TKey key)
+        public bool ContainsPriority(TPriority priority)
         {
-            ArgumentNullException.ThrowIfNull(key, nameof(key));
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-            var searchResult = WeakSearch(key);
+            var searchResult = WeakSearch(priority);
 
             // If node is not found, not logically inserted or logically removed, return false.
             return searchResult.IsFound
@@ -212,34 +218,47 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        public bool TryGetValue(TKey key, out TPriority value)
+        public bool ContainsElement(TElement element)
         {
-            ArgumentNullException.ThrowIfNull(key, nameof(key));
+            ArgumentNullException.ThrowIfNull(element, nameof(element));
 
-            var searchResult = WeakSearch(key);
+            var searchResult = WeakSearch(element);
+
+            // If node is not found, not logically inserted or logically removed, return false.
+            return searchResult.IsFound
+                && searchResult.GetNodeFound().IsInserted
+                && !searchResult.GetNodeFound().IsDeleted;
+        }
+
+        /// <inheritdoc/>
+        public bool TryGetElement(TPriority priority, out TElement element)
+        {
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+
+            var searchResult = WeakSearch(priority);
 
             if (searchResult.IsFound 
                 && searchResult.GetNodeFound().IsInserted 
                 && !searchResult.GetNodeFound().IsDeleted)
             {
-                value = searchResult.GetNodeFound().Value;
+                element = searchResult.GetNodeFound().Element;
                 return true;
             }
 
-            value = default!;
+            element = default!;
             return false;
         }
 
         /// <inheritdoc/>
-        public bool TryAdd(TKey key, TPriority value)
+        public bool TryAdd(TPriority priority, TElement element)
         {
-            ArgumentNullException.ThrowIfNull(key, nameof(key));
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
             int insertLevel = GenerateLevel();
 
             while (true)
             {
-                var searchResult = WeakSearch(key);
+                var searchResult = WeakSearch(priority);
                 if (searchResult.IsFound)
                 {
                     if (searchResult.GetNodeFound().IsDeleted)
@@ -247,7 +266,7 @@ namespace lvlup.DataFerry.Collections
                         continue;
                     }
 
-                    // Spin until the duplicate key is logically inserted.
+                    // Spin until the duplicate priority is logically inserted.
                     WaitUntilIsInserted(searchResult.GetNodeFound());
                     return false;
                 }
@@ -274,7 +293,7 @@ namespace lvlup.DataFerry.Collections
                     }
 
                     // Create the new node and initialize all the next pointers.
-                    var newNode = new Node(key, value, insertLevel);
+                    var newNode = new Node(priority, element, insertLevel);
                     for (int level = 0; level <= insertLevel; level++)
                     {
                         newNode.SetNextNode(level, searchResult.GetSuccessor(level));
@@ -310,20 +329,20 @@ namespace lvlup.DataFerry.Collections
                     }
                 }
             }
-        }
+        } 
 
         /// <inheritdoc/>
-        public void Update(TKey key, TPriority value)
+        public void Update(TPriority priority, TElement element)
         {
-            ArgumentNullException.ThrowIfNull(key, nameof(key));
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-            var searchResult = WeakSearch(key);
+            var searchResult = WeakSearch(priority);
 
             if (!searchResult.IsFound 
                 || !searchResult.GetNodeFound().IsInserted 
                 || searchResult.GetNodeFound().IsDeleted)
             {
-                throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
             }
 
             Node nodeToBeUpdated = searchResult.GetNodeFound();
@@ -332,10 +351,10 @@ namespace lvlup.DataFerry.Collections
             {
                 if (nodeToBeUpdated.IsDeleted)
                 {
-                    throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+                    throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
                 }
 
-                nodeToBeUpdated.Value = value;
+                nodeToBeUpdated.Element = element;
             }
             finally
             {
@@ -344,18 +363,18 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        public void Update(TKey key, Func<TKey, TPriority, TPriority> updateFunction)
+        public void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction)
         {
-            ArgumentNullException.ThrowIfNull(key, nameof(key));
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
             ArgumentNullException.ThrowIfNull(updateFunction, nameof(updateFunction));
 
-            var searchResult = WeakSearch(key);
+            var searchResult = WeakSearch(priority);
 
             if (!searchResult.IsFound 
                 || !searchResult.GetNodeFound().IsInserted 
                 || searchResult.GetNodeFound().IsDeleted)
             {
-                throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
             }
 
             Node nodeToBeUpdated = searchResult.GetNodeFound();
@@ -364,10 +383,10 @@ namespace lvlup.DataFerry.Collections
             {
                 if (nodeToBeUpdated.IsDeleted)
                 {
-                    throw new ArgumentException("The key does not exist or is being deleted.", nameof(key));
+                    throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
                 }
 
-                nodeToBeUpdated.Value = updateFunction(key, nodeToBeUpdated.Value);
+                nodeToBeUpdated.Element = updateFunction(priority, nodeToBeUpdated.Element);
             }
             finally
             {
@@ -376,7 +395,7 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        public bool TryRemoveMin(out TKey item)
+        public bool TryRemoveMin(out TElement element)
         {
             while (true)
             {
@@ -385,7 +404,7 @@ namespace lvlup.DataFerry.Collections
                 // If the first node is the tail, the list is empty
                 if (nodeToBeDeleted.Type == Node.NodeType.Tail)
                 {
-                    item = default!;
+                    element = default!;
                     return false;
                 }
 
@@ -403,7 +422,7 @@ namespace lvlup.DataFerry.Collections
                     nodeToBeDeleted.IsDeleted = true;
                     ScheduleNodeRemoval(nodeToBeDeleted);
 
-                    item = nodeToBeDeleted.Key;
+                    element = nodeToBeDeleted.Element;
                     Interlocked.Decrement(ref _count);
                     return true;
                 }
@@ -415,9 +434,9 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        public bool TryRemove(TKey key)
+        public bool TryRemovePriority(TPriority priority)
         {
-            ArgumentNullException.ThrowIfNull(key, nameof(key));
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
             Node? nodeToBeDeleted = null;
             bool isLogicallyDeleted = false;
@@ -427,7 +446,7 @@ namespace lvlup.DataFerry.Collections
 
             while (true)
             {
-                var searchResult = WeakSearch(key);
+                var searchResult = WeakSearch(priority);
                 nodeToBeDeleted ??= searchResult.GetNodeFound();
 
                 // Ensure node is fully linked and not already deleted
@@ -496,6 +515,77 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
+        public bool TryRemoveElement(TElement element)
+        {
+            ArgumentNullException.ThrowIfNull(element, nameof(element));
+
+            Node? nodeToBeDeleted = null;
+            bool isLogicallyDeleted = false;
+
+            // Level at which the to be deleted node was found.
+            int topLevel = InvalidLevel;
+
+            while (true)
+            {
+                var searchResult = WeakSearch(element);
+                nodeToBeDeleted ??= searchResult.GetNodeFound();
+
+                // Ensure node is fully linked and not already deleted
+                if (!isLogicallyDeleted
+                    && (!nodeToBeDeleted.IsInserted
+                        || nodeToBeDeleted.TopLevel != searchResult.LevelFound
+                        || nodeToBeDeleted.IsDeleted))
+                {
+                    return false; // Node not fully linked or already deleted
+                }
+
+                // Logically delete the node if not already done
+                if (!isLogicallyDeleted)
+                {
+                    topLevel = searchResult.LevelFound;
+                    nodeToBeDeleted.Lock();
+                    if (nodeToBeDeleted.IsDeleted)
+                    {
+                        nodeToBeDeleted.Unlock();
+                        return false;
+                    }
+
+                    // Linearization point: IsDeleted is volatile.
+                    nodeToBeDeleted.IsDeleted = true;
+                    isLogicallyDeleted = true;
+                }
+
+                int highestLevelLocked = InvalidLevel;
+                try
+                {
+                    bool isValid = true;
+                    for (int level = 0; isValid && level <= topLevel; level++)
+                    {
+                        var predecessor = searchResult.GetPredecessor(level);
+                        predecessor.Lock();
+                        highestLevelLocked = level;
+                        isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == nodeToBeDeleted;
+                    }
+
+                    if (isValid is false) continue;
+
+                    ScheduleNodeRemoval(nodeToBeDeleted, topLevel);
+
+                    nodeToBeDeleted.Unlock();
+                    Interlocked.Decrement(ref _count);
+                    return true;
+                }
+                finally
+                {
+                    for (int level = highestLevelLocked; level >= 0; level--)
+                    {
+                        searchResult.GetPredecessor(level).Unlock();
+                    }
+                }
+            }
+        }
+
+        /// <inheritdoc/>
         public int GetCount() => _count;
 
         /// <summary>
@@ -526,24 +616,24 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <summary>
-        /// Performs a lock-free search for the node with the specified key.
+        /// Performs a lock-free search for the node with the specified priority.
         /// </summary>
-        /// <param name="key">The key to search for.</param>
+        /// <param name="priority">The priority to search for.</param>
         /// <returns>A <see cref="SearchResult"/> instance containing the results of the search.</returns>
         /// <remarks>
         /// <para>
-        /// If the key is found, the <see cref="SearchResult.IsFound"/> property will be true, 
+        /// If the priority is found, the <see cref="SearchResult.IsFound"/> property will be true, 
         /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/> 
         /// will contain the predecessor and successor nodes at each level.
         /// </para>
         /// <para>
-        /// If the key is not found, the <see cref="SearchResult.IsFound"/> property will be false, 
+        /// If the priority is not found, the <see cref="SearchResult.IsFound"/> property will be false, 
         /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/> 
         /// will contain the nodes that would have been the predecessor and successor of the node with the 
-        /// specified key if it existed.
+        /// specified priority if it existed.
         /// </para>
         /// </remarks>
-        private SearchResult WeakSearch(TKey key)
+        private SearchResult WeakSearch(TPriority priority)
         {
             int levelFound = InvalidLevel;
             Node[] predecessorArray = new Node[_numberOfLevels];
@@ -553,28 +643,14 @@ namespace lvlup.DataFerry.Collections
             for (int level = _topLevel; level >= 0; level--)
             {
                 Node current = predecessor.GetNextNode(level);
-                var priority = current.Value;
 
                 while (Compare(current, priority) < 0)
                 {
                     predecessor = current;
                     current = predecessor.GetNextNode(level);
-                    priority = current.Value;
                 }
 
-                /*
-                // Compare the priority of the current node with the priority of the node we're searching for
-                while (current.Type != Node.NodeType.Tail
-                       && Equals(current.Key, key)
-                       && _comparer.Compare(priority, current.Value) < 0)
-                {
-                    predecessor = current;
-                    current = predecessor.GetNextNode(level);
-                    priority = current.Value; // Update the priority for the next comparison
-                }
-                */
-
-                // At this point, current is >= searchKey
+                // At this point, current is >= searchpriority
                 if (levelFound == InvalidLevel && Compare(current, priority) == 0)
                 {
                     levelFound = level;
@@ -587,13 +663,71 @@ namespace lvlup.DataFerry.Collections
             return new SearchResult(levelFound, predecessorArray, successorArray);
         }
 
-        private int Compare(Node node, TPriority value)
+        /// <summary>
+        /// Performs a lock-free search for the node with the specified element.
+        /// </summary>
+        /// <param name="element">The element to search for.</param>
+        /// <returns>A <see cref="SearchResult"/> instance containing the results of the search.</returns>
+        /// <remarks>
+        /// <para>
+        /// If the element is found, the <see cref="SearchResult.IsFound"/> property will be true, 
+        /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/> 
+        /// will contain the predecessor and successor nodes at each level.
+        /// </para>
+        /// <para>
+        /// If the element is not found, the <see cref="SearchResult.IsFound"/> property will be false, 
+        /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/> 
+        /// will contain the nodes that would have been the predecessor and successor of the node with the 
+        /// specified element if it existed.
+        /// </para>
+        /// </remarks>
+        private SearchResult WeakSearch(TElement element)
+        {
+            int levelFound = InvalidLevel;
+            Node[] predecessorArray = new Node[_numberOfLevels];
+            Node[] successorArray = new Node[_numberOfLevels];
+
+            Node predecessor = _head;
+            for (int level = _topLevel; level >= 0; level--)
+            {
+                Node current = predecessor.GetNextNode(level);
+
+                while (Compare(current, element) < 0)
+                {
+                    predecessor = current;
+                    current = predecessor.GetNextNode(level);
+                }
+
+                // At this point, current is >= searchpriority
+                if (levelFound == InvalidLevel && Compare(current, element) == 0)
+                {
+                    levelFound = level;
+                }
+
+                predecessorArray[level] = predecessor;
+                successorArray[level] = current;
+            }
+
+            return new SearchResult(levelFound, predecessorArray, successorArray);
+        }
+
+        private int Compare(Node node, TPriority priority)
         {
             return node.Type switch
             {
                 Node.NodeType.Head => -1,
                 Node.NodeType.Tail => 1,
-                _ => _comparer.Compare(node.Value, value)
+                _ => _comparer.Compare(node.Priority, priority)
+            };
+        }
+
+        private int Compare(Node node, TElement element)
+        {
+            return node.Type switch
+            {
+                Node.NodeType.Head => -1,
+                Node.NodeType.Tail => 1,
+                _ => _elementComparer.Compare(node.Element, element)
             };
         }
 
@@ -624,8 +758,8 @@ namespace lvlup.DataFerry.Collections
             /// <param name="height">The height (level) of the node.</param>
             public Node(NodeType nodeType, int height)
             {
-                Key = default!;
-                Value = default!;
+                Priority = default!;
+                Element = default!;
                 Type = nodeType;
                 nextNodeArray = new Node[height + 1];
             }
@@ -633,13 +767,13 @@ namespace lvlup.DataFerry.Collections
             /// <summary>
             /// Initializes a new instance of the <see cref="Node"/> class.
             /// </summary>
-            /// <param name="key">The key associated with the node.</param>
-            /// <param name="value">The value associated with the node.</param>
+            /// <param name="priority">The priority associated with the node.</param>
+            /// <param name="element">The element associated with the node.</param>
             /// <param name="height">The height (level) of the node.</param>
-            public Node(TKey key, TPriority value, int height)
+            public Node(TPriority priority, TElement element, int height)
             {
-                Key = key;
-                Value = value;
+                Priority = priority;
+                Element = element;
                 Type = NodeType.Data;
                 nextNodeArray = new Node[height + 1];
             }
@@ -666,14 +800,14 @@ namespace lvlup.DataFerry.Collections
             }
 
             /// <summary>
-            /// Gets the key associated with the node.
+            /// Gets the priority associated with the node.
             /// </summary>
-            public TKey Key { get; }
+            public TPriority Priority { get; }
 
             /// <summary>
-            /// Gets or sets the value associated with the node.
+            /// Gets or sets the element associated with the node.
             /// </summary>
-            public TPriority Value { get; set; }
+            public TElement Element { get; set; }
 
             /// <summary>
             /// Gets or sets the type of the node.
@@ -681,12 +815,12 @@ namespace lvlup.DataFerry.Collections
             public NodeType Type { get; set; }
 
             /// <summary>
-            /// Gets or sets a value indicating whether the node has been logically inserted.
+            /// Gets or sets a element indicating whether the node has been logically inserted.
             /// </summary>
             public bool IsInserted { get => isInserted; set => isInserted = value; }
 
             /// <summary>
-            /// Gets or sets a value indicating whether the node has been logically deleted.
+            /// Gets or sets a element indicating whether the node has been logically deleted.
             /// </summary>
             public bool IsDeleted { get => isDeleted; set => isDeleted = value; }
 
@@ -723,18 +857,18 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// Represents the result of a search operation in the SkipList.
         /// </summary>
-        /// <param name="LevelFound">The level at which the key was found (or <see cref="NotFoundLevel"/> if not found).</param>
+        /// <param name="LevelFound">The level at which the priority was found (or <see cref="NotFoundLevel"/> if not found).</param>
         /// <param name="PredecessorArray">An array of predecessor nodes at each level.</param>
         /// <param name="SuccessorArray">An array of successor nodes at each level.</param>
         private record SearchResult(int LevelFound, Node[] PredecessorArray, Node[] SuccessorArray)
         {
             /// <summary>
-            /// Represents the level value when a key is not found in the SkipList.
+            /// Represents the level element when a priority is not found in the SkipList.
             /// </summary>
             public const int NotFoundLevel = -1;
 
             /// <summary>
-            /// Gets a value indicating whether the key was found in the SkipList.
+            /// Gets a element indicating whether the priority was found in the SkipList.
             /// </summary>
             public bool IsFound => LevelFound != NotFoundLevel;
 
@@ -766,10 +900,10 @@ namespace lvlup.DataFerry.Collections
             /// Gets the node that was found during the search.
             /// </summary>
             /// <returns>The node that was found.</returns>
-            /// <exception cref="InvalidOperationException">Thrown if the key was not found (<see cref="IsFound"/> is false).</exception>
+            /// <exception cref="InvalidOperationException">Thrown if the priority was not found (<see cref="IsFound"/> is false).</exception>
             public Node GetNodeFound()
             {
-                if (!IsFound) throw new InvalidOperationException("Cannot get node found when the key was not found.");
+                if (!IsFound) throw new InvalidOperationException("Cannot get node found when the priority was not found.");
 
                 return SuccessorArray[LevelFound];
             }
