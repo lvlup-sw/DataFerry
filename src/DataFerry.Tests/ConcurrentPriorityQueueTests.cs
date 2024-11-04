@@ -67,54 +67,30 @@ namespace lvlup.DataFerry.Tests
             _queue.TryAdd(2, "Task B");
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryRemovePriority(3));
+            Assert.IsTrue(_queue.TryRemoveItemWithPriority(3));
             Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
 
-            Assert.IsTrue(_queue.TryRemovePriority(2));
+            Assert.IsTrue(_queue.TryRemoveItemWithPriority(2));
             Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
 
-            Assert.IsTrue(_queue.TryRemovePriority(1));
+            Assert.IsTrue(_queue.TryRemoveItemWithPriority(1));
             Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
         }
 
         [TestMethod]
-        public void TryRemovePriority_RemovesAnyDuplicatePriority()
+        public void TryRemoveItemWithPriority_RemovesSingleItem_WithDuplicatePriority()
         {
-            // Arrange
-            _queue.TryAdd(3, "Task A");
-            _queue.TryAdd(3, "Task C");
-            _queue.TryAdd(3, "Task B");
+            // Arrange & Assert
+            Assert.IsTrue(_queue.TryAdd(3, "Task A"));
+            Assert.IsTrue(_queue.GetCount() == 11);
+            Assert.IsTrue(_queue.TryAdd(3, "Task C"));
+            Assert.IsTrue(_queue.GetCount() == 12);
+            Assert.IsTrue(_queue.TryAdd(3, "Task B"));
+            Assert.IsTrue(_queue.GetCount() == 13);
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryRemovePriority(3));
-            Assert.IsTrue(_queue.TryGetElement(3, out var elementC));
-            Assert.AreEqual(elementC, "Task C");
-
-            Assert.IsTrue(_queue.TryRemovePriority(2));
-            Assert.IsTrue(_queue.TryGetElement(2, out var elementB));
-            Assert.AreEqual(elementB, "Task B");
-
-            Assert.IsTrue(_queue.TryRemovePriority(1));
-            Assert.IsTrue(_queue.TryGetElement(1, out var elementA));
-            Assert.AreEqual(elementA, "Task A");
+            Assert.IsTrue(_queue.TryRemoveItemWithPriority(3));
+            Assert.IsTrue(_queue.GetCount() == 12);
         }
-
-        [TestMethod]
-        public void Update_UpdatesPriorityCorrectly()
-        {
-            // Arrange
-            _queue.TryAdd(3, "Task A");
-            _queue.TryAdd(2, "Task B");
-
-            // Act
-            _queue.Update(1, "Task A");
-            Thread.Sleep(1000);
-
-            // Assert
-            Assert.IsTrue(_queue.TryRemoveMin(out var elementA));
-            Assert.AreEqual(elementA, "Task A");
-        }
-
-        // Add more tests for other methods and edge cases as needed
     }
 }

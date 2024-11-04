@@ -47,30 +47,20 @@
         bool TryAdd(TPriority priority, TElement element);
 
         /// <summary>
-        /// Updates the element associated with the specified priority.
-        /// </summary>
-        /// <param name="priority">The priority of the element to update.</param>
-        /// <param name="element">The new element.</param>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
-        /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
-        void Update(TPriority priority, TElement element);
-
-        /// <summary>
-        /// Updates the element associated with the specified priority using the provided update function.
-        /// </summary>
-        /// <param name="priority">The priority of the element to update.</param>
-        /// <param name="updateFunction">The function used to generate the new element.</param>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="updateFunction"/> is null.</exception>
-        /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
-        void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction);
-
-        /// <summary>
         /// Attempts to remove the specified priority from the ConcurrentPriorityQueue.
         /// </summary>
         /// <param name="priority">The priority to remove.</param>
         /// <returns>true if the priority was removed successfully; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
-        bool TryRemovePriority(TPriority priority);
+        bool TryRemoveItemWithPriority(TPriority priority);
+
+        /// <summary>
+        /// Attempts to remove all the items with the specified priorities from the ConcurrentPriorityQueue.
+        /// </summary>
+        /// <param name="priority">The priority to remove.</param>
+        /// <returns>true if all items were removed successfully; otherwise, false.</returns>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+        bool TryRemoveAllItemsWithPriority(TPriority priority);
 
         /// <summary>
         /// Attempts to remove the specified element from the ConcurrentPriorityQueue.
@@ -88,6 +78,25 @@
         /// This parameter is passed uninitialized.</param>
         /// <returns>true if an element was removed successfully; otherwise, false.</returns>
         bool TryRemoveMin(out TElement item);
+
+
+        /// <summary>
+        /// Updates the element associated with the specified priority.
+        /// </summary>
+        /// <param name="priority">The priority of the element to update.</param>
+        /// <param name="element">The new element.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
+        void Update(TPriority priority, TElement element);
+
+        /// <summary>
+        /// Updates the element associated with the specified priority using the provided update function.
+        /// </summary>
+        /// <param name="priority">The priority of the element to update.</param>
+        /// <param name="updateFunction">The function used to generate the new element.</param>
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="updateFunction"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
+        void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction);
 
         /// <summary>
         /// Gets the number of nodes in the SkipList.

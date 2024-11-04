@@ -17,8 +17,8 @@ namespace lvlup.DataFerry.Collections
     /// This concurrent SkipList implementation offers:
     /// </para>
     /// <list type="bullet">
-    /// <item>Expected O(log n) time complexity for `Containspriority`, `TryGetelement`, `TryAdd`, `Update`, and `TryRemove` operations.</item> 
-    /// <item>Lock-free and wait-free `Containspriority` and `TryGetelement` operations.</item>
+    /// <item>Expected O(log n) time complexity for `Contains`, `TryGet`, `TryAdd`, `Update`, and `TryRemove` operations.</item> 
+    /// <item>Lock-free and wait-free `Contains` and `TryGet` operations.</item>
     /// <item>Lock-free priority enumerations.</item>
     /// </list>
     /// <para>
@@ -43,6 +43,8 @@ namespace lvlup.DataFerry.Collections
     /// </remarks>
     public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
     {
+        #region Global Variables
+
         /// <summary>
         /// Invalid level.
         /// </summary>
@@ -118,6 +120,10 @@ namespace lvlup.DataFerry.Collections
         /// </summary>
         private static readonly Random RandomGenerator = new();
 
+        #endregion
+
+        #region Constructors
+
         /// <summary>
         /// Initializes a new instance of the <see cref="ConcurrentPriorityQueue{TPriority, TElement}"/> class.
         /// </summary>
@@ -157,6 +163,9 @@ namespace lvlup.DataFerry.Collections
             tail.IsInserted = true;
         }
 
+        #endregion
+        #region Background Tasks
+
         /// <summary>
         /// Schedule the node to be physically deleted.
         /// </summary>
@@ -184,6 +193,9 @@ namespace lvlup.DataFerry.Collections
                 }
             });
         }
+
+        #endregion
+        #region Core Operations
 
         /// <inheritdoc/>
         public IEnumerator<TPriority> GetEnumerator()
@@ -236,6 +248,7 @@ namespace lvlup.DataFerry.Collections
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
             var searchResult = WeakSearch(priority);
+            element = default!;
 
             if (searchResult.IsFound 
                 && searchResult.GetNodeFound().IsInserted 
@@ -245,11 +258,10 @@ namespace lvlup.DataFerry.Collections
                 return true;
             }
 
-            element = default!;
             return false;
         }
 
-        /// <inheritdoc/>
+        // original method
         public bool TryAdd(TPriority priority, TElement element)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -329,72 +341,64 @@ namespace lvlup.DataFerry.Collections
                     }
                 }
             }
-        } 
+        }
 
+        /* Refactored method: contains severe performance regression
         /// <inheritdoc/>
-        // Needs to be revised
-        public void Update(TPriority priority, TElement element)
+        public bool TryAdd(TPriority priority, TElement element)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-            var searchResult = WeakSearch(priority);
+            int insertLevel = GenerateLevel();
 
-            if (!searchResult.IsFound 
-                || !searchResult.GetNodeFound().IsInserted 
-                || searchResult.GetNodeFound().IsDeleted)
+            while (true)
             {
-                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
-            }
+                var searchResult = WeakSearch(priority);
 
-            Node nodeToBeUpdated = searchResult.GetNodeFound();
-            nodeToBeUpdated.Lock();
-            try
-            {
-                if (nodeToBeUpdated.IsDeleted)
+                // Priority found
+                // Handle insertion of 'duplicates'
+                if (searchResult.IsFound)
                 {
-                    throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
+                    var curr = searchResult.GetNodeFound();
+
+                    if (curr.IsDeleted || curr is null) continue;
+
+                    if (!HandleDuplicateCase(curr, searchResult, priority, element))
+                    {
+                        return false;
+                    }
                 }
 
-                nodeToBeUpdated.Element = element;
-            }
-            finally
-            {
-                nodeToBeUpdated.Unlock();
-            }
-        }
-
-        /// <inheritdoc/>
-        // Needs to be revised
-        public void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction)
-        {
-            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
-            ArgumentNullException.ThrowIfNull(updateFunction, nameof(updateFunction));
-
-            var searchResult = WeakSearch(priority);
-
-            if (!searchResult.IsFound 
-                || !searchResult.GetNodeFound().IsInserted 
-                || searchResult.GetNodeFound().IsDeleted)
-            {
-                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
-            }
-
-            Node nodeToBeUpdated = searchResult.GetNodeFound();
-            nodeToBeUpdated.Lock();
-            try
-            {
-                if (nodeToBeUpdated.IsDeleted)
+                // Priority not found
+                // Handle insertion of 'new' node
+                int highestLevelLocked = InvalidLevel;
+                try
                 {
-                    throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
-                }
+                    if (!ValidateInsertion(searchResult, insertLevel, ref highestLevelLocked))
+                    {
+                        continue;
+                    }
 
-                nodeToBeUpdated.Element = updateFunction(priority, nodeToBeUpdated.Element);
-            }
-            finally
-            {
-                nodeToBeUpdated.Unlock();
+                    var newNode = new Node(priority, element, insertLevel);
+                    InsertNode(newNode, searchResult, insertLevel);
+
+                    // Linearization point: MemoryBarrier not required since IsInserted
+                    // is a volatile member (hence implicitly uses MemoryBarrier). 
+                    newNode.IsInserted = true;
+                    if (Interlocked.Increment(ref _count) > _maxSize) TryRemoveMin(out _);
+                    return true;
+                }
+                finally
+                {
+                    // Unlock order is not important.
+                    for (int level = highestLevelLocked; level >= 0; level--)
+                    {
+                        searchResult.GetPredecessor(level).Unlock();
+                    }
+                }
             }
         }
+        */
 
         /// <inheritdoc/>
         public bool TryRemoveMin(out TElement element)
@@ -436,8 +440,7 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        // Needs to be revised
-        public bool TryRemovePriority(TPriority priority)
+        public bool TryRemoveItemWithPriority(TPriority priority)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
@@ -452,56 +455,27 @@ namespace lvlup.DataFerry.Collections
                 var searchResult = WeakSearch(priority);
                 nodeToBeDeleted ??= searchResult.GetNodeFound();
 
-                // Ensure node is fully linked and not already deleted
-                if (!isLogicallyDeleted
-                    && (!nodeToBeDeleted.IsInserted
-                        || nodeToBeDeleted.TopLevel != searchResult.LevelFound
-                        || nodeToBeDeleted.IsDeleted))
-                {
-                    return false; // Node not fully linked or already deleted
+                if (!isLogicallyDeleted && NodeIsInvalidOrDeleted(nodeToBeDeleted, searchResult))
+                {   // Node not fully linked or already deleted
+                    return false;
                 }
 
                 // Logically delete the node if not already done
-                if (!isLogicallyDeleted)
+                if (!isLogicallyDeleted && !LogicallyDeleteNode(nodeToBeDeleted, searchResult, ref topLevel))
                 {
-                    topLevel = searchResult.LevelFound;
-                    nodeToBeDeleted.Lock();
-                    if (nodeToBeDeleted.IsDeleted)
-                    {
-                        nodeToBeDeleted.Unlock();
-                        return false;
-                    }
-
-                    // Linearization point: IsDeleted is volatile.
-                    nodeToBeDeleted.IsDeleted = true;
-                    isLogicallyDeleted = true;
+                    return false;
                 }
+                isLogicallyDeleted = true;
 
                 int highestLevelLocked = InvalidLevel;
                 try
                 {
-                    bool isValid = true;
-                    for (int level = 0; isValid && level <= topLevel; level++)
+                    if (!ValidateDeletion(nodeToBeDeleted, searchResult, topLevel, ref highestLevelLocked))
                     {
-                        var predecessor = searchResult.GetPredecessor(level);
-                        predecessor.Lock();
-                        highestLevelLocked = level;
-                        isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == nodeToBeDeleted;
+                        continue;
                     }
-
-                    if (isValid is false) continue;
 
                     ScheduleNodeRemoval(nodeToBeDeleted, topLevel);
-
-                    /* Original implementation; physically delete immediately
-                    for (int level = topLevel; level >= 0; level--)
-                    {
-                        var predecessor = searchResult.GetPredecessor(level);
-                        var newLink = nodeToBeDeleted.GetNextNode(level);
-
-                        predecessor.SetNextNode(level, newLink);
-                    }
-                    */
 
                     nodeToBeDeleted.Unlock();
                     Interlocked.Decrement(ref _count);
@@ -517,7 +491,99 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        /// <inheritdoc/>
+        public bool TryRemoveAllItemsWithPriority(TPriority priority)
+        {
+            throw new NotImplementedException();
+        }
+
+        /*
+        public bool TryRemoveAllItemsWithPriority(TPriority priority)
+        {
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+
+            Node? nodeToBeDeleted = null;
+            bool isLogicallyDeleted = false;
+
+            // Level at which the to be deleted node was found.
+            int topLevel = InvalidLevel;
+
+            while (true)
+            {
+                var searchResult = WeakSearch(priority);
+                if (!searchResult.IsFound)
+                {
+                    return false; // No nodes with the given priority
+                }
+
+                nodeToBeDeleted ??= searchResult.GetNodeFound();
+                if (curr.IsDeleted || curr is null)
+                {
+                    continue; // Node is already deleted or null, retry
+                }
+
+                // Iterate through all nodes with the given priority
+                while (_comparer.Compare(curr.Priority, priority) == 0)
+                {
+                    if (TryRemoveNode(curr, searchResult.LevelFound))
+                    {
+                        // Successfully removed a node, continue to the next one
+                        curr = curr.GetNextNode(searchResult.LevelFound);
+                    }
+                    else
+                    {
+                        // Failed to remove the node, retry
+                        break;
+                    }
+                }
+
+                // All nodes with the given priority have been processed (or we failed to remove one)
+                return true;
+            }
+        }
+
+        private static bool TryRemoveNode(Node nodeToBeDeleted, int topLevel)
+        {
+            bool isLogicallyDeleted = false;
+            var searchResult = WeakSearch(nodeToBeDeleted);
+
+            if (NodeIsInvalidOrDeleted(nodeToBeDeleted, searchResult))
+            {   // Node not fully linked or already deleted
+                return false;
+            }
+
+            // Logically delete the node
+            if (!LogicallyDeleteNode(nodeToBeDeleted, searchResult, ref topLevel))
+            {
+                return false;
+            }
+            isLogicallyDeleted = true;
+
+            int highestLevelLocked = InvalidLevel;
+            try
+            {
+                if (!ValidateDeletion(nodeToBeDeleted, searchResult, topLevel, ref highestLevelLocked))
+                {
+                    return false;
+                }
+
+                ScheduleNodeRemoval(nodeToBeDeleted, topLevel);
+
+                nodeToBeDeleted.Unlock();
+                Interlocked.Decrement(ref _count);
+                return true;
+            }
+            finally
+            {
+                for (int level = highestLevelLocked; level >= 0; level--)
+                {
+                    searchResult.GetPredecessor(level).Unlock();
+                }
+            }
+        }
+        */
+
+            /// <inheritdoc/>
+            // Needs to be implemented
         public bool TryRemoveElement(TElement element)
         {
             ArgumentNullException.ThrowIfNull(element, nameof(element));
@@ -533,44 +599,25 @@ namespace lvlup.DataFerry.Collections
                 var searchResult = WeakSearch(element);
                 nodeToBeDeleted ??= searchResult.GetNodeFound();
 
-                // Ensure node is fully linked and not already deleted
-                if (!isLogicallyDeleted
-                    && (!nodeToBeDeleted.IsInserted
-                        || nodeToBeDeleted.TopLevel != searchResult.LevelFound
-                        || nodeToBeDeleted.IsDeleted))
-                {
-                    return false; // Node not fully linked or already deleted
+                if (!isLogicallyDeleted && NodeIsInvalidOrDeleted(nodeToBeDeleted, searchResult))
+                {   // Node not fully linked or already deleted
+                    return false;
                 }
 
                 // Logically delete the node if not already done
-                if (!isLogicallyDeleted)
+                if (!isLogicallyDeleted && !LogicallyDeleteNode(nodeToBeDeleted, searchResult, ref topLevel))
                 {
-                    topLevel = searchResult.LevelFound;
-                    nodeToBeDeleted.Lock();
-                    if (nodeToBeDeleted.IsDeleted)
-                    {
-                        nodeToBeDeleted.Unlock();
-                        return false;
-                    }
-
-                    // Linearization point: IsDeleted is volatile.
-                    nodeToBeDeleted.IsDeleted = true;
-                    isLogicallyDeleted = true;
+                    return false;
                 }
+                isLogicallyDeleted = true;
 
                 int highestLevelLocked = InvalidLevel;
                 try
                 {
-                    bool isValid = true;
-                    for (int level = 0; isValid && level <= topLevel; level++)
+                    if (!ValidateDeletion(nodeToBeDeleted, searchResult, topLevel, ref highestLevelLocked))
                     {
-                        var predecessor = searchResult.GetPredecessor(level);
-                        predecessor.Lock();
-                        highestLevelLocked = level;
-                        isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == nodeToBeDeleted;
+                        continue;
                     }
-
-                    if (isValid is false) continue;
 
                     ScheduleNodeRemoval(nodeToBeDeleted, topLevel);
 
@@ -588,8 +635,73 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
+
+        /// <inheritdoc/>
+        // Needs to be refactored
+        public void Update(TPriority priority, TElement element)
+        {
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+
+            var searchResult = WeakSearch(priority);
+
+            if (NodeNotFoundOrInvalid(searchResult))
+            {
+                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
+            }
+
+            Node nodeToBeUpdated = searchResult.GetNodeFound();
+            nodeToBeUpdated.Lock();
+            try
+            {
+                if (nodeToBeUpdated.IsDeleted)
+                {
+                    throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
+                }
+
+                nodeToBeUpdated.Element = element;
+            }
+            finally
+            {
+                nodeToBeUpdated.Unlock();
+            }
+        }
+
+        /// <inheritdoc/>
+        // Needs to be refactored
+        public void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction)
+        {
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+            ArgumentNullException.ThrowIfNull(updateFunction, nameof(updateFunction));
+
+            var searchResult = WeakSearch(priority);
+
+            if (NodeNotFoundOrInvalid(searchResult))
+            {
+                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
+            }
+
+            Node nodeToBeUpdated = searchResult.GetNodeFound();
+            nodeToBeUpdated.Lock();
+            try
+            {
+                if (nodeToBeUpdated.IsDeleted)
+                {
+                    throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
+                }
+
+                nodeToBeUpdated.Element = updateFunction(priority, nodeToBeUpdated.Element);
+            }
+            finally
+            {
+                nodeToBeUpdated.Unlock();
+            }
+        }
+
         /// <inheritdoc/>
         public int GetCount() => _count;
+
+        #endregion
+        #region Helper Methods
 
         /// <summary>
         /// Waits (spins) until the specified node is marked as logically inserted, 
@@ -744,10 +856,115 @@ namespace lvlup.DataFerry.Collections
                    && predecessor.GetNextNode(level) == successor;
         }
 
+        private static bool NodeNotFoundOrInvalid(SearchResult searchResult)
+        {
+            return !searchResult.IsFound
+                || !searchResult.GetNodeFound().IsInserted
+                || searchResult.GetNodeFound().IsDeleted;
+        }
+
+        private bool HandleDuplicateCase(Node curr, SearchResult result, TPriority priority, TElement element)
+        {
+            while (_comparer.Compare(curr.Priority, priority) == 0)
+            {
+                if (_elementComparer.Compare(curr.Element, element) == 0)
+                {
+                    // Spin until the duplicate priority is logically inserted.
+                    WaitUntilIsInserted(curr);
+                    return false;
+                }
+
+                curr = curr.GetNextNode(result.LevelFound);
+            }
+
+            return true;
+        }
+
+        private static bool ValidateInsertion(SearchResult searchResult, int insertLevel, ref int highestLevelLocked)
+        {
+            bool isValid = true;
+            for (int level = 0; isValid && level <= insertLevel; level++)
+            {
+                var predecessor = searchResult.GetPredecessor(level);
+                var successor = searchResult.GetSuccessor(level);
+
+                predecessor.Lock();
+                Interlocked.Exchange(ref highestLevelLocked, level);
+
+                // If predecessor is locked and the predecessor is still pointing at the successor, successor cannot be deleted.
+                isValid = IsValidLevel(predecessor, successor, level);
+            }
+
+            return isValid;
+        }
+
+        private static void InsertNode(Node newNode, SearchResult searchResult, int insertLevel)
+        {
+            // Initialize all the next pointers.
+            for (int level = 0; level <= insertLevel; level++)
+            {
+                newNode.SetNextNode(level, searchResult.GetSuccessor(level));
+            }
+
+            // Ensure that the node is fully initialized before physical linking starts.
+            Thread.MemoryBarrier();
+
+            for (int level = 0; level <= insertLevel; level++)
+            {
+                // Note that this is required for correctness.
+                // Remove takes a dependency of the fact that if found at expected level, all the predecessors have already been correctly linked.
+                // Hence we only need to use a MemoryBarrier before linking in the top level. 
+                if (level == insertLevel)
+                {
+                    Thread.MemoryBarrier();
+                }
+
+                searchResult.GetPredecessor(level).SetNextNode(level, newNode);
+            }
+        }
+
+        private static bool NodeIsInvalidOrDeleted(Node nodeToBeDeleted, SearchResult searchResult)
+        {
+            return !nodeToBeDeleted.IsInserted
+                || nodeToBeDeleted.TopLevel != searchResult.LevelFound
+                || nodeToBeDeleted.IsDeleted;
+        }
+
+        private static bool LogicallyDeleteNode(Node nodeToBeDeleted, SearchResult searchResult, ref int topLevel)
+        {
+            Interlocked.Exchange(ref topLevel, searchResult.LevelFound);
+            nodeToBeDeleted.Lock();
+            if (nodeToBeDeleted.IsDeleted)
+            {
+                nodeToBeDeleted.Unlock();
+                return false;
+            }
+
+            // Linearization point: IsDeleted is volatile.
+            nodeToBeDeleted.IsDeleted = true;
+            return true;
+        }
+
+        private static bool ValidateDeletion(Node nodeToBeDeleted, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
+        {
+            bool isValid = true;
+            for (int level = 0; isValid && level <= topLevel; level++)
+            {
+                var predecessor = searchResult.GetPredecessor(level);
+                predecessor.Lock();
+                Interlocked.Exchange(ref highestLevelUnlocked, level);
+                isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == nodeToBeDeleted;
+            }
+            return isValid;
+        }
+
+        #endregion
+        #region Internal Classes
+
         /// <summary>
         /// Represents a node in the SkipList.
         /// </summary>
-        public class Node
+        public sealed class Node
         {
             private readonly Lock nodeLock = new();
             private readonly Node[] nextNodeArray;
@@ -863,7 +1080,7 @@ namespace lvlup.DataFerry.Collections
         /// <param name="LevelFound">The level at which the priority was found (or <see cref="NotFoundLevel"/> if not found).</param>
         /// <param name="PredecessorArray">An array of predecessor nodes at each level.</param>
         /// <param name="SuccessorArray">An array of successor nodes at each level.</param>
-        private record SearchResult(int LevelFound, Node[] PredecessorArray, Node[] SuccessorArray)
+        public sealed record SearchResult(int LevelFound, Node[] PredecessorArray, Node[] SuccessorArray)
         {
             /// <summary>
             /// Represents the level element when a priority is not found in the SkipList.
@@ -911,5 +1128,6 @@ namespace lvlup.DataFerry.Collections
                 return SuccessorArray[LevelFound];
             }
         }
+        #endregion
     }
 }
