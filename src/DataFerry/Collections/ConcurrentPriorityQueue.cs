@@ -98,7 +98,7 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// Head of the skip list.
         /// </summary>
-        private readonly Node _head;
+        private readonly SkipListNode _head;
 
         /// <summary>
         /// Priority comparer used to order the priorities.
@@ -149,8 +149,8 @@ namespace lvlup.DataFerry.Collections
             _maxSize = maxSize;
             _topLevel = _numberOfLevels - 1;
 
-            _head = new Node(Node.NodeType.Head, _topLevel);
-            var tail = new Node(Node.NodeType.Tail, _topLevel);
+            _head = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
+            var tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
 
             // Link head to tail at all levels
             for (int level = 0; level <= _topLevel; level++)
@@ -172,7 +172,7 @@ namespace lvlup.DataFerry.Collections
         /// <remarks>Node must already be logically deleted.</remarks>
         /// <param name="node"></param>
         /// <param name="topLevel"></param>
-        private void ScheduleNodeRemoval(Node node, int? topLevel = null)
+        private void ScheduleNodeRemoval(SkipListNode node, int? topLevel = null)
         {
             if (!node.IsDeleted) return;
 
@@ -184,7 +184,7 @@ namespace lvlup.DataFerry.Collections
 
                 for (int level = startingLevel; level >= 0; level--)
                 {
-                    Node predecessor = _head;
+                    SkipListNode predecessor = _head;
                     while (predecessor.GetNextNode(level) != node)
                     {
                         predecessor = predecessor.GetNextNode(level);
@@ -200,13 +200,13 @@ namespace lvlup.DataFerry.Collections
         /// <inheritdoc/>
         public IEnumerator<TPriority> GetEnumerator()
         {
-            Node current = _head;
+            SkipListNode current = _head;
             while (true)
             {
                 current = current.GetNextNode(BottomLevel);
 
                 // If current is tail, this must be the end of the list.
-                if (current.Type == Node.NodeType.Tail) yield break;
+                if (current.Type == SkipListNode.NodeType.Tail) yield break;
 
                 // Takes advantage of the fact that next is set before 
                 // the node is physically linked.
@@ -305,7 +305,7 @@ namespace lvlup.DataFerry.Collections
                     }
 
                     // Create the new node and initialize all the next pointers.
-                    var newNode = new Node(priority, element, insertLevel);
+                    var newNode = new SkipListNode(priority, element, insertLevel);
                     for (int level = 0; level <= insertLevel; level++)
                     {
                         newNode.SetNextNode(level, searchResult.GetSuccessor(level));
@@ -405,10 +405,10 @@ namespace lvlup.DataFerry.Collections
         {
             while (true)
             {
-                Node? nodeToBeDeleted = _head.GetNextNode(0);
+                SkipListNode? nodeToBeDeleted = _head.GetNextNode(0);
 
                 // If the first node is the tail, the list is empty
-                if (nodeToBeDeleted.Type == Node.NodeType.Tail)
+                if (nodeToBeDeleted.Type == SkipListNode.NodeType.Tail)
                 {
                     element = default!;
                     return false;
@@ -444,7 +444,7 @@ namespace lvlup.DataFerry.Collections
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-            Node? nodeToBeDeleted = null;
+            SkipListNode? nodeToBeDeleted = null;
             bool isLogicallyDeleted = false;
 
             // Level at which the to be deleted node was found.
@@ -588,7 +588,7 @@ namespace lvlup.DataFerry.Collections
         {
             ArgumentNullException.ThrowIfNull(element, nameof(element));
 
-            Node? nodeToBeDeleted = null;
+            SkipListNode? nodeToBeDeleted = null;
             bool isLogicallyDeleted = false;
 
             // Level at which the to be deleted node was found.
@@ -649,7 +649,7 @@ namespace lvlup.DataFerry.Collections
                 throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
             }
 
-            Node nodeToBeUpdated = searchResult.GetNodeFound();
+            SkipListNode nodeToBeUpdated = searchResult.GetNodeFound();
             nodeToBeUpdated.Lock();
             try
             {
@@ -680,7 +680,7 @@ namespace lvlup.DataFerry.Collections
                 throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
             }
 
-            Node nodeToBeUpdated = searchResult.GetNodeFound();
+            SkipListNode nodeToBeUpdated = searchResult.GetNodeFound();
             nodeToBeUpdated.Lock();
             try
             {
@@ -708,7 +708,7 @@ namespace lvlup.DataFerry.Collections
         /// meaning it has been physically inserted at every level.
         /// </summary>
         /// <param name="node">The node to wait for.</param>
-        private static void WaitUntilIsInserted(Node node)
+        private static void WaitUntilIsInserted(SkipListNode node)
         {
             SpinWait.SpinUntil(() => node.IsInserted);
         }
@@ -751,13 +751,13 @@ namespace lvlup.DataFerry.Collections
         private SearchResult WeakSearch(TPriority priority)
         {
             int levelFound = InvalidLevel;
-            Node[] predecessorArray = new Node[_numberOfLevels];
-            Node[] successorArray = new Node[_numberOfLevels];
+            SkipListNode[] predecessorArray = new SkipListNode[_numberOfLevels];
+            SkipListNode[] successorArray = new SkipListNode[_numberOfLevels];
 
-            Node predecessor = _head;
+            SkipListNode predecessor = _head;
             for (int level = _topLevel; level >= 0; level--)
             {
-                Node current = predecessor.GetNextNode(level);
+                SkipListNode current = predecessor.GetNextNode(level);
 
                 while (Compare(current, priority) < 0)
                 {
@@ -799,13 +799,13 @@ namespace lvlup.DataFerry.Collections
         private SearchResult WeakSearch(TElement element)
         {
             int levelFound = InvalidLevel;
-            Node[] predecessorArray = new Node[_numberOfLevels];
-            Node[] successorArray = new Node[_numberOfLevels];
+            SkipListNode[] predecessorArray = new SkipListNode[_numberOfLevels];
+            SkipListNode[] successorArray = new SkipListNode[_numberOfLevels];
 
-            Node predecessor = _head;
+            SkipListNode predecessor = _head;
             for (int level = _topLevel; level >= 0; level--)
             {
-                Node current = predecessor.GetNextNode(level);
+                SkipListNode current = predecessor.GetNextNode(level);
 
                 while (Compare(current, element) < 0)
                 {
@@ -826,27 +826,27 @@ namespace lvlup.DataFerry.Collections
             return new SearchResult(levelFound, predecessorArray, successorArray);
         }
 
-        private int Compare(Node node, TPriority priority)
+        private int Compare(SkipListNode node, TPriority priority)
         {
             return node.Type switch
             {
-                Node.NodeType.Head => -1,
-                Node.NodeType.Tail => 1,
+                SkipListNode.NodeType.Head => -1,
+                SkipListNode.NodeType.Tail => 1,
                 _ => _comparer.Compare(node.Priority, priority)
             };
         }
 
-        private int Compare(Node node, TElement element)
+        private int Compare(SkipListNode node, TElement element)
         {
             return node.Type switch
             {
-                Node.NodeType.Head => -1,
-                Node.NodeType.Tail => 1,
+                SkipListNode.NodeType.Head => -1,
+                SkipListNode.NodeType.Tail => 1,
                 _ => _elementComparer.Compare(node.Element, element)
             };
         }
 
-        private static bool IsValidLevel(Node predecessor, Node successor, int level)
+        private static bool IsValidLevel(SkipListNode predecessor, SkipListNode successor, int level)
         {
             ArgumentNullException.ThrowIfNull(predecessor, nameof(predecessor));
             ArgumentNullException.ThrowIfNull(successor, nameof(successor));
@@ -863,7 +863,7 @@ namespace lvlup.DataFerry.Collections
                 || searchResult.GetNodeFound().IsDeleted;
         }
 
-        private bool HandleDuplicateCase(Node curr, SearchResult result, TPriority priority, TElement element)
+        private bool HandleDuplicateCase(SkipListNode curr, SearchResult result, TPriority priority, TElement element)
         {
             while (_comparer.Compare(curr.Priority, priority) == 0)
             {
@@ -898,7 +898,7 @@ namespace lvlup.DataFerry.Collections
             return isValid;
         }
 
-        private static void InsertNode(Node newNode, SearchResult searchResult, int insertLevel)
+        private static void InsertNode(SkipListNode newNode, SearchResult searchResult, int insertLevel)
         {
             // Initialize all the next pointers.
             for (int level = 0; level <= insertLevel; level++)
@@ -923,14 +923,14 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        private static bool NodeIsInvalidOrDeleted(Node nodeToBeDeleted, SearchResult searchResult)
+        private static bool NodeIsInvalidOrDeleted(SkipListNode nodeToBeDeleted, SearchResult searchResult)
         {
             return !nodeToBeDeleted.IsInserted
                 || nodeToBeDeleted.TopLevel != searchResult.LevelFound
                 || nodeToBeDeleted.IsDeleted;
         }
 
-        private static bool LogicallyDeleteNode(Node nodeToBeDeleted, SearchResult searchResult, ref int topLevel)
+        private static bool LogicallyDeleteNode(SkipListNode nodeToBeDeleted, SearchResult searchResult, ref int topLevel)
         {
             Interlocked.Exchange(ref topLevel, searchResult.LevelFound);
             nodeToBeDeleted.Lock();
@@ -945,7 +945,7 @@ namespace lvlup.DataFerry.Collections
             return true;
         }
 
-        private static bool ValidateDeletion(Node nodeToBeDeleted, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
+        private static bool ValidateDeletion(SkipListNode nodeToBeDeleted, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
         {
             bool isValid = true;
             for (int level = 0; isValid && level <= topLevel; level++)
@@ -964,10 +964,10 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// Represents a node in the SkipList.
         /// </summary>
-        public sealed class Node
+        public sealed class SkipListNode
         {
             private readonly Lock nodeLock = new();
-            private readonly Node[] nextNodeArray;
+            private readonly SkipListNode[] nextNodeArray;
             private volatile bool isInserted;
             private volatile bool isDeleted;
 
@@ -976,26 +976,26 @@ namespace lvlup.DataFerry.Collections
             /// </summary>
             /// <param name="nodeType">The type of the node.</param>
             /// <param name="height">The height (level) of the node.</param>
-            public Node(NodeType nodeType, int height)
+            public SkipListNode(NodeType nodeType, int height)
             {
                 Priority = default!;
                 Element = default!;
                 Type = nodeType;
-                nextNodeArray = new Node[height + 1];
+                nextNodeArray = new SkipListNode[height + 1];
             }
 
             /// <summary>
-            /// Initializes a new instance of the <see cref="Node"/> class.
+            /// Initializes a new instance of the <see cref="SkipListNode"/> class.
             /// </summary>
             /// <param name="priority">The priority associated with the node.</param>
             /// <param name="element">The element associated with the node.</param>
             /// <param name="height">The height (level) of the node.</param>
-            public Node(TPriority priority, TElement element, int height)
+            public SkipListNode(TPriority priority, TElement element, int height)
             {
                 Priority = priority;
                 Element = element;
                 Type = NodeType.Data;
-                nextNodeArray = new Node[height + 1];
+                nextNodeArray = new SkipListNode[height + 1];
             }
 
             /// <summary>
@@ -1054,14 +1054,14 @@ namespace lvlup.DataFerry.Collections
             /// </summary>
             /// <param name="height">The height (level) at which to get the next node.</param>
             /// <returns>The next node at the specified height.</returns>
-            public Node GetNextNode(int height) => nextNodeArray[height];
+            public SkipListNode GetNextNode(int height) => nextNodeArray[height];
 
             /// <summary>
             /// Sets the next node at the specified height (level).
             /// </summary>
             /// <param name="height">The height (level) at which to set the next node.</param>
             /// <param name="next">The next node to set.</param>
-            public void SetNextNode(int height, Node next) => nextNodeArray[height] = next;
+            public void SetNextNode(int height, SkipListNode next) => nextNodeArray[height] = next;
 
             /// <summary>
             /// Acquires the lock associated with the node.
@@ -1080,7 +1080,7 @@ namespace lvlup.DataFerry.Collections
         /// <param name="LevelFound">The level at which the priority was found (or <see cref="NotFoundLevel"/> if not found).</param>
         /// <param name="PredecessorArray">An array of predecessor nodes at each level.</param>
         /// <param name="SuccessorArray">An array of successor nodes at each level.</param>
-        public sealed record SearchResult(int LevelFound, Node[] PredecessorArray, Node[] SuccessorArray)
+        public sealed record SearchResult(int LevelFound, SkipListNode[] PredecessorArray, SkipListNode[] SuccessorArray)
         {
             /// <summary>
             /// Represents the level element when a priority is not found in the SkipList.
@@ -1098,7 +1098,7 @@ namespace lvlup.DataFerry.Collections
             /// <param name="level">The level at which to get the predecessor node.</param>
             /// <returns>The predecessor node at the specified level.</returns>
             /// <exception cref="ArgumentNullException">Thrown if <see cref="PredecessorArray"/> is null.</exception>
-            public Node GetPredecessor(int level)
+            public SkipListNode GetPredecessor(int level)
             {
                 ArgumentNullException.ThrowIfNull(PredecessorArray, nameof(PredecessorArray));
                 return PredecessorArray[level];
@@ -1110,7 +1110,7 @@ namespace lvlup.DataFerry.Collections
             /// <param name="level">The level at which to get the successor node.</param>
             /// <returns>The successor node at the specified level.</returns>
             /// <exception cref="ArgumentNullException">Thrown if <see cref="SuccessorArray"/> is null.</exception>
-            public Node GetSuccessor(int level)
+            public SkipListNode GetSuccessor(int level)
             {
                 ArgumentNullException.ThrowIfNull(SuccessorArray, nameof(SuccessorArray));
                 return SuccessorArray[level];
@@ -1121,7 +1121,7 @@ namespace lvlup.DataFerry.Collections
             /// </summary>
             /// <returns>The node that was found.</returns>
             /// <exception cref="InvalidOperationException">Thrown if the priority was not found (<see cref="IsFound"/> is false).</exception>
-            public Node GetNodeFound()
+            public SkipListNode GetNodeFound()
             {
                 if (!IsFound) throw new InvalidOperationException("Cannot get node found when the priority was not found.");
 

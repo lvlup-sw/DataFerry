@@ -16,7 +16,7 @@
         public static void BubbleSort<T>(this IList<T> collection, Comparer<T> comparer = default!, bool ascending = true)
         {
             comparer ??= Comparer<T>.Default;
-            collection.BubbleSortInternal(comparer, ascending 
+            collection.BubbleSortInternal(ascending 
                 ? (a, b) => comparer.Compare(a, b) > 0
                 : (a, b) => comparer.Compare(a, b) < 0);
         }
@@ -26,9 +26,8 @@
         /// </summary>
         /// <typeparam name="T">The type of elements in the list.</typeparam>
         /// <param name="collection">The list to sort.</param>
-        /// <param name="comparer">The comparer used to determine the order of elements.</param>
         /// <param name="shouldSwap">A function that determines whether two elements should be swapped.</param>
-        private static void BubbleSortInternal<T>(this IList<T> collection, Comparer<T> comparer, Func<T, T, bool> shouldSwap)
+        private static void BubbleSortInternal<T>(this IList<T> collection, Func<T, T, bool> shouldSwap)
         {
             for (int i = 0; i < collection.Count - 1; i++)
             {

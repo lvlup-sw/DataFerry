@@ -169,10 +169,7 @@ namespace lvlup.DataFerry.Collections
                 tablePtr[blockOffset.GetElement(3)] += inc.GetElement(3);
 
                 // If the size has reached the sample size, reset the sketch
-                if (wasInc && ++size == sampleSize)
-                {
-                    Reset();
-                }
+                if (wasInc && ++size == sampleSize) Reset();
             }
         }
 
