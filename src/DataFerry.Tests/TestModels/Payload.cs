@@ -43,6 +43,37 @@
             return Data.Equals(other.Data);
         }
 
+        public int CompareTo(Payload other)
+        {
+            if (other == null) return 1; // Consider current object greater if other is null
+
+            // Compare Identifier
+            int identifierComparison = Identifier.CompareTo(other.Identifier);
+            if (identifierComparison != 0) return identifierComparison;
+
+            // Compare Property
+            int propertyComparison = Property.CompareTo(other.Property);
+            if (propertyComparison != 0) return propertyComparison;
+
+            // Compare Version
+            int versionComparison = Version.CompareTo(other.Version);
+            if (versionComparison != 0) return versionComparison;
+
+            // Compare Data lengths
+            int dataLengthComparison = Data.Length.CompareTo(other.Data.Length);
+            if (dataLengthComparison != 0) return dataLengthComparison;
+
+            // Compare Data elements (assuming Data is an array of comparable elements)
+            for (int i = 0; i < Data.Length; i++)
+            {
+                int dataComparison = Data[i].CompareTo(other.Data[i]);
+                if (dataComparison != 0) return dataComparison;
+            }
+
+            // If all properties are equal
+            return 0;
+        }
+
         public static bool AreEquivalent(List<Payload> firstList, List<Payload> secondList)
         {
             if (firstList == null || secondList == null) return firstList == secondList;

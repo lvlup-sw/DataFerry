@@ -1,7 +1,7 @@
 ﻿using lvlup.DataFerry.Collections;
 using lvlup.DataFerry.Tests.TestModels;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Collections
 {
     [TestClass]
     public class CountMinSketchTests

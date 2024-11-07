@@ -1,7 +1,7 @@
 ﻿using lvlup.DataFerry.Utilities;
 using System.Text;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Utilities
 {
     [TestClass]
     public class HashGeneratorTests

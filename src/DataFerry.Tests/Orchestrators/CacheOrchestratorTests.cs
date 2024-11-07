@@ -10,7 +10,7 @@ using System.Text.Json;
 using lvlup.DataFerry.Orchestrators;
 using Microsoft.Extensions.Caching.Distributed;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Orchestrators
 {
     [TestClass]
     public class CacheOrchestratorTests
@@ -34,7 +34,7 @@ namespace lvlup.DataFerry.Tests
             InMemoryAbsoluteExpiration = 60,
             UseMemoryCache = true
         });
-        
+
         [TestInitialize]
         public void Setup()
         {

@@ -4,7 +4,7 @@ using lvlup.DataFerry.Orchestrators.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Collections
 {
     [TestClass]
     public class ConcurrentPriorityQueueTests

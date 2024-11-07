@@ -1,6 +1,6 @@
 ﻿using lvlup.DataFerry.Collections;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Collections
 {
     [TestClass]
     public class StackedArrayPoolTests

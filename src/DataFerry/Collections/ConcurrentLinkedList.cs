@@ -26,7 +26,7 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// The head of the linked list.
         /// </summary>
-        private static volatile Node<T> _head = InitializeHead();
+        private volatile Node<T> _head;
 
         /// <summary>
         /// The comparer used to compare keys.
@@ -44,8 +44,8 @@ namespace lvlup.DataFerry.Collections
         /// <param name="comparer">The comparer to use for comparing keys.</param>
         public ConcurrentLinkedList(IComparer<T>? comparer = default)
         {
+            _head = new(default!, NodeState.REM);
             _comparer = comparer ?? Comparer<T>.Default;
-            _count = 0;
         }
 
         /// <inheritdoc/>
@@ -54,15 +54,18 @@ namespace lvlup.DataFerry.Collections
             Node<T> newNode = new(key, NodeState.INS);
             Enlist(newNode);
 
-            bool result = HelpInsert(_head, newNode);
+            bool result = HelpInsert(newNode, key);
 
-            if (Interlocked.CompareExchange(ref _head.State, NodeState.DAT, NodeState.INS) != NodeState.INS)
+            // Attempt to transition node state from INS to DAT or INV
+            // If CAS fails, another thread has modified the node, so retry
+            // HelpRemove is called only if CAS succeeds and result is false
+            if (Interlocked.CompareExchange(ref newNode.State, result ? NodeState.DAT : NodeState.INV, NodeState.INS) != NodeState.INS)
             {
-                HelpRemove(_head, key);
-                _head.State = NodeState.INV;
+                HelpRemove(newNode, key);
+                newNode.State = NodeState.INV;
+                Interlocked.Decrement(ref _count);
             }
 
-            Interlocked.Increment(ref _count);
             return result;
         }
 
@@ -72,10 +75,9 @@ namespace lvlup.DataFerry.Collections
             Node<T> newNode = new(key, NodeState.REM);
             Enlist(newNode);
 
-            bool result = HelpRemove(_head, key);
-            _head.State = NodeState.INV;
+            bool result = HelpRemove(newNode, key);
+            newNode.State = NodeState.INV;
 
-            Interlocked.Decrement(ref _count);
             return result;
         }
 
@@ -96,9 +98,9 @@ namespace lvlup.DataFerry.Collections
         /// <inheritdoc/>
         public Node<T>? Find(T value)
         {
-            for (Node<T>? curr = _head.Next; curr != null; curr = curr.Next)
+            for (Node<T>? curr = _head; curr != null; curr = curr.Next)
             {
-                if ((curr.State == NodeState.DAT || curr.State == NodeState.INS) 
+                if ((curr.State == NodeState.DAT || curr.State == NodeState.INS)
                     && _comparer.Compare(curr.Key, value) == 0)
                 {
                     return curr;
@@ -113,12 +115,13 @@ namespace lvlup.DataFerry.Collections
         {
             ArgumentNullException.ThrowIfNull(array, nameof(array));
             ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(array.Length, 0);
             ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, array.Length);
-            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(_count, array.Length - index, 
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(_count, array.Length - index, 
                 "The number of elements in the list is greater than the available space from index to the end of the destination array.");
 
             int i = index;
-            Node<T>? curr = _head.Next;
+            Node<T>? curr = _head;
             while (curr is not null)
             {
                 if (curr.State == NodeState.DAT || curr.State == NodeState.INS)
@@ -134,25 +137,19 @@ namespace lvlup.DataFerry.Collections
         public int Count => _count;
 
         /// <summary>
-        /// Initialize a default Node state for the head.
-        /// </summary>
-        private static Node<T> InitializeHead() => new(default!, NodeState.INV);
-
-        /// <summary>
         /// Enlists a new node into the linked list.
         /// </summary>
-        /// <param name="node">The node to enlist.</param>
-        /// <returns>true if the node was enlisted successfully; otherwise, false.</returns>
-        private static bool Enlist(Node<T> node)
+        /// <param name="newNode">The node to enlist.</param>
+        private void Enlist(Node<T> newNode)
         {
             while (true)
             {
                 var old = _head;
-                node.Next = old;
+                newNode.Next = old;
 
-                if (Interlocked.CompareExchange(ref _head, node, old) == old)
+                if (Interlocked.CompareExchange(ref _head, newNode, old) == old)
                 {
-                    return true;
+                    return;
                 }
             }
         }
@@ -160,74 +157,74 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// Helper function to insert a node into the list.
         /// </summary>
-        /// <param name="head">The head of the list.</param>
         /// <param name="newNode">The node to insert.</param>
+        /// <param name="key">The key of the node.</param>
         /// <returns>true if the node was inserted successfully; otherwise, false.</returns>
-        private bool HelpInsert(Node<T> head, Node<T> newNode)
+        private bool HelpInsert(Node<T> newNode, T key)
         {
-            Node<T> pred = head;
+            Node<T> pred = newNode;
             Node<T> curr = pred.Next;
 
             while (curr is not null)
             {
                 if (curr.State == NodeState.INV)
                 {   // State is Invalid
-                    ReplaceNode(pred, curr);
-                    curr = pred.Next;
+                    ReplaceNode(pred, ref curr);
                 }
-                else if (_comparer.Compare(curr.Key, newNode.Key) == 0)
-                {   // Key match found
-                    return curr.State switch
-                    {
-                        NodeState.REM => true,
-                        NodeState.INS or NodeState.DAT => false,
-                        _ => throw new InvalidOperationException("Unexpected node state")
-                    };
-                }
-                else
+                else if (_comparer.Compare(curr.Key, key) != 0)
                 {   // Keys don't match, move to the next node
                     pred = curr;
                     curr = curr.Next;
                 }
+                else if (curr.State == NodeState.REM)
+                {   // Curr is being removed
+                    return true;
+                }
+                else if (curr.State == NodeState.INS || curr.State == NodeState.DAT)
+                {   // Curr is being inserted or has been inserted
+                    return false;
+                }
             }
 
-            pred.Next = newNode;
-            newNode.Prev = pred;
+            Interlocked.Increment(ref _count);
             return true;
         }
 
         /// <summary>
         /// Helper function to remove a node from the list.
         /// </summary>
-        /// <param name="head">The head of the list.</param>
-        /// <param name="key">The key of the node to remove.</param>
+        /// <param name="newNode">The node to remove.</param>
+        /// <param name="key">The key of the node.</param>
         /// <returns>true if the node was removed successfully; otherwise, false.</returns>
-        private bool HelpRemove(Node<T> head, T key)
+        private bool HelpRemove(Node<T> newNode, T key)
         {
-            Node<T> pred = head;
+            Node<T> pred = newNode;
             Node<T> curr = pred.Next;
 
             while (curr is not null)
             {
                 if (curr.State == NodeState.INV)
                 {   // State is Invalid
-                    ReplaceNode(pred, curr);
-                    curr = pred.Next;
+                    ReplaceNode(pred, ref curr);
                 }
-                else if (_comparer.Compare(curr.Key, key) == 0)
-                {   // Key match found
-                    return curr.State switch
-                    {
-                        NodeState.REM => false,
-                        NodeState.INS => Interlocked.CompareExchange(ref curr.State, NodeState.REM, NodeState.INS) == NodeState.INS,
-                        NodeState.DAT => SetStateToInv(curr),
-                        _ => throw new InvalidOperationException("Unexpected node state")
-                    };
-                }
-                else
+                else if (_comparer.Compare(curr.Key, key) != 0)
                 {   // Keys don't match, move to the next node
                     pred = curr;
                     curr = curr.Next;
+                }
+                else if (curr.State == NodeState.REM)
+                {   // Curr was successfully marked for removal
+                    return true;
+                }
+                else if (TryUpdateState(curr))
+                {   // Validate the state and return
+                    if (curr.State == NodeState.DAT)
+                    {
+                        curr.State = NodeState.INV;
+                        Interlocked.Decrement(ref _count);
+                    }
+
+                    return true;
                 }
             }
 
@@ -239,26 +236,32 @@ namespace lvlup.DataFerry.Collections
         /// </summary>
         /// <param name="pred">The predecessor node.</param>
         /// <param name="curr">The node to replace.</param>
-        private static void ReplaceNode(Node<T> pred, Node<T> curr)
+        private static void ReplaceNode(Node<T> pred, ref Node<T> curr)
         {
             Node<T> succ = curr.Next;
             pred.Next = succ;
 
-            if (succ is not null)
-            {
-                succ.Prev = pred;
-            }
+            // Null value is expected behavior
+            Interlocked.Exchange(ref curr, succ);
         }
 
         /// <summary>
-        /// Sets the state of a node to <see cref="NodeState.INV"/>.
+        /// Tries to update the state of the given node.
         /// </summary>
-        /// <param name="node">The node to update.</param>
-        /// <returns>true.</returns>
-        private static bool SetStateToInv(Node<T> node)
+        /// <param name="curr">The node to update.</param>
+        /// <returns>
+        /// <c>true</c> if the state was successfully updated to REM (from INS) or is already DAT; otherwise, <c>false</c>.
+        /// </returns>
+        private bool TryUpdateState(Node<T> curr)
         {
-            node.State = NodeState.INV;
-            return true;
+            if (curr.State == NodeState.INS 
+                && Interlocked.CompareExchange(ref curr.State, NodeState.REM, NodeState.INS) == NodeState.INS)
+            {
+                Interlocked.Decrement(ref _count);
+                return true;
+            }
+
+            return curr.State == NodeState.DAT;
         }
     }
 

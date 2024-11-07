@@ -24,8 +24,9 @@ namespace lvlup.DataFerry.Tests
             // Pre-populate the lists
             foreach (var item in _items)
             {
-                _concurrentList.TryInsert(item);
+                Console.WriteLine($"Adding {item}");
                 _linkedList.AddLast(item);
+                _concurrentList.TryInsert(item);
             }
         }
 
@@ -45,16 +46,7 @@ namespace lvlup.DataFerry.Tests
             _ = BenchmarkRunner.Run<LinkedListBenchmarks>();
         }
 
-        [Benchmark]
-        public void ConcurrentInsert()
-        {
-            for (int i = 0; i < 100; i++)
-            {
-                _concurrentList.TryInsert(i);
-            }
-        }
-
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 100)]
         public void LinkedListInsert()
         {
             for (int i = 0; i < 100; i++)
@@ -63,7 +55,16 @@ namespace lvlup.DataFerry.Tests
             }
         }
 
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 100)]
+        public void ConcurrentInsert()
+        {
+            for (int i = 0; i < 100; i++)
+            {
+                _concurrentList.TryInsert(i);
+            }
+        }
+
+        [Benchmark(OperationsPerInvoke = 100)]
         public void ConcurrentRemove()
         {
             for (int i = 0; i < 100; i++)
@@ -72,7 +73,7 @@ namespace lvlup.DataFerry.Tests
             }
         }
 
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 100)]
         public void LinkedListRemove()
         {
             for (int i = 0; i < 100; i++)
@@ -81,7 +82,7 @@ namespace lvlup.DataFerry.Tests
             }
         }
 
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 100)]
         public void ConcurrentContains()
         {
             for (int i = 0; i < 1000; i++)
@@ -90,7 +91,7 @@ namespace lvlup.DataFerry.Tests
             }
         }
 
-        [Benchmark]
+        [Benchmark(OperationsPerInvoke = 100)]
         public void LinkedListContains()
         {
             for (int i = 0; i < 1000; i++)

@@ -1,6 +1,6 @@
 ﻿using lvlup.DataFerry.Algorithms;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Algorithms
 {
     [TestClass]
     public class SortingExtensionsTests

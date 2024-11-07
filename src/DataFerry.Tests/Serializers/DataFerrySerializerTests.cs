@@ -8,7 +8,7 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Serializers
 {
     [TestClass]
     public class DataFerrySerializerTests

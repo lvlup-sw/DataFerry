@@ -1,7 +1,7 @@
 ﻿using lvlup.DataFerry.Buffers;
 using lvlup.DataFerry.Collections;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Buffers
 {
     [TestClass]
     public class RentedBufferWriterTests
@@ -105,7 +105,7 @@ namespace lvlup.DataFerry.Tests
         {
             // Arrange
             var writer = new RentedBufferWriter<byte>(_pool);
-            
+
             // Act
             var span = writer.GetSpan(10);
             for (int i = 0; i < 10; i++)
