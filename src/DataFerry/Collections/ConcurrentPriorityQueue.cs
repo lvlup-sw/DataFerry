@@ -759,7 +759,7 @@ namespace lvlup.DataFerry.Collections
             {
                 SkipListNode current = predecessor.GetNextNode(level);
 
-                while (Compare(current, priority) < 0)
+                while (Compare(current, priority) < 0) 
                 {
                     predecessor = current;
                     current = predecessor.GetNextNode(level);

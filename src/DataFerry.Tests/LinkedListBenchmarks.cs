@@ -1,8 +1,5 @@
 ﻿using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
-using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using lvlup.DataFerry.Collections;
 
 namespace lvlup.DataFerry.Tests
@@ -17,19 +14,12 @@ namespace lvlup.DataFerry.Tests
 
         public LinkedListBenchmarks()
         {
-            _concurrentList = new ConcurrentLinkedList<int>();
-            _linkedList = new LinkedList<int>();
-            _items = Enumerable.Range(0, 1000).ToArray();
-
-            // Pre-populate the lists
-            foreach (var item in _items)
-            {
-                Console.WriteLine($"Adding {item}");
-                _linkedList.AddLast(item);
-                _concurrentList.TryInsert(item);
-            }
+            _concurrentList = new();
+            _linkedList = new();
+            _items = Enumerable.Range(0, 100).ToArray();
         }
 
+        /*
         [Config(typeof(Config))]
         public class Config : ManualConfig
         {
@@ -38,6 +28,7 @@ namespace lvlup.DataFerry.Tests
                 AddJob(Job.ShortRun.WithToolchain(InProcessEmitToolchain.Instance));
             }
         }
+        */
 
         public static void Main(string[] args)
         {
@@ -46,57 +37,51 @@ namespace lvlup.DataFerry.Tests
             _ = BenchmarkRunner.Run<LinkedListBenchmarks>();
         }
 
-        [Benchmark(OperationsPerInvoke = 100)]
+        [Benchmark]
         public void LinkedListInsert()
         {
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < 10; i++)
             {
-                _linkedList.AddLast(i);
+                _linkedList.AddFirst(i);
             }
         }
 
-        [Benchmark(OperationsPerInvoke = 100)]
+        [Benchmark]
         public void ConcurrentInsert()
         {
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < 10; i++)
             {
                 _concurrentList.TryInsert(i);
             }
         }
 
-        [Benchmark(OperationsPerInvoke = 100)]
+        [Benchmark]
         public void ConcurrentRemove()
         {
-            for (int i = 0; i < 100; i++)
+            // Pre-populate the lists
+            foreach (var item in _items)
+            {
+                _concurrentList.TryInsert(item);
+            }
+
+            for (int i = 0; i < 10; i++)
             {
                 _concurrentList.TryRemove(i);
             }
         }
 
-        [Benchmark(OperationsPerInvoke = 100)]
+        [Benchmark]
         public void LinkedListRemove()
         {
-            for (int i = 0; i < 100; i++)
+            // Pre-populate the lists
+            foreach (var item in _items)
+            {
+                _linkedList.AddFirst(item);
+            }
+
+            for (int i = 0; i < 10; i++)
             {
                 _linkedList.Remove(i);
-            }
-        }
-
-        [Benchmark(OperationsPerInvoke = 100)]
-        public void ConcurrentContains()
-        {
-            for (int i = 0; i < 1000; i++)
-            {
-                _concurrentList.Contains(i);
-            }
-        }
-
-        [Benchmark(OperationsPerInvoke = 100)]
-        public void LinkedListContains()
-        {
-            for (int i = 0; i < 1000; i++)
-            {
-                _linkedList.Contains(i);
             }
         }
     }

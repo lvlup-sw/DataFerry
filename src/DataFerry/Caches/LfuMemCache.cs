@@ -7,31 +7,36 @@ using System.Reactive.Linq;
 namespace lvlup.DataFerry.Caches
 {
     /// <summary>
-    /// LfuMemCache is an in-memory caching implementation based on FastCache. 
-    /// It includes resource eviction based on associated Time-To-Live (TTL) values and a Window TinyLFU eviction strategy.
+    /// LfuMemCache is an in-memory caching implementation based on the Window TinyLFU policy. 
+    /// It includes resource eviction based on an approximate Least Frequently Used strategy and associated Time-To-Live (TTL) values.
     /// </summary>
-    /// <remarks>
-    /// This class utilizes a <see cref="ConcurrentDictionary{TKey, TValue}"/> and <see cref="CountMinSketch{TKey}"/> behind the scenes.
-    /// </remarks> 
     public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : notnull
     {
+        // Physical cache
         private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
-        private readonly ConcurrentDictionary<TKey, TtlValue> _window;
-        // Sophisticated optimizations: 13.142 us ???
-        private readonly ConcurrentPriorityQueue<int, TKey> _frequencyQueue;
-        // Basic synchronization: 8.231 us
-        //private readonly BasicCPQ<TKey, int> _frequencyQueue;
-        // Baseline with unsynchronized priority queue is 7.834 μs
-        //private readonly PriorityQueue<TKey, int> _frequencyQueue;
-        private readonly ITaskOrchestrator _taskOrchestrator;
-        private readonly CountMinSketch<TKey> _cms;
-        private readonly Timer _cleanUpTimer;
-        private readonly int _maxWindowSize;
-        private int _currentSize;
 
-        // Signalers
+        // Logical partitions of cache
+        private readonly ConcurrentLinkedList<TKey> _window;
+        private readonly ConcurrentLinkedList<TKey> _probation;
+        private readonly ConcurrentLinkedList<TKey> _protected;
+
+        // Frequency queue tracking LFU candidates
+        private readonly ConcurrentPriorityQueue<int, TKey> _frequencyQueue;
+
+        // Frequency histogram
+        private readonly CountMinSketch<TKey> _cms;
+
+        // Background processes
+        private readonly ITaskOrchestrator _taskOrchestrator;
+        private readonly Timer _cleanUpTimer;
+
+        // Signalers and calcs
         private CancellationTokenSource? _evictionCancellationToken;
         private long _evictionJobStarted = 0;
+        private readonly int _maxWindowSize;
+        private readonly int _maxProbationSize;
+        private readonly int _maxProtectedSize;
+        private int _currentSize;
 
         // Locks/Semaphores
         private static readonly SemaphoreSlim _evictionSemaphore = new(1, 1);
@@ -49,11 +54,15 @@ namespace lvlup.DataFerry.Caches
         {
             // Cache sizes
             MaxSize = maxSize;
-            _maxWindowSize = maxSize / 10;
+            _maxWindowSize = maxSize / 100; // 1% of entire cache
+            _maxProbationSize = (maxSize * 20 / 100) - _maxWindowSize; // 20% of main cache
+            _maxProtectedSize = (maxSize * 80 / 100) - _maxWindowSize; // 80% of main cache
 
-            // Caches
+            // Cache and partitions
             _cache = new();
             _window = new();
+            _probation = new();
+            _protected = new();
 
             // Helper data structures
             _cms = new(MaxSize);
@@ -91,7 +100,6 @@ namespace lvlup.DataFerry.Caches
 
                 var currTime = Environment.TickCount64;
                 RemoveExpiredItems(_cache);
-                RemoveExpiredItems(_window);
 
                 // Local function
                 void RemoveExpiredItems(ConcurrentDictionary<TKey, TtlValue> dict)
@@ -142,7 +150,7 @@ namespace lvlup.DataFerry.Caches
 
         /// <inheritdoc/>
         // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
-        public int Count => _window.Skip(0).Count() + _cache.Skip(0).Count();
+        public int Count => _cache.Skip(0).Count();
 
         /// <inheritdoc/>
         public void Clear()
@@ -150,8 +158,10 @@ namespace lvlup.DataFerry.Caches
             _clearSemaphore.Wait();
             try
             {
-                _window.Clear();
                 _cache.Clear();
+                //_window.Clear();
+                //_probation.Clear();
+                //_protected.Clear();
                 _cms.Clear();
                 //_frequencyQueue.Clear();
             }
@@ -167,14 +177,13 @@ namespace lvlup.DataFerry.Caches
             value = default!;
 
             // Not found or expired
-            if ((!_window.TryGetValue(key, out TtlValue ttlValue) && !_cache.TryGetValue(key, out ttlValue)) || ttlValue.IsExpired())
+            if (!_cache.TryGetValue(key, out var ttlValue) || ttlValue.IsExpired())
             {
                 // Utilizes atomic conditional removal to eliminate the need for locks, 
                 // ensuring only items matching both key and value are removed.
                 // See: https://devblogs.microsoft.com/pfxteam/little-known-gems-atomic-conditional-removals-from-concurrentdictionary/
                 if (ttlValue.HasValue)
                 {
-                    _window.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
                     _cache.TryRemove(new KeyValuePair<TKey, TtlValue>(key, ttlValue));
                 }
 
@@ -186,7 +195,6 @@ namespace lvlup.DataFerry.Caches
             // Update frequencies
             _cms.Increment(key);
             _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
-            //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
             return true;
         }
 
@@ -200,18 +208,17 @@ namespace lvlup.DataFerry.Caches
             // Right now, we are simply promoting if the item has been
             // accessed before. We'll need to change this to have more
             // sophisticated logic, especially regarding access order.
-            bool isInWindow = _window.ContainsKey(key);
-            var targetCache = isInWindow || _cache.ContainsKey(key) ? _cache : _window;
+            //bool isInWindow = _window.ContainsKey(key);
+            //var targetCache = isInWindow || _cache.ContainsKey(key) ? _cache : _window;
 
             // Add a new key-value pair or update an existing one
-            targetCache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
-            if (isInWindow) _window.TryRemove(key, out _);
+            _cache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
+            //if (isInWindow) _window.TryRemove(key, out _);
 
             // Update the frequency of the key
             _cms.Increment(key);
             Interlocked.Increment(ref _currentSize);
             _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
-            //_frequencyQueue.Enqueue(key, _cms.EstimateFrequency(key));
 
             // Check if eviction is necessary
             if (TriggerEvictionJob())
@@ -257,7 +264,6 @@ namespace lvlup.DataFerry.Caches
         /// <inheritdoc/>
         public void Remove(TKey key)
         {
-            _window.TryRemove(key, out _);
             _cache.TryRemove(key, out _);
         }
 
@@ -266,7 +272,7 @@ namespace lvlup.DataFerry.Caches
         /// </summary>
         public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
         {
-            var validEntries = _window.Concat(_cache)
+            var validEntries = _cache
                 .Where(kvp => !kvp.Value.IsExpired())
                 .Select(kvp => new KeyValuePair<TKey, TValue>(kvp.Key, kvp.Value.Value));
 
@@ -279,10 +285,10 @@ namespace lvlup.DataFerry.Caches
         /// <inheritdoc/>
         public void Refresh(TKey key, TimeSpan ttl)
         {
-            if (_window.TryGetValue(key, out var value) || _cache.TryGetValue(key, out value))
+            if (_cache.TryGetValue(key, out var value))
             {
                 var ttlValue = new TtlValue(value.Value, ttl);
-                (_window.ContainsKey(key) ? _window : _cache)[key] = ttlValue;
+                _cache[key] = ttlValue;
             }
         }
 

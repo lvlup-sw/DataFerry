@@ -3,7 +3,7 @@
 namespace lvlup.DataFerry.Collections
 {
     /// <summary>
-    /// Represents a non-blocking doubly linked list.
+    /// A non-blocking doubly linked list.
     /// </summary>
     /// <typeparam name="T">The type of elements in the list.</typeparam>
     /// <remarks>

@@ -7,7 +7,7 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <StartupObject>lvlup.DataFerry.Tests.MemCacheBenchmark</StartupObject>
+	<StartupObject>lvlup.DataFerry.Tests.MemCacheBenchmark</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
