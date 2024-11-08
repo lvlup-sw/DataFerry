@@ -78,6 +78,25 @@ namespace lvlup.DataFerry.Tests.Collections
         }
 
         [TestMethod]
+        public void TryRemovePriority_RemovesCorrectDuplicatePriority()
+        {
+            // Arrange
+            _queue.TryAdd(3, "Task A");
+            _queue.TryAdd(3, "Task C");
+            _queue.TryAdd(3, "Task B");
+
+            // Act & Assert
+            Assert.IsTrue(_queue.TryRemoveItemWithPriority(3));
+            Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
+
+            Assert.IsTrue(_queue.TryRemoveItemWithPriority(2));
+            Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
+
+            Assert.IsTrue(_queue.TryRemoveItemWithPriority(1));
+            Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
+        }
+
+        [TestMethod]
         public void TryRemoveItemWithPriority_RemovesSingleItem_WithDuplicatePriority()
         {
             // Arrange & Assert

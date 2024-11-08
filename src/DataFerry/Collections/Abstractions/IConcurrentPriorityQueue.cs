@@ -42,6 +42,7 @@
         /// </summary>
         /// <param name="priority">The priority of the element to add.</param>
         /// <param name="element">The element of the element to add.</param>
+        /// <remarks>If allowDuplicatePriorities is true, nodes with the same <see cref="TPriority"/> but unique <see cref="TElement"/> will be added.</remarks>
         /// <returns>true if the priority/element pair was added to the ConcurrentPriorityQueue successfully; otherwise, false.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
         bool TryAdd(TPriority priority, TElement element);

@@ -72,7 +72,7 @@ namespace lvlup.DataFerry.Caches
             _frequencyQueue = new(
                 _taskOrchestrator,
                 Comparer<int>.Create((x, y) => x.CompareTo(y)), 
-                maxSize: _maxWindowSize);
+                maxSize: MaxSize);
 
             // Timer to trigger TTL-based eviction
             _cleanUpTimer = new Timer(

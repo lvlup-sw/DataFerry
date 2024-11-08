@@ -14,7 +14,7 @@ namespace lvlup.DataFerry.Collections
     /// Unlike balanced search trees (e.g., AVL trees, Red-Black trees), SkipLists achieve efficiency through probabilistic balancing, making them well-suited for concurrent implementations.
     /// </para>
     /// <para>
-    /// This concurrent SkipList implementation offers:
+    /// This implementation offers:
     /// </para>
     /// <list type="bullet">
     /// <item>Expected O(log n) time complexity for `Contains`, `TryGet`, `TryAdd`, `Update`, and `TryRemove` operations.</item> 
@@ -27,6 +27,7 @@ namespace lvlup.DataFerry.Collections
     /// <para>
     /// This implementation employs logical deletion and insertion to optimize performance and ensure thread safety. 
     /// Nodes are marked as deleted logically before being physically removed, and they are inserted level by level to maintain consistency.
+    /// A background task on a dedicated thread processes the physical deletion of nodes.
     /// </para>
     /// <para>
     /// <b>Invariants:</b>
@@ -91,6 +92,11 @@ namespace lvlup.DataFerry.Collections
         private readonly double _promotionProbability;
 
         /// <summary>
+        /// Allows insertion of nodes with the same priority but different elements.
+        /// </summary>
+        private readonly bool _allowDuplicatePriorities;
+
+        /// <summary>
         /// The number of nodes in the SkipList.
         /// </summary>
         private int _count;
@@ -133,7 +139,14 @@ namespace lvlup.DataFerry.Collections
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="comparer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
-        public ConcurrentPriorityQueue(ITaskOrchestrator taskOrchestrator, IComparer<TPriority> comparer, IComparer<TElement>? elementComparer = default, int maxSize = 10000, int? numberOfLevels = default, double promotionProbability = 0.5)
+        public ConcurrentPriorityQueue(
+            ITaskOrchestrator taskOrchestrator, 
+            IComparer<TPriority> comparer, 
+            IComparer<TElement>? elementComparer = default, 
+            int maxSize = 10000, 
+            int? numberOfLevels = default, 
+            double promotionProbability = 0.5,
+            bool allowDuplicatePriorities = true)
         {
             ArgumentNullException.ThrowIfNull(comparer, nameof(comparer));
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSize, nameof(maxSize));
@@ -148,6 +161,7 @@ namespace lvlup.DataFerry.Collections
             _promotionProbability = promotionProbability;
             _maxSize = maxSize;
             _topLevel = _numberOfLevels - 1;
+            _allowDuplicatePriorities = allowDuplicatePriorities;
 
             _head = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
             var tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
@@ -261,89 +275,6 @@ namespace lvlup.DataFerry.Collections
             return false;
         }
 
-        // original method
-        public bool TryAdd(TPriority priority, TElement element)
-        {
-            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
-
-            int insertLevel = GenerateLevel();
-
-            while (true)
-            {
-                var searchResult = WeakSearch(priority);
-                if (searchResult.IsFound)
-                {
-                    if (searchResult.GetNodeFound().IsDeleted)
-                    {
-                        continue;
-                    }
-
-                    // Spin until the duplicate priority is logically inserted.
-                    WaitUntilIsInserted(searchResult.GetNodeFound());
-                    return false;
-                }
-
-                int highestLevelLocked = InvalidLevel;
-                try
-                {
-                    bool isValid = true;
-                    for (int level = 0; isValid && level <= insertLevel; level++)
-                    {
-                        var predecessor = searchResult.GetPredecessor(level);
-                        var successor = searchResult.GetSuccessor(level);
-
-                        predecessor.Lock();
-                        highestLevelLocked = level;
-
-                        // If predecessor is locked and the predecessor is still pointing at the successor, successor cannot be deleted.
-                        isValid = IsValidLevel(predecessor, successor, level);
-                    }
-
-                    if (isValid == false)
-                    {
-                        continue;
-                    }
-
-                    // Create the new node and initialize all the next pointers.
-                    var newNode = new SkipListNode(priority, element, insertLevel);
-                    for (int level = 0; level <= insertLevel; level++)
-                    {
-                        newNode.SetNextNode(level, searchResult.GetSuccessor(level));
-                    }
-
-                    // Ensure that the node is fully initialized before physical linking starts.
-                    Thread.MemoryBarrier();
-
-                    for (int level = 0; level <= insertLevel; level++)
-                    {
-                        // Note that this is required for correctness.
-                        // Remove takes a dependency of the fact that if found at expected level, all the predecessors have already been correctly linked.
-                        // Hence we only need to use a MemoryBarrier before linking in the top level. 
-                        if (level == insertLevel)
-                        {
-                            Thread.MemoryBarrier();
-                        }
-
-                        searchResult.GetPredecessor(level).SetNextNode(level, newNode);
-                    }
-
-                    // Linearization point: MemoryBarrier not required since IsInserted is a volatile member (hence implicitly uses MemoryBarrier). 
-                    newNode.IsInserted = true;
-                    if (Interlocked.Increment(ref _count) > _maxSize) TryRemoveMin(out _);
-                    return true;
-                }
-                finally
-                {
-                    // Unlock order is not important.
-                    for (int level = highestLevelLocked; level >= 0; level--)
-                    {
-                        searchResult.GetPredecessor(level).Unlock();
-                    }
-                }
-            }
-        }
-
-        /* Refactored method: contains severe performance regression
         /// <inheritdoc/>
         public bool TryAdd(TPriority priority, TElement element)
         {
@@ -355,22 +286,25 @@ namespace lvlup.DataFerry.Collections
             {
                 var searchResult = WeakSearch(priority);
 
-                // Priority found
-                // Handle insertion of 'duplicates'
                 if (searchResult.IsFound)
                 {
                     var curr = searchResult.GetNodeFound();
 
                     if (curr.IsDeleted || curr is null) continue;
 
-                    if (!HandleDuplicateCase(curr, searchResult, priority, element))
+                    // If the element is already present, consider it a duplicate and wait
+                    if (_allowDuplicatePriorities)
                     {
+                        HandleDuplicateCase(curr, searchResult, priority, element);
+                    }
+                    else
+                    {
+                        // Spin until the duplicate priority is logically inserted.
+                        WaitUntilIsInserted(curr);
                         return false;
                     }
                 }
 
-                // Priority not found
-                // Handle insertion of 'new' node
                 int highestLevelLocked = InvalidLevel;
                 try
                 {
@@ -379,7 +313,7 @@ namespace lvlup.DataFerry.Collections
                         continue;
                     }
 
-                    var newNode = new Node(priority, element, insertLevel);
+                    var newNode = new SkipListNode(priority, element, insertLevel);
                     InsertNode(newNode, searchResult, insertLevel);
 
                     // Linearization point: MemoryBarrier not required since IsInserted
@@ -398,7 +332,6 @@ namespace lvlup.DataFerry.Collections
                 }
             }
         }
-        */
 
         /// <inheritdoc/>
         public bool TryRemoveMin(out TElement element)
@@ -440,6 +373,7 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
+        // Currently doesn't handle duplicate priorities
         public bool TryRemoveItemWithPriority(TPriority priority)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -493,15 +427,9 @@ namespace lvlup.DataFerry.Collections
 
         public bool TryRemoveAllItemsWithPriority(TPriority priority)
         {
-            throw new NotImplementedException();
-        }
-
-        /*
-        public bool TryRemoveAllItemsWithPriority(TPriority priority)
-        {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-            Node? nodeToBeDeleted = null;
+            SkipListNode? nodeToBeDeleted = null;
             bool isLogicallyDeleted = false;
 
             // Level at which the to be deleted node was found.
@@ -516,6 +444,7 @@ namespace lvlup.DataFerry.Collections
                 }
 
                 nodeToBeDeleted ??= searchResult.GetNodeFound();
+                var curr = searchResult.GetNodeFound();
                 if (curr.IsDeleted || curr is null)
                 {
                     continue; // Node is already deleted or null, retry
@@ -541,10 +470,10 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        private static bool TryRemoveNode(Node nodeToBeDeleted, int topLevel)
+        private bool TryRemoveNode(SkipListNode nodeToBeDeleted, int topLevel)
         {
             bool isLogicallyDeleted = false;
-            var searchResult = WeakSearch(nodeToBeDeleted);
+            var searchResult = WeakSearch(nodeToBeDeleted.Priority);
 
             if (NodeIsInvalidOrDeleted(nodeToBeDeleted, searchResult))
             {   // Node not fully linked or already deleted
@@ -580,10 +509,9 @@ namespace lvlup.DataFerry.Collections
                 }
             }
         }
-        */
 
-            /// <inheritdoc/>
-            // Needs to be implemented
+        /// <inheritdoc/>
+        // Needs to be implemented
         public bool TryRemoveElement(TElement element)
         {
             ArgumentNullException.ThrowIfNull(element, nameof(element));
@@ -863,21 +791,17 @@ namespace lvlup.DataFerry.Collections
                 || searchResult.GetNodeFound().IsDeleted;
         }
 
-        private bool HandleDuplicateCase(SkipListNode curr, SearchResult result, TPriority priority, TElement element)
+        private void HandleDuplicateCase(SkipListNode curr, SearchResult searchResult, TPriority priority, TElement element)
         {
-            while (_comparer.Compare(curr.Priority, priority) == 0)
+            // Revise this
+
+            // Traverse the list of nodes with the same priority to find the insertion point
+            while (curr.GetNextNode(searchResult.LevelFound) is not null 
+                && _comparer.Compare(curr.GetNextNode(searchResult.LevelFound).Priority, priority) == 0 
+                && _elementComparer.Compare(curr.Element, element) != 0)
             {
-                if (_elementComparer.Compare(curr.Element, element) == 0)
-                {
-                    // Spin until the duplicate priority is logically inserted.
-                    WaitUntilIsInserted(curr);
-                    return false;
-                }
-
-                curr = curr.GetNextNode(result.LevelFound);
+                curr = curr.GetNextNode(searchResult.LevelFound);
             }
-
-            return true;
         }
 
         private static bool ValidateInsertion(SearchResult searchResult, int insertLevel, ref int highestLevelLocked)
