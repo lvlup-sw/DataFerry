@@ -1,5 +1,8 @@
 ﻿using lvlup.DataFerry.Collections.Abstractions;
 using lvlup.DataFerry.Orchestrators.Abstractions;
+using System.Diagnostics.CodeAnalysis;
+using static System.Net.Mime.MediaTypeNames;
+using System.Xml.Linq;
 
 namespace lvlup.DataFerry.Collections
 {
@@ -295,6 +298,84 @@ namespace lvlup.DataFerry.Collections
                     nodeToBeDeleted.Unlock();
                 }
             }
+        }
+
+        public bool TryDeleteMin_LJ([MaybeNull] out TElement element)
+        {
+            SkipListNode curr = _head;
+            SkipListNode newHead = default!;
+            SkipListNode obsHead = curr.GetNextNode(0);
+            long offset = 0;
+
+            do
+            {   // Traverses the lowest-level linked list from the head
+                // by following next pointers, searching for the first 
+                // node not having its delete flag set
+                SkipListNode next = curr.GetNextNode(0);
+
+                if (next.Type == SkipListNode.NodeType.Tail)
+                {
+                    element = default!;
+                    return false;
+                }
+
+                // Orig algo used 'pending Insert' == Inserting
+                if (curr.IsInserted && newHead is null)
+                {
+                    newHead = curr;
+                }
+
+                // 〈nxt, d〉 ←FAO(&〈x.next[0], x.d〉, 1)
+
+                offset++;
+                curr = curr.GetNextNode(0);
+
+            } while (!curr.IsDeleted);
+
+            var item = curr.Element;
+            if (offset < BOUND_OFFSET)
+            {
+                element = item;
+                return true;
+            }
+
+            newHead ??= curr;
+
+            long initialValue = PackNodeAndDeleteFlag(_head.GetNextNode(0), _head.IsDeleted);
+            long expectedValue = PackNodeAndDeleteFlag(obsHead, 1);
+            long newValue = PackNodeAndDeleteFlag(newHead, 1);
+
+            if (Interlocked.CompareExchange(ref initialValue, newValue, expectedValue) == expectedValue)
+            {
+                Restructure();
+                var currObs = obsHead;
+                while (!curr.Equals(newHead))
+                {
+                    var next = currObs.GetNextNode(0);
+                    MarkRecycle(currObs);
+                    currObs = next;
+                }
+            }
+
+            element = item;
+            return true;
+        }
+
+        private long PackNodeAndDeleteFlag(SkipListNode node, bool deleteFlag)
+        {
+            // Assuming 'node' can be converted to a long representation (e.g., using pointers)
+            long nodeValue = (long)node;
+
+            // Shift the node value to make space for the delete flag
+            nodeValue <<= 1;
+
+            // Add the delete flag as the least significant bit
+            if (deleteFlag)
+            {
+                nodeValue |= 1;
+            }
+
+            return nodeValue;
         }
 
         /// <inheritdoc/>
