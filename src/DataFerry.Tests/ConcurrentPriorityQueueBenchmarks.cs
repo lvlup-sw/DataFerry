@@ -13,7 +13,7 @@ namespace lvlup.DataFerry.Tests
     [MemoryDiagnoser]
     public class ConcurrentPriorityQueueBenchmarks
     {
-        private readonly ConcurrentBlockingPriorityQueue<int, string> _frequencyQueue;
+        private readonly ConcurrentPriorityQueue<int, string> _frequencyQueue;
         private readonly ITaskOrchestrator _taskOrchestrator;
         private readonly int[] _values;
 
@@ -72,7 +72,7 @@ namespace lvlup.DataFerry.Tests
         {
             foreach (var value in _values)
             {
-                _frequencyQueue.TryRemoveItemWithPriority(value);
+                _frequencyQueue.TryRemove(value);
             }
         }
 

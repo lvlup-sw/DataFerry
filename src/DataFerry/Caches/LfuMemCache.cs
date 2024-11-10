@@ -24,7 +24,7 @@ namespace lvlup.DataFerry.Caches
         private readonly ConcurrentLinkedList<TKey> _protected;
 
         // Frequency queue tracking LFU candidates
-        private readonly ConcurrentBlockingPriorityQueue<int, TKey> _frequencyQueue;
+        private readonly ConcurrentPriorityQueue<int, TKey> _frequencyQueue;
 
         // Frequency histogram
         private readonly CountMinSketch<TKey> _cms;

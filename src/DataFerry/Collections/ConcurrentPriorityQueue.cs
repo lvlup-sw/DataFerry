@@ -42,7 +42,7 @@ namespace lvlup.DataFerry.Collections
     /// Locks are acquired in a bottom-up manner to prevent deadlocks. The order of lock release is not critical.
     /// </para>
     /// </remarks>
-    public class ConcurrentBlockingPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
+    public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
     {
         #region Global Variables
 
@@ -102,6 +102,11 @@ namespace lvlup.DataFerry.Collections
         private readonly SkipListNode _head;
 
         /// <summary>
+        /// Tail of the skip list.
+        /// </summary>
+        private readonly SkipListNode _tail;
+
+        /// <summary>
         /// Priority comparer used to order the priorities.
         /// </summary>
         private readonly IComparer<TPriority> _comparer;
@@ -126,7 +131,7 @@ namespace lvlup.DataFerry.Collections
         #region Constructors
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ConcurrentBlockingPriorityQueue{TPriority, TElement}"/> class.
+        /// Initializes a new instance of the <see cref="ConcurrentPriorityQueue{TPriority, TElement}"/> class.
         /// </summary>
         /// <param name="comparer">The comparer used to compare prioritys.</param>
         /// <param name="numberOfLevels">The maximum number of levels in the SkipList.</param>
@@ -134,7 +139,7 @@ namespace lvlup.DataFerry.Collections
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="comparer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
-        public ConcurrentBlockingPriorityQueue(
+        public ConcurrentPriorityQueue(
             ITaskOrchestrator taskOrchestrator, 
             IComparer<TPriority> comparer, 
             IComparer<TElement>? elementComparer = default, 
@@ -157,17 +162,17 @@ namespace lvlup.DataFerry.Collections
             _topLevel = _numberOfLevels - 1;
 
             _head = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
-            var tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
+            _tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
 
             // Link head to tail at all levels
             for (int level = 0; level <= _topLevel; level++)
             {
-                _head.SetNextNode(level, tail);
+                _head.SetNextNode(level, _tail);
                 Interlocked.Increment(ref _count);
             }
 
             _head.IsInserted = true;
-            tail.IsInserted = true;
+            _tail.IsInserted = true;
         }
 
         #endregion
@@ -205,70 +210,6 @@ namespace lvlup.DataFerry.Collections
         #region Core Operations
 
         /// <inheritdoc/>
-        public IEnumerator<TPriority> GetEnumerator()
-        {
-            SkipListNode current = _head;
-            while (true)
-            {
-                current = current.GetNextNode(BottomLevel);
-
-                // If current is tail, this must be the end of the list.
-                if (current.Type == SkipListNode.NodeType.Tail) yield break;
-
-                // Takes advantage of the fact that next is set before 
-                // the node is physically linked.
-                if (!current.IsInserted || current.IsDeleted) continue;
-
-                yield return current.Priority;
-            }
-        }
-
-        /// <inheritdoc/>
-        public bool ContainsPriority(TPriority priority)
-        {
-            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
-
-            var searchResult = WeakSearch(priority);
-
-            // If node is not found, not logically inserted or logically removed, return false.
-            return searchResult.IsFound
-                && searchResult.GetNodeFound().IsInserted
-                && !searchResult.GetNodeFound().IsDeleted;
-        }
-
-        /// <inheritdoc/>
-        public bool ContainsElement(TElement element)
-        {
-            ArgumentNullException.ThrowIfNull(element, nameof(element));
-
-            var searchResult = WeakSearch(element);
-
-            // If node is not found, not logically inserted or logically removed, return false.
-            return searchResult.IsFound
-                && searchResult.GetNodeFound().IsInserted
-                && !searchResult.GetNodeFound().IsDeleted;
-        }
-
-        /// <inheritdoc/>
-        public bool TryGetElement(TPriority priority, out TElement element)
-        {
-            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
-
-            var searchResult = WeakSearch(priority);
-            element = default!;
-
-            if (searchResult.IsFound 
-                && searchResult.GetNodeFound().IsInserted 
-                && !searchResult.GetNodeFound().IsDeleted)
-            {
-                element = searchResult.GetNodeFound().Element;
-                return true;
-            }
-
-            return false;
-        }
-
-        /// <inheritdoc/>
         public bool TryAdd(TPriority priority, TElement element)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -303,7 +244,7 @@ namespace lvlup.DataFerry.Collections
                     // Linearization point: MemoryBarrier not required since IsInserted
                     // is a volatile member (hence implicitly uses MemoryBarrier). 
                     newNode.IsInserted = true;
-                    if (Interlocked.Increment(ref _count) > _maxSize) TryRemoveMin(out _);
+                    if (Interlocked.Increment(ref _count) > _maxSize) TryDeleteMin(out _);
                     return true;
                 }
                 finally
@@ -318,7 +259,7 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        public bool TryRemoveMin(out TElement element)
+        public bool TryDeleteMin(out TElement element)
         {
             while (true)
             {
@@ -358,7 +299,7 @@ namespace lvlup.DataFerry.Collections
 
         /// <inheritdoc/>
         // Currently doesn't handle duplicate priorities
-        public bool TryRemoveItemWithPriority(TPriority priority)
+        public bool TryDelete(TPriority priority)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
@@ -408,145 +349,6 @@ namespace lvlup.DataFerry.Collections
                 }
             }
         }
-
-        public bool TryRemoveAllItemsWithPriority(TPriority priority)
-        {
-            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
-
-            SkipListNode? nodeToBeDeleted = null;
-            bool isLogicallyDeleted = false;
-
-            // Level at which the to be deleted node was found.
-            int topLevel = InvalidLevel;
-
-            while (true)
-            {
-                var searchResult = WeakSearch(priority);
-                if (!searchResult.IsFound)
-                {
-                    return false; // No nodes with the given priority
-                }
-
-                nodeToBeDeleted ??= searchResult.GetNodeFound();
-                var curr = searchResult.GetNodeFound();
-                if (curr.IsDeleted || curr is null)
-                {
-                    continue; // Node is already deleted or null, retry
-                }
-
-                // Iterate through all nodes with the given priority
-                while (_comparer.Compare(curr.Priority, priority) == 0)
-                {
-                    if (TryRemoveNode(curr, searchResult.LevelFound))
-                    {
-                        // Successfully removed a node, continue to the next one
-                        curr = curr.GetNextNode(searchResult.LevelFound);
-                    }
-                    else
-                    {
-                        // Failed to remove the node, retry
-                        break;
-                    }
-                }
-
-                // All nodes with the given priority have been processed (or we failed to remove one)
-                return true;
-            }
-        }
-
-        private bool TryRemoveNode(SkipListNode nodeToBeDeleted, int topLevel)
-        {
-            bool isLogicallyDeleted = false;
-            var searchResult = WeakSearch(nodeToBeDeleted.Priority);
-
-            if (NodeIsInvalidOrDeleted(nodeToBeDeleted, searchResult))
-            {   // Node not fully linked or already deleted
-                return false;
-            }
-
-            // Logically delete the node
-            if (!LogicallyDeleteNode(nodeToBeDeleted, searchResult, ref topLevel))
-            {
-                return false;
-            }
-            isLogicallyDeleted = true;
-
-            int highestLevelLocked = InvalidLevel;
-            try
-            {
-                if (!ValidateDeletion(nodeToBeDeleted, searchResult, topLevel, ref highestLevelLocked))
-                {
-                    return false;
-                }
-
-                ScheduleNodeRemoval(nodeToBeDeleted, topLevel);
-
-                nodeToBeDeleted.Unlock();
-                Interlocked.Decrement(ref _count);
-                return true;
-            }
-            finally
-            {
-                for (int level = highestLevelLocked; level >= 0; level--)
-                {
-                    searchResult.GetPredecessor(level).Unlock();
-                }
-            }
-        }
-
-        /// <inheritdoc/>
-        // Needs to be implemented
-        public bool TryRemoveElement(TElement element)
-        {
-            ArgumentNullException.ThrowIfNull(element, nameof(element));
-
-            SkipListNode? nodeToBeDeleted = null;
-            bool isLogicallyDeleted = false;
-
-            // Level at which the to be deleted node was found.
-            int topLevel = InvalidLevel;
-
-            while (true)
-            {
-                var searchResult = WeakSearch(element);
-                nodeToBeDeleted ??= searchResult.GetNodeFound();
-
-                if (!isLogicallyDeleted && NodeIsInvalidOrDeleted(nodeToBeDeleted, searchResult))
-                {   // Node not fully linked or already deleted
-                    return false;
-                }
-
-                // Logically delete the node if not already done
-                if (!isLogicallyDeleted && !LogicallyDeleteNode(nodeToBeDeleted, searchResult, ref topLevel))
-                {
-                    return false;
-                }
-                isLogicallyDeleted = true;
-
-                int highestLevelLocked = InvalidLevel;
-                try
-                {
-                    if (!ValidateDeletion(nodeToBeDeleted, searchResult, topLevel, ref highestLevelLocked))
-                    {
-                        continue;
-                    }
-
-                    ScheduleNodeRemoval(nodeToBeDeleted, topLevel);
-
-                    nodeToBeDeleted.Unlock();
-                    Interlocked.Decrement(ref _count);
-                    return true;
-                }
-                finally
-                {
-                    for (int level = highestLevelLocked; level >= 0; level--)
-                    {
-                        searchResult.GetPredecessor(level).Unlock();
-                    }
-                }
-            }
-        }
-
 
         /// <inheritdoc/>
         // Needs to be refactored
@@ -610,7 +412,39 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
+        public bool ContainsPriority(TPriority priority)
+        {
+            ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+
+            var searchResult = WeakSearch(priority);
+
+            // If node is not found, not logically inserted or logically removed, return false.
+            return searchResult.IsFound
+                && searchResult.GetNodeFound().IsInserted
+                && !searchResult.GetNodeFound().IsDeleted;
+        }
+
+        /// <inheritdoc/>
         public int GetCount() => _count;
+
+        /// <inheritdoc/>
+        public IEnumerator<TPriority> GetEnumerator()
+        {
+            SkipListNode current = _head;
+            while (true)
+            {
+                current = current.GetNextNode(BottomLevel);
+
+                // If current is tail, this must be the end of the list.
+                if (current.Type == SkipListNode.NodeType.Tail) yield break;
+
+                // Takes advantage of the fact that next is set before 
+                // the node is physically linked.
+                if (!current.IsInserted || current.IsDeleted) continue;
+
+                yield return current.Priority;
+            }
+        }
 
         #endregion
         #region Helper Methods
@@ -861,10 +695,10 @@ namespace lvlup.DataFerry.Collections
         /// </summary>
         public sealed class SkipListNode
         {
-            private readonly Lock nodeLock = new();
-            private readonly SkipListNode[] nextNodeArray;
-            private volatile bool isInserted;
-            private volatile bool isDeleted;
+            private readonly Lock _nodeLock = new();
+            private readonly SkipListNode[] _nextNodeArray;
+            private volatile bool _isInserted;
+            private volatile bool _isDeleted;
 
             /// <summary>
             /// Initializes a new instance of the <see cref="Node"/> class.
@@ -876,7 +710,7 @@ namespace lvlup.DataFerry.Collections
                 Priority = default!;
                 Element = default!;
                 Type = nodeType;
-                nextNodeArray = new SkipListNode[height + 1];
+                _nextNodeArray = new SkipListNode[height + 1];
             }
 
             /// <summary>
@@ -890,7 +724,7 @@ namespace lvlup.DataFerry.Collections
                 Priority = priority;
                 Element = element;
                 Type = NodeType.Data;
-                nextNodeArray = new SkipListNode[height + 1];
+                _nextNodeArray = new SkipListNode[height + 1];
             }
 
             /// <summary>
@@ -932,41 +766,41 @@ namespace lvlup.DataFerry.Collections
             /// <summary>
             /// Gets or sets a element indicating whether the node has been logically inserted.
             /// </summary>
-            public bool IsInserted { get => isInserted; set => isInserted = value; }
+            public bool IsInserted { get => _isInserted; set => _isInserted = value; }
 
             /// <summary>
             /// Gets or sets a element indicating whether the node has been logically deleted.
             /// </summary>
-            public bool IsDeleted { get => isDeleted; set => isDeleted = value; }
+            public bool IsDeleted { get => _isDeleted; set => _isDeleted = value; }
 
             /// <summary>
             /// Gets the top level (highest index) of the node in the SkipList.
             /// </summary>
-            public int TopLevel => nextNodeArray.Length - 1;
+            public int TopLevel => _nextNodeArray.Length - 1;
 
             /// <summary>
             /// Gets the next node at the specified height (level).
             /// </summary>
             /// <param name="height">The height (level) at which to get the next node.</param>
             /// <returns>The next node at the specified height.</returns>
-            public SkipListNode GetNextNode(int height) => nextNodeArray[height];
+            public SkipListNode GetNextNode(int height) => _nextNodeArray[height];
 
             /// <summary>
             /// Sets the next node at the specified height (level).
             /// </summary>
             /// <param name="height">The height (level) at which to set the next node.</param>
             /// <param name="next">The next node to set.</param>
-            public void SetNextNode(int height, SkipListNode next) => nextNodeArray[height] = next;
+            public void SetNextNode(int height, SkipListNode next) => _nextNodeArray[height] = next;
 
             /// <summary>
             /// Acquires the lock associated with the node.
             /// </summary>
-            public void Lock() => nodeLock.Enter();
+            public void Lock() => _nodeLock.Enter();
 
             /// <summary>
             /// Releases the lock associated with the node.
             /// </summary>
-            public void Unlock() => nodeLock.Exit();
+            public void Unlock() => _nodeLock.Exit();
         }
 
         /// <summary>
