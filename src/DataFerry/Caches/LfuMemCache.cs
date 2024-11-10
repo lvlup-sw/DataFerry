@@ -1,8 +1,11 @@
-﻿using lvlup.DataFerry.Orchestrators;
+﻿using lvlup.DataFerry.Buffers;
+using lvlup.DataFerry.Orchestrators;
 using lvlup.DataFerry.Orchestrators.Abstractions;
+using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Reactive.Linq;
+using System.Threading.Tasks;
 
 namespace lvlup.DataFerry.Caches
 {
@@ -21,12 +24,13 @@ namespace lvlup.DataFerry.Caches
         private readonly ConcurrentLinkedList<TKey> _protected;
 
         // Frequency queue tracking LFU candidates
-        private readonly ConcurrentPriorityQueue<int, TKey> _frequencyQueue;
+        private readonly ConcurrentBlockingPriorityQueue<int, TKey> _frequencyQueue;
 
         // Frequency histogram
         private readonly CountMinSketch<TKey> _cms;
 
         // Background processes
+        private readonly ThreadBuffer<BufferItem> _writeBuffer;
         private readonly ITaskOrchestrator _taskOrchestrator;
         private readonly Timer _cleanUpTimer;
 
@@ -66,6 +70,7 @@ namespace lvlup.DataFerry.Caches
 
             // Helper data structures
             _cms = new(MaxSize);
+            _writeBuffer = new();
             _taskOrchestrator = taskOrchestrator;
             // We create a concurrent priority queue to hold LFU candidates
             // This comparer gives lower frequency items higher priority
@@ -80,6 +85,17 @@ namespace lvlup.DataFerry.Caches
                 default,
                 TimeSpan.FromMilliseconds(cleanupJobInterval),
                 TimeSpan.FromMilliseconds(cleanupJobInterval));
+
+            // Subscribe to the ThresholdReached event in the constructor
+            _writeBuffer.ThresholdReached += (sender, args) =>
+            {
+                // Get and process items
+                foreach (var item in _writeBuffer.ExtractItems())
+                {
+                    // Process the item
+                    Console.WriteLine($"Key: {item.Key}, Value: {item.Value}");
+                }
+            };
         }
 
         /// <summary>
@@ -341,6 +357,30 @@ namespace lvlup.DataFerry.Caches
                 {
                     if (Value != null) return true;
                     if (_expirationTicks > 0) return true;
+                    return false;
+                }
+            }
+        }
+
+        private readonly struct BufferItem
+        {
+            public readonly TKey Key;
+            public readonly TtlValue Value;
+
+            public BufferItem(TKey key, TtlValue value)
+            {
+                Key = key;
+                Value = value;
+            }
+
+            public readonly bool HasValue => !IsNullOrEmpty;
+
+            private readonly bool IsNullOrEmpty
+            {
+                get
+                {
+                    if (Key is null) return true;
+                    if (!Value.HasValue) return true;
                     return false;
                 }
             }

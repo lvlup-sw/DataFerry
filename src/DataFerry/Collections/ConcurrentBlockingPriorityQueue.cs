@@ -42,7 +42,7 @@ namespace lvlup.DataFerry.Collections
     /// Locks are acquired in a bottom-up manner to prevent deadlocks. The order of lock release is not critical.
     /// </para>
     /// </remarks>
-    public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
+    public class ConcurrentBlockingPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
     {
         #region Global Variables
 
@@ -92,11 +92,6 @@ namespace lvlup.DataFerry.Collections
         private readonly double _promotionProbability;
 
         /// <summary>
-        /// Allows insertion of nodes with the same priority but different elements.
-        /// </summary>
-        private readonly bool _allowDuplicatePriorities;
-
-        /// <summary>
         /// The number of nodes in the SkipList.
         /// </summary>
         private int _count;
@@ -131,7 +126,7 @@ namespace lvlup.DataFerry.Collections
         #region Constructors
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ConcurrentPriorityQueue{TPriority, TElement}"/> class.
+        /// Initializes a new instance of the <see cref="ConcurrentBlockingPriorityQueue{TPriority, TElement}"/> class.
         /// </summary>
         /// <param name="comparer">The comparer used to compare prioritys.</param>
         /// <param name="numberOfLevels">The maximum number of levels in the SkipList.</param>
@@ -139,14 +134,13 @@ namespace lvlup.DataFerry.Collections
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="comparer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
-        public ConcurrentPriorityQueue(
+        public ConcurrentBlockingPriorityQueue(
             ITaskOrchestrator taskOrchestrator, 
             IComparer<TPriority> comparer, 
             IComparer<TElement>? elementComparer = default, 
             int maxSize = 10000, 
             int? numberOfLevels = default, 
-            double promotionProbability = 0.5,
-            bool allowDuplicatePriorities = true)
+            double promotionProbability = 0.5)
         {
             ArgumentNullException.ThrowIfNull(comparer, nameof(comparer));
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSize, nameof(maxSize));
@@ -161,7 +155,6 @@ namespace lvlup.DataFerry.Collections
             _promotionProbability = promotionProbability;
             _maxSize = maxSize;
             _topLevel = _numberOfLevels - 1;
-            _allowDuplicatePriorities = allowDuplicatePriorities;
 
             _head = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
             var tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
@@ -292,17 +285,8 @@ namespace lvlup.DataFerry.Collections
 
                     if (curr.IsDeleted || curr is null) continue;
 
-                    // If the element is already present, consider it a duplicate and wait
-                    if (_allowDuplicatePriorities)
-                    {
-                        HandleDuplicateCase(curr, searchResult, priority, element);
-                    }
-                    else
-                    {
-                        // Spin until the duplicate priority is logically inserted.
-                        WaitUntilIsInserted(curr);
-                        return false;
-                    }
+                    WaitUntilIsInserted(searchResult.GetNodeFound());
+                    return false;
                 }
 
                 int highestLevelLocked = InvalidLevel;
@@ -789,19 +773,6 @@ namespace lvlup.DataFerry.Collections
             return !searchResult.IsFound
                 || !searchResult.GetNodeFound().IsInserted
                 || searchResult.GetNodeFound().IsDeleted;
-        }
-
-        private void HandleDuplicateCase(SkipListNode curr, SearchResult searchResult, TPriority priority, TElement element)
-        {
-            // Revise this
-
-            // Traverse the list of nodes with the same priority to find the insertion point
-            while (curr.GetNextNode(searchResult.LevelFound) is not null 
-                && _comparer.Compare(curr.GetNextNode(searchResult.LevelFound).Priority, priority) == 0 
-                && _elementComparer.Compare(curr.Element, element) != 0)
-            {
-                curr = curr.GetNextNode(searchResult.LevelFound);
-            }
         }
 
         private static bool ValidateInsertion(SearchResult searchResult, int insertLevel, ref int highestLevelLocked)

@@ -13,7 +13,7 @@ namespace lvlup.DataFerry.Tests
     [MemoryDiagnoser]
     public class ConcurrentPriorityQueueBenchmarks
     {
-        private readonly ConcurrentPriorityQueue<int, string> _frequencyQueue;
+        private readonly ConcurrentBlockingPriorityQueue<int, string> _frequencyQueue;
         private readonly ITaskOrchestrator _taskOrchestrator;
         private readonly int[] _values;
 

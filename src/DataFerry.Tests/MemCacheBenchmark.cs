@@ -11,6 +11,7 @@ using lvlup.DataFerry.Orchestrators.Abstractions;
 using lvlup.DataFerry.Orchestrators;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 
 namespace lvlup.DataFerry.Tests
 {
@@ -24,6 +25,7 @@ namespace lvlup.DataFerry.Tests
         private readonly ConcurrentLfu<string, Payload> _bitfaster;
         private readonly LfuMemCache<string, Payload> _dataferry;
         private readonly ITaskOrchestrator _taskOrchestrator;
+        private readonly ConcurrentDictionary<string, Payload> _dict;
 
         public MemCacheBenchmark()
         {
@@ -35,6 +37,7 @@ namespace lvlup.DataFerry.Tests
             _memoryCache = new MemoryCache(new MemoryCacheOptions() { SizeLimit = CacheSize });
             _bitfaster = new(CacheSize);
             _dataferry = new(_taskOrchestrator, CacheSize);
+            _dict = new();
         }
 
         [Config(typeof(Config))]
@@ -89,12 +92,31 @@ namespace lvlup.DataFerry.Tests
         }
         */
 
+        /*
         [Benchmark(OperationsPerInvoke = 100)]
         public void DataFerry()
         {
             foreach (var user in _users)
             {
                 _dataferry.AddOrUpdate(user.Identifier, user, TimeSpan.FromMinutes(60));
+            }
+
+            var random = new Random();
+            for (int i = 0; i < 10000; i++)
+            {
+                var keyIndex = random.Next(CacheSize * 2);
+                var key = $"user{keyIndex}";
+                _dataferry.TryGet(key, out var _);
+            }
+        }
+        */
+
+        [Benchmark(OperationsPerInvoke = 100)]
+        public void DataFerry()
+        {
+            foreach (var user in _users)
+            {
+                _dict.TryAdd(user.Identifier, user);
             }
 
             var random = new Random();

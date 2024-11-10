@@ -9,7 +9,7 @@ namespace lvlup.DataFerry.Tests.Collections
     [TestClass]
     public class ConcurrentPriorityQueueTests
     {
-        private ConcurrentPriorityQueue<int, string> _queue = default!;
+        private ConcurrentBlockingPriorityQueue<int, string> _queue = default!;
         private ITaskOrchestrator _taskOrchestrator = default!;
 
         [TestInitialize]

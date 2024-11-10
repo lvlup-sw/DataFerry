@@ -80,9 +80,8 @@ namespace lvlup.DataFerry.Buffers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public (int Index, int Length) WriteAndGetPosition(ReadOnlySpan<T> value)
         {
-            var position = (_index, value.Length);
             this.Write(value);
-            return position;
+            return (_index, value.Length);
         }
 
         /// <summary>
