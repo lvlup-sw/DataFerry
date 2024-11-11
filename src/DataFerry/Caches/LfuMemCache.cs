@@ -70,7 +70,7 @@ namespace lvlup.DataFerry.Caches
 
             // Helper data structures
             _cms = new(MaxSize);
-            _writeBuffer = new();
+            _writeBuffer = new(8);
             _taskOrchestrator = taskOrchestrator;
             // We create a concurrent priority queue to hold LFU candidates
             // This comparer gives lower frequency items higher priority
@@ -148,7 +148,7 @@ namespace lvlup.DataFerry.Caches
                     int evictionBatch = (int) Math.Sqrt(_frequencyQueue.GetCount());
                     for (int i = 0; i < evictionBatch; i++)
                     {
-                        _frequencyQueue.TryRemoveMin(out var lfuItem);
+                        _frequencyQueue.TryDeleteMin(out var lfuItem);
                         Remove(lfuItem);
                         //_frequencyQueue.TryDequeue(out var lfuItem, out _);
                         //if (lfuItem is not null) Remove(lfuItem);

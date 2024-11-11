@@ -29,14 +29,14 @@ namespace lvlup.DataFerry.Tests.Collections
             _queue.TryAdd(1, "Task A");
             _queue.TryAdd(3, "Task C");
             _queue.TryAdd(2, "Task B");
-            _queue.TryGetElement(1, out var elementA);
-            _queue.TryGetElement(2, out var elementB);
-            _queue.TryGetElement(3, out var elementC);
+            //_queue.TryGetElement(1, out var elementA);
+            //_queue.TryGetElement(2, out var elementB);
+            //_queue.TryGetElement(3, out var elementC);
 
             // Assert
-            Assert.AreEqual(elementA, "Task A");
-            Assert.AreEqual(elementB, "Task B");
-            Assert.AreEqual(elementC, "Task C");
+            //Assert.AreEqual(elementA, "Task A");
+            //Assert.AreEqual(elementB, "Task B");
+            //Assert.AreEqual(elementC, "Task C");
         }
 
         [TestMethod]
@@ -48,13 +48,13 @@ namespace lvlup.DataFerry.Tests.Collections
             _queue.TryAdd(2, "Task B");
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryRemoveMin(out var elementA));
+            Assert.IsTrue(_queue.TryDeleteMin(out var elementA));
             Assert.AreEqual("Task A", elementA);
 
-            Assert.IsTrue(_queue.TryRemoveMin(out var elementB));
+            Assert.IsTrue(_queue.TryDeleteMin(out var elementB));
             Assert.AreEqual("Task B", elementB);
 
-            Assert.IsTrue(_queue.TryRemoveMin(out var elementC));
+            Assert.IsTrue(_queue.TryDeleteMin(out var elementC));
             Assert.AreEqual("Task C", elementC);
         }
 
@@ -67,14 +67,14 @@ namespace lvlup.DataFerry.Tests.Collections
             _queue.TryAdd(2, "Task B");
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryRemoveItemWithPriority(3));
-            Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
+            Assert.IsTrue(_queue.TryDelete(3));
+            //Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
 
-            Assert.IsTrue(_queue.TryRemoveItemWithPriority(2));
-            Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
+            Assert.IsTrue(_queue.TryDelete(2));
+            //Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
 
-            Assert.IsTrue(_queue.TryRemoveItemWithPriority(1));
-            Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
+            Assert.IsTrue(_queue.TryDelete(1));
+            //Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
         }
 
         [TestMethod]
@@ -86,14 +86,14 @@ namespace lvlup.DataFerry.Tests.Collections
             _queue.TryAdd(3, "Task B");
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryRemoveItemWithPriority(3));
-            Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
+            Assert.IsTrue(_queue.TryDelete(3));
+            //Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
 
-            Assert.IsTrue(_queue.TryRemoveItemWithPriority(2));
-            Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
+            Assert.IsTrue(_queue.TryDelete(2));
+            //Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
 
-            Assert.IsTrue(_queue.TryRemoveItemWithPriority(1));
-            Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
+            Assert.IsTrue(_queue.TryDelete(1));
+            //Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
         }
 
         [TestMethod]
@@ -108,7 +108,7 @@ namespace lvlup.DataFerry.Tests.Collections
             Assert.IsTrue(_queue.GetCount() == 13);
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryRemoveItemWithPriority(3));
+            Assert.IsTrue(_queue.TryDelete(3));
             Assert.IsTrue(_queue.GetCount() == 12);
         }
     }

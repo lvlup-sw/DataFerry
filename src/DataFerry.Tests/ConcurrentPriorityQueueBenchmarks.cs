@@ -63,7 +63,7 @@ namespace lvlup.DataFerry.Tests
             var count = _frequencyQueue.GetCount();
             for (int i = 0; i < count; i++)
             {
-                _frequencyQueue.TryRemoveMin(out _);
+                _frequencyQueue.TryDeleteMin(out _);
             }
         }
 
@@ -72,7 +72,7 @@ namespace lvlup.DataFerry.Tests
         {
             foreach (var value in _values)
             {
-                _frequencyQueue.TryRemove(value);
+                _frequencyQueue.TryDelete(value);
             }
         }
 
