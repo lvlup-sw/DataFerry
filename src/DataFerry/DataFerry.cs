@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace lvlup.DataFerry
 {
+    // We also need to implement Stampede Protection
     public class DataFerry : HybridCache, IDataFerry
     {
         public T GetOrCreate<TState, T>(

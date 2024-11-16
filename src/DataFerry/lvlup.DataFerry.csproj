@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>  
 	<PackageId>lvlup.DataFerry</PackageId>
     <Title>DataFerry</Title>
-	<Version>2.0.0</Version>
+	<Version>2.0.0-prerelease</Version>
 	<RootNamespace>lvlup.DataFerry</RootNamespace>
 	<Authors>lvlup; rsalus</Authors>
     <Description>Simplify data access and boost resiliency with DataFerry, a generic caching solution designed to tightly couple your cache and database.</Description>

@@ -363,7 +363,8 @@ namespace lvlup.DataFerry.Collections
         */
         public bool TryDeleteMin(out TElement element)
         {
-
+            element = default!;
+            return default;
         }
 
         // BLOCKING TRYDELETEMIN (NAIVE)

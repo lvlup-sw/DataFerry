@@ -3,6 +3,9 @@ using System.Runtime.CompilerServices;
 
 namespace lvlup.DataFerry
 {
+    /// <summary>
+    /// A contract for DataFerry.
+    /// </summary>
     public interface IDataFerry
     {
         T GetOrCreate<TState, T>(
