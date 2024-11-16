@@ -1,4 +1,4 @@
-﻿namespace lvlup.DataFerry.Algorithms
+﻿namespace lvlup.DataFerry.Utilities
 {
     /// <summary>
     /// Provides extension methods for sorting lists using the BubbleSort, BucketSort, MergeSort, and QuickSort algorithms.
@@ -16,7 +16,7 @@
         public static void BubbleSort<T>(this IList<T> collection, Comparer<T> comparer = default!, bool ascending = true)
         {
             comparer ??= Comparer<T>.Default;
-            collection.BubbleSortInternal(ascending 
+            collection.BubbleSortInternal(ascending
                 ? (a, b) => comparer.Compare(a, b) > 0
                 : (a, b) => comparer.Compare(a, b) < 0);
         }

@@ -1,14 +1,10 @@
 ﻿using lvlup.DataFerry.Collections.Abstractions;
 using lvlup.DataFerry.Orchestrators.Abstractions;
-using System.Diagnostics.CodeAnalysis;
-using static System.Net.Mime.MediaTypeNames;
-using System.Xml.Linq;
-using Microsoft.Extensions.Logging;
 
 namespace lvlup.DataFerry.Collections
 {
     /// <summary>
-    /// A concurrent PriorityQueue implemented as a lock-based SkipList.
+    /// A concurrent PriorityQueue implemented as a lock-based SkipList with relaxed semantics.
     /// </summary>
     /// <typeparam name="TPriority">The priority.</typeparam>
     /// <typeparam name="TElement">The element.</typeparam>
@@ -111,6 +107,11 @@ namespace lvlup.DataFerry.Collections
         private int _count;
 
         /// <summary>
+        /// If true, permits the insertion of duplicate priorities.
+        /// </summary>
+        private bool _allowDuplicatePriorities;
+
+        /// <summary>
         /// Head of the skip list.
         /// </summary>
         private readonly SkipListNode _head;
@@ -160,7 +161,8 @@ namespace lvlup.DataFerry.Collections
             int maxSize = 10000, 
             int? numberOfLevels = default, 
             double promotionProbability = 0.5,
-            int maxOffset = 32)
+            int maxOffset = 32,
+            bool allowDuplicatePriorities = true)
         {
             ArgumentNullException.ThrowIfNull(comparer, nameof(comparer));
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSize, nameof(maxSize));
@@ -174,6 +176,7 @@ namespace lvlup.DataFerry.Collections
             _numberOfLevels = numberOfLevels ?? (int)Math.Ceiling(Math.Log(maxSize / 10, 1 / 0.5));
             _promotionProbability = promotionProbability;
             _maxOffset = maxOffset;
+            _allowDuplicatePriorities = allowDuplicatePriorities;
             _maxSize = maxSize;
             _topLevel = _numberOfLevels - 1;
 
@@ -236,7 +239,7 @@ namespace lvlup.DataFerry.Collections
             {
                 var searchResult = WeakSearch(priority);
 
-                if (searchResult.IsFound)
+                if (searchResult.IsFound && !_allowDuplicatePriorities)
                 {
                     var curr = searchResult.GetNodeFound();
 
@@ -275,118 +278,6 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        public bool TryDeleteMin(out TElement element)
-        {
-            // Setup locals
-            SkipListNode curr = _head;
-            SkipListNode obsHead = curr.GetNextNode(0);
-            SkipListNode newHead = default!;
-            SkipListNode next;
-            element = default!;
-            long offset = 0;
-
-            Thread.MemoryBarrier();
-
-            // Traverses the lowest-level linked list from the head
-            // by following next pointers, searching for the first 
-            // node not having its delete flag set
-            do
-            {
-                offset++;
-                next = curr.GetNextNode(0);
-
-                if (next.Type == SkipListNode.NodeType.Tail)
-                {
-                    return false;
-                }
-
-                // Do not allow head to point past a node currently being inserted
-                if (newHead is null && curr.IsBeingInserted)
-                {
-                    newHead = curr;
-                }
-
-                if (next.IsDeleted) continue;
-
-                Thread.MemoryBarrier();
-                LogicallyDeleteNode(next);
-
-            } while (next.GetNextUnmarkedNode(ref curr) && next.IsDeleted);
-
-            // Update our locals
-            element = curr.Element;
-            newHead ??= curr;
-
-            // If the offset is less than or equal to the maximum offset, return
-            if (offset <= _maxOffset) return true;
-
-            // Optimization: If the head's next node is not the observed head, return
-            if (_head.GetNextNode(0) != obsHead) return true;
-
-            // Attempt to update the head's next node using CompareExchange
-            if (Interlocked.CompareExchange(ref _head.GetNextNodeRef(0), newHead, obsHead) == obsHead)
-            {
-                // Update higher-level pointers
-                Restructure();
-
-                /* Original C implementation manually marked
-                 * each dead node for garbage collection.
-                // Mark nodes between obsHead and newHead for recycling
-                SkipListNode node = obsHead;
-                while (node != newHead)
-                {
-                    next = node.GetNextNode(0);
-                    MarkForRecycle(node);
-                    node = next;
-                }
-                */
-            }
-
-            return true;
-        }
-
-        /* BLOCKING TRYDELETEMIN
-        public bool TryDeleteMin(out TElement element)
-        {
-            while (true)
-            {
-                SkipListNode? nodeToBeDeleted = _head.GetNextNode(0);
-
-                // If the first node is the tail, the list is empty
-                if (nodeToBeDeleted.Type == SkipListNode.NodeType.Tail)
-                {
-                    element = default!;
-                    return false;
-                }
-
-                // Try to delete the node
-                nodeToBeDeleted.Lock();
-                try
-                {
-                    if (nodeToBeDeleted.IsDeleted || !nodeToBeDeleted.IsInserted)
-                    {
-                        // Node is already deleted or not fully linked, retry
-                        continue;
-                    }
-
-                    // Logically delete and schedule physical deletion
-                    nodeToBeDeleted.IsDeleted = true;
-                    ScheduleNodeRemoval(nodeToBeDeleted);
-
-                    element = nodeToBeDeleted.Element;
-                    Interlocked.Decrement(ref _count);
-                    return true;
-                }
-                finally
-                {
-                    nodeToBeDeleted.Unlock();
-                }
-            }
-        }
-        */
-
-        /// <inheritdoc/>
-        // Currently doesn't handle duplicate priorities
         public bool TryDelete(TPriority priority)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -437,6 +328,173 @@ namespace lvlup.DataFerry.Collections
                 }
             }
         }
+
+        /* ALGORITHM TO BE IMPLEMENTED:
+            1. **Initialization**
+               * Set `K` and `M` (start with 1, adjust later).
+               * Calculate `H` (starting height), `L` (max jump length), and `D` (levels to descend).
+               * Ensure `H` is divisible by `D`.
+               * Create an empty `Spray`.
+
+            2. **Spray Phase**
+               * Start at head node, height `H`.
+               * While `height > 0`:
+                 * Generate random `jumpLength` in `[0, L]`.
+                 * Jump horizontally, up to `jumpLength` steps, stopping if you reach the end of the list or a key greater than `MIN_KEY`.
+                 * Add current node to `Spray`.
+                 * Descend `D` levels.
+
+            3. **Acquire Locks**
+               * Sort nodes in `Spray` by hash code.
+               * Acquire locks on nodes in sorted order.
+
+            4. **Validate and Delete**
+               * Check if `Spray` is valid (no nodes deleted) and if the next node after the head has the minimum key (`MIN_KEY`).
+               * If valid:
+                 * Remove the minimum node from the skiplist.
+               * Release locks in reverse order.
+               * Return `true` or `false` indicating success.
+
+            **Notes**
+
+            * Implement `MIN_KEY` based on priority type and duplicate handling.
+            * Node removal is specific to your skiplist.
+            * Test with different `K`, `M`, and loads.
+        */
+        public bool TryDeleteMin(out TElement element)
+        {
+
+        }
+
+        // BLOCKING TRYDELETEMIN (NAIVE)
+        public bool TryDeleteMinNaive(out TElement element)
+        {
+            while (true)
+            {
+                SkipListNode? nodeToBeDeleted = _head.GetNextNode(0);
+
+                // If the first node is the tail, the list is empty
+                if (nodeToBeDeleted.Type == SkipListNode.NodeType.Tail)
+                {
+                    element = default!;
+                    return false;
+                }
+
+                // Try to delete the node
+                nodeToBeDeleted.Lock();
+                try
+                {
+                    if (nodeToBeDeleted.IsDeleted || !nodeToBeDeleted.IsInserted)
+                    {
+                        // Node is already deleted or not fully linked, retry
+                        continue;
+                    }
+
+                    // Logically delete and schedule physical deletion
+                    nodeToBeDeleted.IsDeleted = true;
+                    ScheduleNodeRemoval(nodeToBeDeleted);
+
+                    element = nodeToBeDeleted.Element;
+                    Interlocked.Decrement(ref _count);
+                    return true;
+                }
+                finally
+                {
+                    nodeToBeDeleted.Unlock();
+                }
+            }
+        }
+
+        /* Linden-Jonsson Implementation
+         * Currently non-functional
+        public bool TryDeleteMin(out TElement element)
+        {
+            // Setup locals
+            SkipListNode curr = _head;
+            SkipListNode obsHead = curr.GetNextNode(0);
+            SkipListNode newHead = default!;
+            SkipListNode next;
+            element = default!;
+            long offset = 0;
+
+            Thread.MemoryBarrier();
+
+            // Traverses the lowest-level linked list from the head
+            // by following next pointers, searching for the first 
+            // node not having its delete flag set
+            do
+            {
+                offset++;
+                next = curr.GetNextNode(0);
+
+                if (next.Type == SkipListNode.NodeType.Tail)
+                {
+                    return false;
+                }
+
+                // Do not allow head to point past a node currently being inserted
+                if (newHead is null && curr.IsBeingInserted)
+                {
+                    newHead = curr;
+                }
+
+                if (next.IsDeleted) continue;
+
+                Thread.MemoryBarrier();
+                LogicallyDeleteNode(next);
+
+            } while (GetNextUnmarkedNode(ref curr, ref next) && next.IsDeleted);
+
+            // Update our locals
+            element = curr.Element;
+            newHead ??= curr;
+
+            // If the offset is less than or equal to the maximum offset, return
+            if (offset <= _maxOffset) return true;
+
+            // Optimization: If the head's next node is not the observed head, return
+            if (_head.GetNextNode(0) != obsHead) return true;
+
+            // Attempt to update the head's next node using CompareExchange
+            if (Interlocked.CompareExchange(ref _head.GetNextNodeRef(0), newHead, obsHead) == obsHead)
+            {
+                // Update higher-level pointers
+                Restructure();
+
+                // Original C implementation manually marked
+                // each dead node for garbage collection.
+                // Mark nodes between obsHead and newHead for recycling
+                //SkipListNode node = obsHead;
+                //while (node != newHead)
+                //{
+                //    next = node.GetNextNode(0);
+                //    MarkForRecycle(node);
+                //    node = next;
+                //}
+            }
+
+            return true;
+        }
+
+        public bool GetNextUnmarkedNode(ref SkipListNode curr, ref SkipListNode next)
+        {
+            // Loop until we find a non-deleted node
+            while (next.IsDeleted)
+            {
+                if (next.Type == SkipListNode.NodeType.Tail)
+                {
+                    return false;
+                }
+
+                curr = next;
+                next = curr.GetNextNode(0);
+            }
+
+            // Return the prev
+            //curr = next;
+            return true;
+        }
+        */
 
         /// <inheritdoc/>
         // Needs to be refactored
@@ -754,6 +812,7 @@ namespace lvlup.DataFerry.Collections
             return true;
         }
 
+        /* Used for Linden-Jonsson
         private static bool LogicallyDeleteNode(SkipListNode nodeToBeDeleted)
         {
             while (true)
@@ -762,10 +821,12 @@ namespace lvlup.DataFerry.Collections
                 if (nodeToBeDeleted.IsDeleted 
                     || Interlocked.CompareExchange(ref nodeToBeDeleted.GetIsDeletedRef(), true, false) == false)
                 {
+                    //nodeToBeDeleted = nodeToBeDeleted.GetNextNode(0);
                     return true;
                 }
             }
         }
+        */
 
         private static bool ValidateDeletion(SkipListNode nodeToBeDeleted, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
         {
@@ -791,7 +852,6 @@ namespace lvlup.DataFerry.Collections
             private readonly Lock _nodeLock = new();
             private readonly SkipListNode[] _nextNodeArray;
             private volatile bool _isInserted;
-            private volatile bool _isBeingInserted;
             private volatile bool _isDeleted;
 
             /// <summary>
@@ -868,11 +928,6 @@ namespace lvlup.DataFerry.Collections
             public bool IsDeleted { get => _isDeleted; set => _isDeleted = value; }
 
             /// <summary>
-            /// Gets or sets a element indicating whether the node is currently being inserted.
-            /// </summary>
-            public bool IsBeingInserted { get => _isBeingInserted; set => _isBeingInserted = value; }
-
-            /// <summary>
             /// Get the direct reference of IsDeleted.
             /// </summary>
             public ref bool GetIsDeletedRef() => ref _isDeleted;
@@ -902,25 +957,6 @@ namespace lvlup.DataFerry.Collections
             /// <param name="height">The height (level) at which to set the next node.</param>
             /// <param name="next">The next node to set.</param>
             public void SetNextNode(int height, SkipListNode next) => _nextNodeArray[height] = next;
-
-            /// <summary>
-            /// Gets the next non-deleted node and sets it to the ref.
-            /// </summary>
-            public bool GetNextUnmarkedNode(ref SkipListNode curr)
-            {
-                SkipListNode nextNode = curr.GetNextNode(0);
-
-                // Loop until we find a deleted node
-                while (nextNode.IsDeleted && nextNode.Type != NodeType.Tail)
-                {
-                    curr = nextNode;
-                    nextNode = curr.GetNextNode(0);
-                }
-
-                // Return the prev
-                curr = Interlocked.Exchange(ref curr, nextNode);
-                return true;
-            }
 
             /// <summary>
             /// Acquires the lock associated with the node.
