@@ -67,6 +67,16 @@ namespace lvlup.DataFerry.Collections
         internal const int DefaultNumberOfLevels = 32;
 
         /// <summary>
+        /// Constant used during Spray operation in TryDeleteMin.
+        /// </summary>
+        internal const int Offset_K = 1;
+
+        /// <summary>
+        /// Constant used during Spray operation in TryDeleteMin.
+        /// </summary>
+        internal const int Offset_M = 1;
+
+        /// <summary>
         /// Default promotion chance for each level. [0, 1).
         /// </summary>
         internal const double DefaultPromotionProbability = 0.5;
@@ -75,16 +85,6 @@ namespace lvlup.DataFerry.Collections
         /// The maximum number of elements allowed in the queue.
         /// </summary>
         private readonly int _maxSize;
-
-        /// <summary>
-        /// The threshold for updating the head node.
-        /// </summary>
-        /// <remarks>
-        /// This should scale with the number of threads.
-        /// Higher values without a certain ratio of concurrency will incur
-        /// performance impacts as we encounter higher memory latency.
-        /// </remarks>
-        private readonly int _maxOffset;
 
         /// <summary>
         /// Number of levels in the skip list.
@@ -161,7 +161,6 @@ namespace lvlup.DataFerry.Collections
             int maxSize = 10000, 
             int? numberOfLevels = default, 
             double promotionProbability = 0.5,
-            int maxOffset = 32,
             bool allowDuplicatePriorities = true)
         {
             ArgumentNullException.ThrowIfNull(comparer, nameof(comparer));
@@ -175,7 +174,6 @@ namespace lvlup.DataFerry.Collections
             _elementComparer = elementComparer ?? Comparer<TElement>.Default;
             _numberOfLevels = numberOfLevels ?? (int)Math.Ceiling(Math.Log(maxSize / 10, 1 / 0.5));
             _promotionProbability = promotionProbability;
-            _maxOffset = maxOffset;
             _allowDuplicatePriorities = allowDuplicatePriorities;
             _maxSize = maxSize;
             _topLevel = _numberOfLevels - 1;
@@ -329,173 +327,75 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        /* ALGORITHM TO BE IMPLEMENTED:
-            1. **Initialization**
-               * Set `K` and `M` (start with 1, adjust later).
-               * Calculate `H` (starting height), `L` (max jump length), and `D` (levels to descend).
-               * Ensure `H` is divisible by `D`.
-               * Create an empty `Spray`.
-
-            2. **Spray Phase**
-               * Start at head node, height `H`.
-               * While `height > 0`:
-                 * Generate random `jumpLength` in `[0, L]`.
-                 * Jump horizontally, up to `jumpLength` steps, stopping if you reach the end of the list or a key greater than `MIN_KEY`.
-                 * Add current node to `Spray`.
-                 * Descend `D` levels.
-
-            3. **Acquire Locks**
-               * Sort nodes in `Spray` by hash code.
-               * Acquire locks on nodes in sorted order.
-
-            4. **Validate and Delete**
-               * Check if `Spray` is valid (no nodes deleted) and if the next node after the head has the minimum key (`MIN_KEY`).
-               * If valid:
-                 * Remove the minimum node from the skiplist.
-               * Release locks in reverse order.
-               * Return `true` or `false` indicating success.
-
-            **Notes**
-
-            * Implement `MIN_KEY` based on priority type and duplicate handling.
-            * Node removal is specific to your skiplist.
-            * Test with different `K`, `M`, and loads.
-        */
+        /// <inheritdoc/>
         public bool TryDeleteMin(out TElement element)
         {
             element = default!;
-            return default;
+            return false;
         }
 
-        // BLOCKING TRYDELETEMIN (NAIVE)
-        public bool TryDeleteMinNaive(out TElement element)
+        /// <inheritdoc/>
+        public bool TryDeleteMinProbabilistically(out TElement element, double retryProbability = 1.0)
         {
-            while (true)
+            // Init our constants
+            int height = (int)Math.Log(_count) + Offset_K;
+            int jumpLengthMax = Offset_M * (int)Math.Pow(Math.Log(_count), 3);
+            int descentLength = (int)Math.Max(1, Math.Log(Math.Log(_count)));
+
+            // Ensure height is divisible by the descent
+            if (height % descentLength != 0)
             {
-                SkipListNode? nodeToBeDeleted = _head.GetNextNode(0);
+                height = descentLength * (height / descentLength);
+            }
 
-                // If the first node is the tail, the list is empty
-                if (nodeToBeDeleted.Type == SkipListNode.NodeType.Tail)
+            // Prepare spray operation
+            int currHeight = height;
+            var curr = _head; //.GetNextNode(height);
+
+            // Spray operation
+            while (currHeight > 0)
+            {
+                int currJumpLength = RandomGenerator.Next(0, jumpLengthMax + 1);
+
+                // Move forward horizontally
+                for (int i = 0; i < currJumpLength; i++)
                 {
-                    element = default!;
+                    var next = curr.GetNextNode(currHeight);
+
+                    if (next is null || 
+                        next.Type == SkipListNode.NodeType.Tail)
+                        break;
+
+                    curr = next;
+                }
+
+                // Descend D levels
+                currHeight -= descentLength;
+            }
+
+            // Logically delete node
+            if (!LogicallyDeleteNode(curr))
+            {   // Failure case
+                if (RandomGenerator.NextDouble() < retryProbability)
+                {   // Retry
+                    return TryDeleteMinProbabilistically(out element, retryProbability * 0.5);
+                }
+                else
+                {   // Return default
+                    element = curr.Element;
                     return false;
-                }
-
-                // Try to delete the node
-                nodeToBeDeleted.Lock();
-                try
-                {
-                    if (nodeToBeDeleted.IsDeleted || !nodeToBeDeleted.IsInserted)
-                    {
-                        // Node is already deleted or not fully linked, retry
-                        continue;
-                    }
-
-                    // Logically delete and schedule physical deletion
-                    nodeToBeDeleted.IsDeleted = true;
-                    ScheduleNodeRemoval(nodeToBeDeleted);
-
-                    element = nodeToBeDeleted.Element;
-                    Interlocked.Decrement(ref _count);
-                    return true;
-                }
-                finally
-                {
-                    nodeToBeDeleted.Unlock();
                 }
             }
-        }
 
-        /* Linden-Jonsson Implementation
-         * Currently non-functional
-        public bool TryDeleteMin(out TElement element)
-        {
-            // Setup locals
-            SkipListNode curr = _head;
-            SkipListNode obsHead = curr.GetNextNode(0);
-            SkipListNode newHead = default!;
-            SkipListNode next;
-            element = default!;
-            long offset = 0;
-
-            Thread.MemoryBarrier();
-
-            // Traverses the lowest-level linked list from the head
-            // by following next pointers, searching for the first 
-            // node not having its delete flag set
-            do
-            {
-                offset++;
-                next = curr.GetNextNode(0);
-
-                if (next.Type == SkipListNode.NodeType.Tail)
-                {
-                    return false;
-                }
-
-                // Do not allow head to point past a node currently being inserted
-                if (newHead is null && curr.IsBeingInserted)
-                {
-                    newHead = curr;
-                }
-
-                if (next.IsDeleted) continue;
-
-                Thread.MemoryBarrier();
-                LogicallyDeleteNode(next);
-
-            } while (GetNextUnmarkedNode(ref curr, ref next) && next.IsDeleted);
-
-            // Update our locals
+            // Schedule removal then return result
+            ScheduleNodeRemoval(curr);
             element = curr.Element;
-            newHead ??= curr;
 
-            // If the offset is less than or equal to the maximum offset, return
-            if (offset <= _maxOffset) return true;
-
-            // Optimization: If the head's next node is not the observed head, return
-            if (_head.GetNextNode(0) != obsHead) return true;
-
-            // Attempt to update the head's next node using CompareExchange
-            if (Interlocked.CompareExchange(ref _head.GetNextNodeRef(0), newHead, obsHead) == obsHead)
-            {
-                // Update higher-level pointers
-                Restructure();
-
-                // Original C implementation manually marked
-                // each dead node for garbage collection.
-                // Mark nodes between obsHead and newHead for recycling
-                //SkipListNode node = obsHead;
-                //while (node != newHead)
-                //{
-                //    next = node.GetNextNode(0);
-                //    MarkForRecycle(node);
-                //    node = next;
-                //}
-            }
-
+            curr.Unlock();
+            Interlocked.Decrement(ref _count);
+            
             return true;
         }
-
-        public bool GetNextUnmarkedNode(ref SkipListNode curr, ref SkipListNode next)
-        {
-            // Loop until we find a non-deleted node
-            while (next.IsDeleted)
-            {
-                if (next.Type == SkipListNode.NodeType.Tail)
-                {
-                    return false;
-                }
-
-                curr = next;
-                next = curr.GetNextNode(0);
-            }
-
-            // Return the prev
-            //curr = next;
-            return true;
-        }
-        */
 
         /// <inheritdoc/>
         // Needs to be refactored
@@ -813,21 +713,22 @@ namespace lvlup.DataFerry.Collections
             return true;
         }
 
-        /* Used for Linden-Jonsson
         private static bool LogicallyDeleteNode(SkipListNode nodeToBeDeleted)
         {
-            while (true)
+            if (nodeToBeDeleted.Type != SkipListNode.NodeType.Data)
+                return false;
+
+            nodeToBeDeleted.Lock();
+            if (nodeToBeDeleted.IsDeleted)
             {
-                // Linearization point: IsDeleted is volatile.
-                if (nodeToBeDeleted.IsDeleted 
-                    || Interlocked.CompareExchange(ref nodeToBeDeleted.GetIsDeletedRef(), true, false) == false)
-                {
-                    //nodeToBeDeleted = nodeToBeDeleted.GetNextNode(0);
-                    return true;
-                }
+                nodeToBeDeleted.Unlock();
+                return false;
             }
+
+            // Linearization point: IsDeleted is volatile.
+            nodeToBeDeleted.IsDeleted = true;
+            return true;
         }
-        */
 
         private static bool ValidateDeletion(SkipListNode nodeToBeDeleted, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
         {

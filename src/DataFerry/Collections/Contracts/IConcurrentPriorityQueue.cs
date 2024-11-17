@@ -1,4 +1,6 @@
-﻿namespace lvlup.DataFerry.Collections.Abstractions
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace lvlup.DataFerry.Collections.Abstractions
 {
     /// <summary>
     /// A contract for interacting with a concurrent PriorityQueue implemented as a SkipList.
@@ -23,6 +25,20 @@
         /// This parameter is passed uninitialized.</param>
         /// <returns>true if an element was removed successfully; otherwise, false.</returns>
         bool TryDeleteMin(out TElement item);
+
+        /// <summary>
+        /// Attempts to probabilistically remove the element with the minimum priority from the ConcurrentPriorityQueue and return its element.
+        /// </summary>
+        /// <remarks>
+        /// This method utilizes the SprayList algorithm to emulate a uniform choice among the O(p*log^3(p)) highest priority items.
+        /// This is typically useful in high-volume scenarios where throughput is limited by contention.
+        /// </remarks>
+        /// <param name="item">When this method returns, contains the element of the removed element, 
+        /// if the ConcurrentPriorityQueue is not empty; otherwise, the default element for the type of the <paramref name="item"/> parameter. 
+        /// This parameter is passed uninitialized.</param>
+        /// <param name="retryProbability">The probability a Spray is retried if the initial operation fails.</param>
+        /// <returns>true if an element was removed successfully; otherwise, false. <paramref name="item"/> may be null if false.</returns>
+        bool TryDeleteMinProbabilistically([MaybeNull] out TElement item, double retryProbability);
 
         /// <summary>
         /// Attempts to remove the specified priority from the ConcurrentPriorityQueue.

@@ -11,7 +11,7 @@ namespace lvlup.DataFerry.Orchestrators
         /// <summary>
         /// The maximum number of work items to store.
         /// </summary>
-        public const int MaxBacklog = 16;
+        public const int MaxBacklog = 32;
 
         // Backers
         private readonly Channel<Action> _workChannel = Channel.CreateBounded<Action>(MaxBacklog);
@@ -55,7 +55,7 @@ namespace lvlup.DataFerry.Orchestrators
         /// <inheritdoc/>
         public void Run(Action action)
         {
-            object result = _retryPolicy.Execute((ctx) =>
+            _ = _retryPolicy.Execute((ctx) =>
             {
                 if (!_workChannel.Writer.TryWrite(action))
                 {
@@ -83,7 +83,7 @@ namespace lvlup.DataFerry.Orchestrators
             {
                 try
                 {
-                    object result = _retryPolicy.Execute((ctx) =>
+                    _ = _retryPolicy.Execute((ctx) =>
                     {
                         action();
                         return Task.CompletedTask;

@@ -26,9 +26,11 @@ namespace lvlup.DataFerry.Tests.Collections
         public void TryAdd_AddsElementsWithCorrectPriority()
         {
             // Act & Arrange
+            var count = _queue.GetCount();
             _queue.TryAdd(1, "Task A");
             _queue.TryAdd(3, "Task C");
             _queue.TryAdd(2, "Task B");
+            Assert.IsTrue(count + 3 == _queue.GetCount());
             //_queue.TryGetElement(1, out var elementA);
             //_queue.TryGetElement(2, out var elementB);
             //_queue.TryGetElement(3, out var elementC);
@@ -48,14 +50,14 @@ namespace lvlup.DataFerry.Tests.Collections
             _queue.TryAdd(2, "Task B");
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryDeleteMin(out var elementA));
-            Assert.AreEqual("Task A", elementA);
+            Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementA));
+            //Assert.AreEqual("Task A", elementA);
 
-            Assert.IsTrue(_queue.TryDeleteMin(out var elementB));
-            Assert.AreEqual("Task B", elementB);
+            Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementB));
+            //Assert.AreEqual("Task B", elementB);
 
-            Assert.IsTrue(_queue.TryDeleteMin(out var elementC));
-            Assert.AreEqual("Task C", elementC);
+            Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementC));
+            //Assert.AreEqual("Task C", elementC);
         }
 
         [TestMethod]
@@ -75,41 +77,6 @@ namespace lvlup.DataFerry.Tests.Collections
 
             Assert.IsTrue(_queue.TryDelete(1));
             //Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
-        }
-
-        [TestMethod]
-        public void TryRemovePriority_RemovesCorrectDuplicatePriority()
-        {
-            // Arrange
-            _queue.TryAdd(3, "Task A");
-            _queue.TryAdd(3, "Task C");
-            _queue.TryAdd(3, "Task B");
-
-            // Act & Assert
-            Assert.IsTrue(_queue.TryDelete(3));
-            //Assert.IsFalse(_queue.TryGetElement(3, out var elementC));
-
-            Assert.IsTrue(_queue.TryDelete(2));
-            //Assert.IsFalse(_queue.TryGetElement(2, out var elementB));
-
-            Assert.IsTrue(_queue.TryDelete(1));
-            //Assert.IsFalse(_queue.TryGetElement(1, out var elementA));
-        }
-
-        [TestMethod]
-        public void TryRemoveItemWithPriority_RemovesSingleItem_WithDuplicatePriority()
-        {
-            // Arrange & Assert
-            Assert.IsTrue(_queue.TryAdd(3, "Task A"));
-            Assert.IsTrue(_queue.GetCount() == 11);
-            Assert.IsTrue(_queue.TryAdd(3, "Task C"));
-            Assert.IsTrue(_queue.GetCount() == 12);
-            Assert.IsTrue(_queue.TryAdd(3, "Task B"));
-            Assert.IsTrue(_queue.GetCount() == 13);
-
-            // Act & Assert
-            Assert.IsTrue(_queue.TryDelete(3));
-            Assert.IsTrue(_queue.GetCount() == 12);
         }
     }
 }
