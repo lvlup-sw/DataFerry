@@ -11,7 +11,7 @@ namespace lvlup.DataFerry
     /// </summary>
     public static class DataFerryServiceExtensions
     {
-        public static IServiceCollection AddDataFerry(this IServiceCollection services, Action<CacheSettings> setupAction)
+        public static IServiceCollection AddDataFerry(this IServiceCollection services, Action<CacheSettings>? setupAction)
         {
             // Null checks
             ArgumentNullException.ThrowIfNull(services, nameof(services));
