@@ -11,15 +11,15 @@ namespace lvlup.DataFerry
     /// </summary>
     public static class DataFerryServiceExtensions
     {
-        public static IServiceCollection AddDataFerry(this IServiceCollection services, Action<CacheSettings>? setupAction)
+        public static IServiceCollection AddDataFerry(this IServiceCollection services, Action<CacheSettings>? setupAction = default)
         {
-            // Null checks
+            // Null check
             ArgumentNullException.ThrowIfNull(services, nameof(services));
-            ArgumentNullException.ThrowIfNull(setupAction, nameof(setupAction));
 
             // Configure options
             services.AddOptions();
-            services.Configure(setupAction);
+            if (setupAction is not null)
+                services.Configure(setupAction);
 
             // Add pooled resource managers
             services.TryAddSingleton(serviceProvider => StackArrayPool<byte>.Shared);
