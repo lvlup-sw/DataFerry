@@ -140,6 +140,7 @@ namespace lvlup.DataFerry
         }
     }
 
+    /*
     internal readonly struct StampedeKey : IEquatable<StampedeKey>
     {
         private readonly string _key;
@@ -252,7 +253,6 @@ namespace lvlup.DataFerry
 
         public bool TryAddCaller() => _cacheItem.TryReserve();
 
-        /*
         private void RemoveStampedeState(in StampedeKey key)
         {
             // see notes in SyncLock.cs
@@ -261,6 +261,6 @@ namespace lvlup.DataFerry
                 _ = _currentOperations.TryRemove(key, out _);
             }
         }
-        */
     }
+    */
 }
