@@ -26,7 +26,8 @@ namespace lvlup.DataFerry.Tests
             _frequencyQueue = new(
                 _taskOrchestrator,
                 Comparer<int>.Create((x, y) => x.CompareTo(y)),
-                maxSize: 1000);
+                maxSize: 1000,
+                allowDuplicatePriorities: false);
 
             // /*
             // Enqueue the values into the queue
@@ -68,12 +69,33 @@ namespace lvlup.DataFerry.Tests
         }
 
         [Benchmark(OperationsPerInvoke = 100)]
-        public void ConcurrentPriorityQueue_TryRemoveItemWithPriority()
+        public void ConcurrentPriorityQueue_TryDeleteMinProbabilistically()
         {
-            foreach (var value in _values)
+            var count = _frequencyQueue.GetCount();
+            for (int i = 0; i < count; i++)
             {
-                _frequencyQueue.TryDelete(value);
+                _frequencyQueue.TryDeleteMinProbabilistically(out _);
             }
+        }
+
+        [Benchmark(OperationsPerInvoke = 100)]
+        public void ConcurrentPriorityQueue_TryRemoveMin_HighConcurrency()
+        {
+            var count = _frequencyQueue.GetCount();
+            Parallel.For(0, count, i =>
+            {
+                _frequencyQueue.TryDeleteMin(out _);
+            });
+        }
+
+        [Benchmark(OperationsPerInvoke = 100)]
+        public void ConcurrentPriorityQueue_TryDeleteMinProbabilistically_HighConcurrency()
+        {
+            var count = _frequencyQueue.GetCount();
+            Parallel.For(0, count, j =>
+            {
+                _frequencyQueue.TryDeleteMinProbabilistically(out _);
+            });
         }
 
         public static int[] GetPriorities()

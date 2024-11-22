@@ -52,8 +52,8 @@ namespace lvlup.DataFerry.Tests
         public static void Main(string[] args)
         {
             // Uncomment to debug
-            //_ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
-            _ = BenchmarkRunner.Run<MemCacheBenchmark>();
+            _ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
+            //_ = BenchmarkRunner.Run<MemCacheBenchmark>();
         }
 
         private static List<Payload> GenerateUsers(int count)

@@ -37,6 +37,7 @@ namespace lvlup.DataFerry.Caches
         // Signalers and calcs
         private CancellationTokenSource? _evictionCancellationToken;
         private long _evictionJobStarted = 0;
+        private const int BufferSize = 8;
         private readonly int _maxWindowSize;
         private readonly int _maxProbationSize;
         private readonly int _maxProtectedSize;
@@ -70,7 +71,7 @@ namespace lvlup.DataFerry.Caches
 
             // Helper data structures
             _cms = new(MaxSize);
-            _writeBuffer = new(8);
+            _writeBuffer = new(BufferSize);
             _taskOrchestrator = taskOrchestrator;
             // We create a concurrent priority queue to hold LFU candidates
             // This comparer gives lower frequency items higher priority
