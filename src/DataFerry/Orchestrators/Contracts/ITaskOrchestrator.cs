@@ -1,4 +1,4 @@
-﻿namespace lvlup.DataFerry.Orchestrators.Abstractions
+﻿namespace lvlup.DataFerry.Orchestrators.Contracts
 {
     /// <summary>
     /// Represents a contract for a scheduler that handles the low-level work of queuing tasks onto threads.

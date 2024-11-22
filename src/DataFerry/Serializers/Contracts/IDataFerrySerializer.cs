@@ -1,7 +1,7 @@
 ﻿using System.Buffers;
 using System.Text.Json;
 
-namespace lvlup.DataFerry.Serializers.Abstractions
+namespace lvlup.DataFerry.Serializers.Contracts
 {
     /// <summary>
     /// A contract for serializing and deserializing data using System.Text.Json.

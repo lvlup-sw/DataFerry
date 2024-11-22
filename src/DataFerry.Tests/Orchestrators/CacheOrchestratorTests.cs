@@ -1,4 +1,4 @@
-﻿using lvlup.DataFerry.Caches.Abstractions;
+﻿using lvlup.DataFerry.Caches.Contracts;
 using lvlup.DataFerry.Properties;
 using Moq;
 using StackExchange.Redis;

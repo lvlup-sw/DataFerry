@@ -1,5 +1,5 @@
 ﻿using lvlup.DataFerry.Buffers;
-using lvlup.DataFerry.Orchestrators.Abstractions;
+using lvlup.DataFerry.Orchestrators.Contracts;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

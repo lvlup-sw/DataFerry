@@ -1,6 +1,6 @@
 using lvlup.DataFerry.Caches;
 using lvlup.DataFerry.Orchestrators;
-using lvlup.DataFerry.Orchestrators.Abstractions;
+using lvlup.DataFerry.Orchestrators.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

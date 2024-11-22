@@ -4,7 +4,7 @@ using Polly.Wrap;
 using StackExchange.Redis;
 using System.Buffers;
 
-namespace lvlup.DataFerry.Orchestrators.Abstractions
+namespace lvlup.DataFerry.Orchestrators.Contracts
 {
     /// <summary>
     /// A contract for interacting with a distributed cache of serialized values that supports low allocation data transfers.

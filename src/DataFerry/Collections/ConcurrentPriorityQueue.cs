@@ -1,5 +1,5 @@
-﻿using lvlup.DataFerry.Collections.Abstractions;
-using lvlup.DataFerry.Orchestrators.Abstractions;
+﻿using lvlup.DataFerry.Collections.Contracts;
+using lvlup.DataFerry.Orchestrators.Contracts;
 
 namespace lvlup.DataFerry.Collections
 {
@@ -28,6 +28,7 @@ namespace lvlup.DataFerry.Collections
     /// This implementation employs logical deletion and insertion to optimize performance and ensure thread safety. 
     /// Nodes are marked as deleted logically before being physically removed, and they are inserted level by level to maintain consistency.
     /// A background task on a dedicated thread processes the physical deletion of nodes.
+    /// This implementation is based on the Lotan-Shavit algorithm, with an optional method utilizing SprayList for probabilistic deletion of the minimal queue element.
     /// </para>
     /// <para>
     /// <b>Invariants:</b>
@@ -109,7 +110,7 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// If true, permits the insertion of duplicate priorities.
         /// </summary>
-        private bool _allowDuplicatePriorities;
+        private readonly bool _allowDuplicatePriorities;
 
         /// <summary>
         /// Head of the skip list.
@@ -148,9 +149,11 @@ namespace lvlup.DataFerry.Collections
         /// <summary>
         /// Initializes a new instance of the <see cref="ConcurrentPriorityQueue{TPriority, TElement}"/> class.
         /// </summary>
+        /// <param name="maxSize">The maximum number of elements allowed in the queue.</param>
         /// <param name="comparer">The comparer used to compare prioritys.</param>
         /// <param name="numberOfLevels">The maximum number of levels in the SkipList.</param>
         /// <param name="promotionProbability">The probability of promoting a node to a higher level.</param>
+        /// <param name="allowDuplicatePriorities">Determines if duplicate priority keys are allowed.</param>
         /// <exception cref="ArgumentNullException">Thrown if <paramref name="comparer"/> is null.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
         /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
@@ -280,7 +283,7 @@ namespace lvlup.DataFerry.Collections
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-            SkipListNode? nodeToBeDeleted = null;
+            SkipListNode? curr = null;
             bool isLogicallyDeleted = false;
 
             // Level at which the to be deleted node was found.
@@ -289,15 +292,15 @@ namespace lvlup.DataFerry.Collections
             while (true)
             {
                 var searchResult = WeakSearch(priority);
-                nodeToBeDeleted ??= searchResult.GetNodeFound();
+                curr ??= searchResult.GetNodeFound();
 
-                if (!isLogicallyDeleted && NodeIsInvalidOrDeleted(nodeToBeDeleted, searchResult))
+                if (!isLogicallyDeleted && NodeIsInvalidOrDeleted(curr, searchResult))
                 {   // Node not fully linked or already deleted
                     return false;
                 }
 
                 // Logically delete the node if not already done
-                if (!isLogicallyDeleted && !LogicallyDeleteNode(nodeToBeDeleted, searchResult, ref topLevel))
+                if (!isLogicallyDeleted && !LogicallyDeleteNode(curr, searchResult, ref topLevel))
                 {
                     return false;
                 }
@@ -306,14 +309,14 @@ namespace lvlup.DataFerry.Collections
                 int highestLevelLocked = InvalidLevel;
                 try
                 {
-                    if (!ValidateDeletion(nodeToBeDeleted, searchResult, topLevel, ref highestLevelLocked))
+                    if (!ValidateDeletion(curr, searchResult, topLevel, ref highestLevelLocked))
                     {
                         continue;
                     }
 
-                    ScheduleNodeRemoval(nodeToBeDeleted, topLevel);
+                    ScheduleNodeRemoval(curr, topLevel);
 
-                    nodeToBeDeleted.Unlock();
+                    curr.Unlock();
                     Interlocked.Decrement(ref _count);
                     return true;
                 }
@@ -330,8 +333,43 @@ namespace lvlup.DataFerry.Collections
         /// <inheritdoc/>
         public bool TryDeleteMin(out TElement element)
         {
+            SkipListNode? curr = _head.GetNextNode(0);
             element = default!;
-            return false;
+
+            while (true)
+            {
+                if (NodeIsInvalidOrDeleted(curr))
+                {
+                    curr = curr.GetNextNode(0);
+
+                    // If we reach the tail, no valid node was found
+                    if (curr.Type == SkipListNode.NodeType.Tail)
+                    {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                try
+                {
+                    if (LogicallyDeleteNode(curr))
+                    {
+                        // Schedule removal and return
+                        ScheduleNodeRemoval(curr);
+                        element = curr.Element;
+
+                        Interlocked.Decrement(ref _count);
+                        return true;
+                    }
+                }
+                finally
+                {
+                    curr.Unlock();
+                }
+
+                curr = curr.GetNextNode(0);
+            }
         }
 
         /// <inheritdoc/>
@@ -398,7 +436,6 @@ namespace lvlup.DataFerry.Collections
         }
 
         /// <inheritdoc/>
-        // Needs to be refactored
         public void Update(TPriority priority, TElement element)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -410,25 +447,24 @@ namespace lvlup.DataFerry.Collections
                 throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
             }
 
-            SkipListNode nodeToBeUpdated = searchResult.GetNodeFound();
-            nodeToBeUpdated.Lock();
+            SkipListNode curr = searchResult.GetNodeFound();
+            curr.Lock();
             try
             {
-                if (nodeToBeUpdated.IsDeleted)
+                if (curr.IsDeleted)
                 {
                     throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
                 }
 
-                nodeToBeUpdated.Element = element;
+                curr.Element = element;
             }
             finally
             {
-                nodeToBeUpdated.Unlock();
+                curr.Unlock();
             }
         }
 
         /// <inheritdoc/>
-        // Needs to be refactored
         public void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction)
         {
             ArgumentNullException.ThrowIfNull(priority, nameof(priority));
@@ -441,20 +477,20 @@ namespace lvlup.DataFerry.Collections
                 throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
             }
 
-            SkipListNode nodeToBeUpdated = searchResult.GetNodeFound();
-            nodeToBeUpdated.Lock();
+            SkipListNode curr = searchResult.GetNodeFound();
+            curr.Lock();
             try
             {
-                if (nodeToBeUpdated.IsDeleted)
+                if (curr.IsDeleted)
                 {
                     throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
                 }
 
-                nodeToBeUpdated.Element = updateFunction(priority, nodeToBeUpdated.Element);
+                curr.Element = updateFunction(priority, curr.Element);
             }
             finally
             {
-                nodeToBeUpdated.Unlock();
+                curr.Unlock();
             }
         }
 
@@ -477,19 +513,19 @@ namespace lvlup.DataFerry.Collections
         /// <inheritdoc/>
         public IEnumerator<TPriority> GetEnumerator()
         {
-            SkipListNode current = _head;
+            SkipListNode curr = _head;
             while (true)
             {
-                current = current.GetNextNode(BottomLevel);
+                curr = curr.GetNextNode(BottomLevel);
 
                 // If current is tail, this must be the end of the list.
-                if (current.Type == SkipListNode.NodeType.Tail) yield break;
+                if (curr.Type == SkipListNode.NodeType.Tail) yield break;
 
                 // Takes advantage of the fact that next is set before 
                 // the node is physically linked.
-                if (!current.IsInserted || current.IsDeleted) continue;
+                if (!curr.IsInserted || curr.IsDeleted) continue;
 
-                yield return current.Priority;
+                yield return curr.Priority;
             }
         }
 
@@ -569,46 +605,6 @@ namespace lvlup.DataFerry.Collections
             }
 
             return new SearchResult(levelFound, predecessorArray, successorArray);
-        }
-
-        /// <summary>
-        /// Updates the pointers of <see cref="_head"/>
-        /// except for level 0, starting from the highest level.
-        /// </summary>
-        private void Restructure()
-        {
-            SkipListNode pred = _head;
-            int i = _topLevel;
-
-            while (i > 0)
-            {
-                // Record observed head
-                SkipListNode obsHead = _head.GetNextNode(i);
-                Thread.MemoryBarrier();
-
-                // Take one step forward from pred
-                SkipListNode curr = pred.GetNextNode(i);
-
-                // Check if observed head's next node is not deleted
-                if (!obsHead.GetNextNode(0).IsDeleted)
-                {
-                    i--;
-                    continue;
-                }
-
-                // Traverse level until a non-deleted node is found
-                while (curr.GetNextNode(0).IsDeleted)
-                {
-                    pred = curr;
-                    curr = pred.GetNextNode(i);
-                }
-
-                // Swing head pointer using CAS
-                if (Interlocked.CompareExchange(ref _head.GetNextNodeRef(i), curr, obsHead) == obsHead)
-                {
-                    i--;
-                }
-            }
         }
 
         private int Compare(SkipListNode node, TPriority priority)
@@ -691,46 +687,52 @@ namespace lvlup.DataFerry.Collections
             }
         }
 
-        private static bool NodeIsInvalidOrDeleted(SkipListNode nodeToBeDeleted, SearchResult searchResult)
+        private static bool NodeIsInvalidOrDeleted(SkipListNode curr, SearchResult searchResult)
         {
-            return !nodeToBeDeleted.IsInserted
-                || nodeToBeDeleted.TopLevel != searchResult.LevelFound
-                || nodeToBeDeleted.IsDeleted;
+            return !curr.IsInserted
+                || curr.TopLevel != searchResult.LevelFound
+                || curr.IsDeleted;
         }
 
-        private static bool LogicallyDeleteNode(SkipListNode nodeToBeDeleted, SearchResult searchResult, ref int topLevel)
+        private static bool NodeIsInvalidOrDeleted(SkipListNode curr)
+        {
+            return !curr.IsInserted
+                || curr.IsDeleted;
+        }
+
+        private static bool LogicallyDeleteNode(SkipListNode curr, SearchResult searchResult, ref int topLevel)
         {
             Interlocked.Exchange(ref topLevel, searchResult.LevelFound);
-            nodeToBeDeleted.Lock();
-            if (nodeToBeDeleted.IsDeleted)
+            curr.Lock();
+            if (curr.IsDeleted)
             {
-                nodeToBeDeleted.Unlock();
+                curr.Unlock();
                 return false;
             }
 
             // Linearization point: IsDeleted is volatile.
-            nodeToBeDeleted.IsDeleted = true;
+            curr.IsDeleted = true;
             return true;
         }
 
-        private static bool LogicallyDeleteNode(SkipListNode nodeToBeDeleted)
+        private static bool LogicallyDeleteNode(SkipListNode curr)
         {
-            if (nodeToBeDeleted.Type != SkipListNode.NodeType.Data)
+            if (curr.Type != SkipListNode.NodeType.Data)
                 return false;
 
-            nodeToBeDeleted.Lock();
-            if (nodeToBeDeleted.IsDeleted)
+            curr.Lock();
+            if (curr.IsDeleted)
             {
-                nodeToBeDeleted.Unlock();
+                curr.Unlock();
                 return false;
             }
 
             // Linearization point: IsDeleted is volatile.
-            nodeToBeDeleted.IsDeleted = true;
+            curr.IsDeleted = true;
             return true;
         }
 
-        private static bool ValidateDeletion(SkipListNode nodeToBeDeleted, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
+        private static bool ValidateDeletion(SkipListNode curr, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
         {
             bool isValid = true;
             for (int level = 0; isValid && level <= topLevel; level++)
@@ -738,7 +740,7 @@ namespace lvlup.DataFerry.Collections
                 var predecessor = searchResult.GetPredecessor(level);
                 predecessor.Lock();
                 Interlocked.Exchange(ref highestLevelUnlocked, level);
-                isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == nodeToBeDeleted;
+                isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == curr;
             }
             return isValid;
         }

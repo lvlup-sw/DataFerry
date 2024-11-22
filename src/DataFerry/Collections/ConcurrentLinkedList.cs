@@ -1,4 +1,4 @@
-﻿using lvlup.DataFerry.Collections.Abstractions;
+﻿using lvlup.DataFerry.Collections.Contracts;
 
 namespace lvlup.DataFerry.Collections
 {

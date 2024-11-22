@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 
-namespace lvlup.DataFerry.Collections.Abstractions
+namespace lvlup.DataFerry.Collections.Contracts
 {
     /// <summary>
     /// A contract for interacting with a concurrent PriorityQueue implemented as a SkipList.
@@ -31,7 +31,7 @@ namespace lvlup.DataFerry.Collections.Abstractions
         /// </summary>
         /// <remarks>
         /// This method utilizes the SprayList algorithm to emulate a uniform choice among the O(p*log^3(p)) highest priority items.
-        /// This is typically useful in high-volume scenarios where throughput is limited by contention.
+        /// This is typically useful in high-volume scenarios where throughput is limited by contention on the minimal node.
         /// </remarks>
         /// <param name="item">When this method returns, contains the element of the removed element, 
         /// if the ConcurrentPriorityQueue is not empty; otherwise, the default element for the type of the <paramref name="item"/> parameter. 

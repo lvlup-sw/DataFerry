@@ -1,4 +1,4 @@
-﻿using lvlup.DataFerry.Orchestrators.Abstractions;
+﻿using lvlup.DataFerry.Orchestrators.Contracts;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Wrap;

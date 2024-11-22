@@ -1,4 +1,4 @@
-﻿namespace lvlup.DataFerry.Collections.Abstractions
+﻿namespace lvlup.DataFerry.Collections.Contracts
 {
     /// <summary>
     /// A contract for interacting with a non-blocking doubly linked list.

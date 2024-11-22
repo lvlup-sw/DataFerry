@@ -1,6 +1,6 @@
 ﻿using lvlup.DataFerry.Buffers;
 using lvlup.DataFerry.Orchestrators;
-using lvlup.DataFerry.Orchestrators.Abstractions;
+using lvlup.DataFerry.Orchestrators.Contracts;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;

@@ -1,6 +1,6 @@
 ﻿using lvlup.DataFerry.Collections;
 using lvlup.DataFerry.Orchestrators;
-using lvlup.DataFerry.Orchestrators.Abstractions;
+using lvlup.DataFerry.Orchestrators.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -50,13 +50,16 @@ namespace lvlup.DataFerry.Tests.Collections
             _queue.TryAdd(2, "Task B");
 
             // Act & Assert
-            Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementA));
+            Assert.IsTrue(_queue.TryDeleteMin(out var elementA));
+            //Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementA));
             //Assert.AreEqual("Task A", elementA);
 
-            Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementB));
+            Assert.IsTrue(_queue.TryDeleteMin(out var elementB));
+            //Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementB));
             //Assert.AreEqual("Task B", elementB);
 
-            Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementC));
+            Assert.IsTrue(_queue.TryDeleteMin(out var elementC));
+            //Assert.IsTrue(_queue.TryDeleteMinProbabilistically(out var elementC));
             //Assert.AreEqual("Task C", elementC);
         }
 

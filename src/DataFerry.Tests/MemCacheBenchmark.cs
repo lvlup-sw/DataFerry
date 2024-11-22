@@ -7,7 +7,7 @@ using lvlup.DataFerry.Caches;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
-using lvlup.DataFerry.Orchestrators.Abstractions;
+using lvlup.DataFerry.Orchestrators.Contracts;
 using lvlup.DataFerry.Orchestrators;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
