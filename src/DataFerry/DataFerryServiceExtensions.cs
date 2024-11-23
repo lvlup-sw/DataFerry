@@ -28,9 +28,10 @@ namespace lvlup.DataFerry
             // Add and return services
             services.TryAddSingleton<IDataFerrySerializer, DataFerrySerializer>();
             services.TryAddSingleton<ITaskOrchestrator, TaskOrchestrator>();
-            services.TryAddSingleton<IMemCache<string, byte[]>, TtlMemCache<string, byte[]>>();
+            services.TryAddSingleton<IMemCache<string, byte[]>, LfuMemCache<string, byte[]>>();
             services.TryAddSingleton<ICacheOrchestrator, CacheOrchestrator>();
-            services.TryAddSingleton<DataFerry>();
+            services.TryAddSingleton<IDataFerry, DataFerry>();
+
             return services;
         }
     }

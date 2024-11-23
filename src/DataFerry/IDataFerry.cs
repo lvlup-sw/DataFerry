@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Caching.Hybrid;
-using System.Runtime.CompilerServices;
 
 namespace lvlup.DataFerry
 {
@@ -29,9 +28,27 @@ namespace lvlup.DataFerry
 
         void RemoveByTag(string tag);
 
+        ValueTask<T> GetOrCreateAsync<TState, T>(
+            string key,
+            TState state, Func<TState, CancellationToken, ValueTask<T>> factory,
+            HybridCacheEntryOptions? options = null,
+            IEnumerable<string>? tags = null,
+            CancellationToken cancellationToken = default);
+
+        ValueTask SetAsync<T>(
+            string key,
+            T value,
+            HybridCacheEntryOptions? options = null,
+            IEnumerable<string>? tags = null,
+            CancellationToken cancellationToken = default);
+
         ValueTask RefreshAsync(string key, HybridCacheEntryOptions options, CancellationToken cancellationToken = default);
 
         ValueTask RefreshByTagAsync(string tag, HybridCacheEntryOptions options, CancellationToken cancellationToken = default);
+
+        ValueTask RemoveAsync(string key, CancellationToken cancellationToken = default);
+
+        ValueTask RemoveByTagAsync(string tag, CancellationToken cancellationToken = default);
 
         IAsyncEnumerable<KeyValuePair<string, T>> GetOrCreateBatchAsync<TState, T>(
             IEnumerable<string> keys,
