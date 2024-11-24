@@ -12,7 +12,7 @@ namespace lvlup.DataFerry.Buffers
 
         [ThreadStatic]
         private static ConcurrentStack<T>? _threadBuffer;
-        private static readonly Lock _clearLock = new();
+        private static readonly Lock @clearLock = new();
         private readonly int _capacity;
         private int _count = 0;
 
@@ -46,6 +46,13 @@ namespace lvlup.DataFerry.Buffers
         public void Add(T item)
         {
             _threadBuffer ??= [];
+
+            // Check for duplicate on most recent item
+            if (_threadBuffer.TryPeek(out T prev) && prev.Equals(item))
+            {
+                _threadBuffer.TryPop(out _);
+            }
+
             _threadBuffer.Push(item);
             Interlocked.Increment(ref _count);
 
@@ -57,7 +64,7 @@ namespace lvlup.DataFerry.Buffers
         {
             Process.GetCurrentProcess().Refresh();
 
-            lock (_clearLock)
+            lock (@clearLock)
             {
                 foreach (var _ in Process.GetCurrentProcess().Threads)
                 {
@@ -73,6 +80,8 @@ namespace lvlup.DataFerry.Buffers
 
             Interlocked.Exchange(ref _count, 0);
         }
+
+        public int GetCount() => _count;
 
         private void CheckThresholdAndNotify()
         {

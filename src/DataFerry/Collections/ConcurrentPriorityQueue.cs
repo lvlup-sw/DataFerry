@@ -240,6 +240,7 @@ namespace lvlup.DataFerry.Collections
             {
                 var searchResult = WeakSearch(priority);
 
+                // _allowDuplicatePriorities causes problems for TryDeleteMin
                 if (searchResult.IsFound && !_allowDuplicatePriorities)
                 {
                     var curr = searchResult.GetNodeFound();

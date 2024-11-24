@@ -19,12 +19,11 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
 
     // Logical partitions of cache
-    private readonly ConcurrentLinkedList<TKey> _window;
     private readonly ConcurrentLinkedList<TKey> _probation;
     private readonly ConcurrentLinkedList<TKey> _protected;
 
     // Frequency queue tracking LFU candidates
-    private readonly ConcurrentPriorityQueue<int, TKey> _frequencyQueue;
+    private readonly ConcurrentPriorityQueue<int, TKey> _evictionWindow;
 
     // Frequency histogram
     private readonly CountMinSketch<TKey> _cms;
@@ -65,7 +64,6 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
 
         // Cache and partitions
         _cache = new();
-        _window = new();
         _probation = new();
         _protected = new();
 
@@ -75,10 +73,11 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         _taskOrchestrator = taskOrchestrator;
         // We create a concurrent priority queue to hold LFU candidates
         // This comparer gives lower frequency items higher priority
-        _frequencyQueue = new(
+        _evictionWindow = new(
             _taskOrchestrator,
             Comparer<int>.Create((x, y) => x.CompareTo(y)), 
-            maxSize: MaxSize);
+            maxSize: _maxWindowSize,
+            allowDuplicatePriorities: false);
 
         // Timer to trigger TTL-based eviction
         _cleanUpTimer = new Timer(
@@ -87,16 +86,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
             TimeSpan.FromMilliseconds(cleanupJobInterval),
             TimeSpan.FromMilliseconds(cleanupJobInterval));
 
-        // Subscribe to the ThresholdReached event in the constructor
-        _writeBuffer.ThresholdReached += (sender, args) =>
-        {
-            // Get and process items
-            foreach (var item in _writeBuffer.ExtractItems())
-            {
-                // Process the item
-                Console.WriteLine($"Key: {item.Key}, Value: {item.Value}");
-            }
-        };
+        // Setup the buffer threshold eventing
+        _writeBuffer.ThresholdReached += (sender, args) => DrainBufferIntoCache(sender, args);
     }
 
     /// <summary>
@@ -146,12 +137,12 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
             await _evictionSemaphore.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                int evictionBatch = (int) Math.Sqrt(_frequencyQueue.GetCount());
+                int evictionBatch = (int) Math.Sqrt(_evictionWindow.GetCount());
                 for (int i = 0; i < evictionBatch; i++)
                 {
-                    _frequencyQueue.TryDeleteMin(out var lfuItem);
+                    _evictionWindow.TryDeleteMinProbabilistically(out var lfuItem);
                     Remove(lfuItem);
-                    //_frequencyQueue.TryDequeue(out var lfuItem, out _);
+                    //_evictionWindow.TryDequeue(out var lfuItem, out _);
                     //if (lfuItem is not null) Remove(lfuItem);
                 }
             }
@@ -167,7 +158,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
 
     /// <inheritdoc/>
     // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
-    public int Count => _cache.Skip(0).Count();
+    public int Count => _cache.Skip(0).Count() + _writeBuffer.GetCount();
 
     /// <inheritdoc/>
     public void Clear()
@@ -176,11 +167,11 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         try
         {
             _cache.Clear();
-            //_window.Clear();
+            //_evictionWindow.Clear();
             //_probation.Clear();
             //_protected.Clear();
             _cms.Clear();
-            //_frequencyQueue.Clear();
+            _writeBuffer.Clear();
         }
         finally
         { 
@@ -209,25 +200,59 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
 
         // Found and not expired
         value = ttlValue.Value;
-        // Update frequencies
         _cms.Increment(key);
-        _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
+        // We need to handle promotion here
         return true;
     }
 
     private bool TriggerEvictionJob() => _currentSize >= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 1, 0) == 0;
     private bool TerminateEvictionJob() => _currentSize <= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 0, 1) == 1;
 
+    private void DrainBufferIntoCache(object? sender, ThresholdReachedEventArgs args)
+    {
+        foreach (var item in _writeBuffer.ExtractItems())
+        {
+
+        }
+
+        //_cache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
+    }
+
     /// <inheritdoc/>
     public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
     {
-        // Determine where the key exists, if anywhere
-        // Right now, we are simply promoting if the item has been
-        // accessed before. We'll need to change this to have more
-        // sophisticated logic, especially regarding access order.
-        //bool isInWindow = _window.ContainsKey(key);
-        //var targetCache = isInWindow || _cache.ContainsKey(key) ? _cache : _window;
+        if (!Admit()) return;
 
+        // Should we add to freq queue?
+        // Add to WriteBuffer
+        _writeBuffer.Add(
+            new BufferItem(
+                key,
+                new TtlValue(value, ttl)
+            ));
+
+        // Update frequency in sketch
+        _cms.Increment(key);
+
+        // Admit the item to the cache
+        bool Admit()
+        {
+            if (_evictionWindow.TryDeleteMinProbabilistically(out var lfu))
+            {
+                var freq = _cms.EstimateFrequency(key);
+                var lfuFreq = _cms.EstimateFrequency(lfu);
+
+                if (lfuFreq > freq)
+                {
+                    _evictionWindow.TryAdd(lfuFreq, lfu);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /*
         // Add a new key-value pair or update an existing one
         _cache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
         //if (isInWindow) _window.TryRemove(key, out _);
@@ -235,7 +260,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         // Update the frequency of the key
         _cms.Increment(key);
         Interlocked.Increment(ref _currentSize);
-        _frequencyQueue.TryAdd(_cms.EstimateFrequency(key), key);
+        _evictionWindow.TryAdd(_cms.EstimateFrequency(key), key);
 
         // Check if eviction is necessary
         if (TriggerEvictionJob())
@@ -247,6 +272,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         {
             _evictionCancellationToken?.Cancel();
         }
+        */
     }
 
     /// <inheritdoc/>
