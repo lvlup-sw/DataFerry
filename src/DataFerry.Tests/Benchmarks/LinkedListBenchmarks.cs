@@ -1,8 +1,9 @@
 ﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
 using lvlup.DataFerry.Collections;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Benchmarks
 {
     [ShortRunJob]
     [MemoryDiagnoser]
@@ -33,8 +34,8 @@ namespace lvlup.DataFerry.Tests
         public static void Main(string[] args)
         {
             // Uncomment to debug
-            //_ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
-            _ = BenchmarkRunner.Run<LinkedListBenchmarks>();
+            _ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
+            //_ = BenchmarkRunner.Run<LinkedListBenchmarks>();
         }
 
         [Benchmark]

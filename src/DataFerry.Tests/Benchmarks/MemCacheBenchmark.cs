@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Benchmarks
 {
     [ShortRunJob]
     [MemoryDiagnoser]

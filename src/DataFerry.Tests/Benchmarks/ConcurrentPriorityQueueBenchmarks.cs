@@ -1,4 +1,5 @@
 ﻿using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
 using lvlup.DataFerry.Collections;
 using lvlup.DataFerry.Orchestrators;
@@ -7,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 
-namespace lvlup.DataFerry.Tests
+namespace lvlup.DataFerry.Tests.Benchmarks
 {
     [ShortRunJob]
     [MemoryDiagnoser]
@@ -42,8 +43,8 @@ namespace lvlup.DataFerry.Tests
         public static void Main(string[] args)
         {
             // Uncomment to debug
-            //_ = BenchmarkSwitcher.FromAssembly(typeof(ConcurrentPriorityQueueBenchmarks).Assembly).Run(args, new DebugInProcessConfig());
-            _ = BenchmarkRunner.Run<ConcurrentPriorityQueueBenchmarks>();
+            _ = BenchmarkSwitcher.FromAssembly(typeof(ConcurrentPriorityQueueBenchmarks).Assembly).Run(args, new DebugInProcessConfig());
+            //_ = BenchmarkRunner.Run<ConcurrentPriorityQueueBenchmarks>();
         }
 
         /*
@@ -103,7 +104,7 @@ namespace lvlup.DataFerry.Tests
             // Generate a sequence of numbers with a distribution that favors lower numbers
             // but still includes a good spread of higher numbers
             return [.. Enumerable.Range(1, 1000)  // Adjust the exponent (1.5) to control the distribution
-                .SelectMany(x => Enumerable.Repeat(x, (int)(1000 / Math.Pow(x, 1.5)))) 
+                .SelectMany(x => Enumerable.Repeat(x, (int)(1000 / Math.Pow(x, 1.5))))
                 .OrderBy(x => Guid.NewGuid())];   // Shuffle the values randomly
         }
     }
