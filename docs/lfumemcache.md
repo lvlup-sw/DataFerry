@@ -6,8 +6,6 @@ In an SLRU cache, items are initially admitted to the probation segment. Frequen
 
 Admission to the main cache follows the window TinyLFU (W-TinyLFU) policy. This policy uses a small window (1% of the total cache size) and a frequency histogram to filter entrants. By filtering items through this window, the cache ensures that only frequently accessed items are admitted.
 
-The key innovation behind W-TinyLFU is its usage as an admission policy, not an eviction policy. This means that the cache doesn't need to maintain a strict LFU order for all items. Instead, it focuses on identifying frequently accessed items during admission as we need not determine the exact ordering between all items in the cache.
-
 The key innovation behind W-TinyLFU is its use as an admission policy, not an eviction policy. This means that the cache doesn't need to maintain a strict LFU order for all items in the cache. Instead, the frequency histogram only needs to determine if an eviction candidate (already in the main cache) is more popular than the entrant candidate; it need not determine the exact ordering between all items in the cache.
 
 The LfuMemCache draws significant inspiration from the Caffeine and BitFaster libraries, in some cases directly adapting and incorporating elements from their designs.

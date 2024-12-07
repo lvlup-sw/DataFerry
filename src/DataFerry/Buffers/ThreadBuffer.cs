@@ -12,6 +12,7 @@ namespace lvlup.DataFerry.Buffers
 
         [ThreadStatic]
         private static ConcurrentStack<T>? _threadBuffer;
+        private static readonly Lock @flushLock = new();
         private static readonly Lock @clearLock = new();
         private readonly int _capacity;
         private int _count = 0;
@@ -21,21 +22,26 @@ namespace lvlup.DataFerry.Buffers
             _capacity = capacity;
         }
 
-        public IEnumerable<T> ExtractItems()
+        public IEnumerable<T> FlushItems()
         {
             // Get all active threads
             Process.GetCurrentProcess().Refresh();
             
-            foreach (var _ in Process.GetCurrentProcess().Threads)
+            lock (@flushLock)
             {
-                // Access the thread-local buffer
-                var buffer = _threadBuffer;
-
-                if (buffer is not null)
+                foreach (var _ in Process.GetCurrentProcess().Threads)
                 {
-                    while (buffer.TryPop(out var item))
+                    // Access the thread-local buffer
+                    var buffer = _threadBuffer;
+
+                    if (buffer is not null)
                     {
-                        yield return item;
+                        while (buffer.TryPop(out var item))
+                        {
+                            yield return item;
+                        }
+
+                        _threadBuffer = default;
                     }
                 }
             }

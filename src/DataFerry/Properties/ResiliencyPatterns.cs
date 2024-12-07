@@ -3,7 +3,7 @@
     public enum ResiliencyPatterns
     {
         None = 0,
-        Advanced = 1,
-        Basic = 2
+        Basic = 1,
+        Advanced = 2
     }
 }

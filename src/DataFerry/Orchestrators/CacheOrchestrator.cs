@@ -53,15 +53,17 @@ namespace lvlup.DataFerry.Orchestrators
             {
                 _policyLock.EnterReadLock();
                 try     { return _syncPolicy; }
-                finally {  _policyLock.ExitReadLock(); }
+                finally { _policyLock.ExitReadLock(); }
             }
             set
             {
                 _policyLock.EnterWriteLock();
-                try {
+                try 
+                {
                     ArgumentNullException.ThrowIfNull(value);
                     _syncPolicy = value;
-                } finally {  _policyLock.ExitWriteLock(); }
+                }
+                finally { _policyLock.ExitWriteLock(); }
             }
         }
 
@@ -77,10 +79,12 @@ namespace lvlup.DataFerry.Orchestrators
             set
             {
                 _policyLock.EnterWriteLock();
-                try {
+                try 
+                {
                     ArgumentNullException.ThrowIfNull(value);
                     _asyncPolicy = value;
-                } finally { _policyLock.ExitWriteLock(); }
+                } 
+                finally { _policyLock.ExitWriteLock(); }
             }
         }
 

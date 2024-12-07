@@ -202,28 +202,31 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         value = ttlValue.Value;
         _cms.Increment(key);
         // We need to handle promotion here
+        // ShouldPromote(key);
         return true;
     }
 
-    private bool TriggerEvictionJob() => _currentSize >= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 1, 0) == 0;
-    private bool TerminateEvictionJob() => _currentSize <= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 0, 1) == 1;
+    //private bool TriggerEvictionJob() => _currentSize >= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 1, 0) == 0;
+    //private bool TerminateEvictionJob() => _currentSize <= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 0, 1) == 1;
 
     private void DrainBufferIntoCache(object? sender, ThresholdReachedEventArgs args)
     {
-        foreach (var item in _writeBuffer.ExtractItems())
-        {
+        /* Determining Segment and Promotion
 
-        }
-
-        //_cache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
+        For each item in the collected list:
+            The ShouldPromote method is called to check if the item should be promoted based on its frequency compared to the recent items in the _recentItems queue.
+            If the item should be promoted, the Promote method is called to move the item to the protected segment and demote a victim (if necessary).
+            The item is added to the main cache (_cache, a ConcurrentDictionary).
+            The item's key is added to the _recentItems queue, maintaining the sliding window.  
+        
+        */
     }
 
     /// <inheritdoc/>
     public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
     {
-        if (!Admit()) return;
+        if (!Admit(key)) return;
 
-        // Should we add to freq queue?
         // Add to WriteBuffer
         _writeBuffer.Add(
             new BufferItem(
@@ -235,44 +238,23 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         _cms.Increment(key);
 
         // Admit the item to the cache
-        bool Admit()
+        bool Admit(TKey key)
         {
-            if (_evictionWindow.TryDeleteMinProbabilistically(out var lfu))
+            if (!_evictionWindow.TryDeleteMinProbabilistically(out var curr))
             {
-                var freq = _cms.EstimateFrequency(key);
-                var lfuFreq = _cms.EstimateFrequency(lfu);
-
-                if (lfuFreq > freq)
-                {
-                    _evictionWindow.TryAdd(lfuFreq, lfu);
-                    return true;
-                }
+                return false;
             }
 
-            return false;
-        }
+            int candidateFreq = _cms.EstimateFrequency(key);
+            int currFreq = _cms.EstimateFrequency(curr);
 
-        /*
-        // Add a new key-value pair or update an existing one
-        _cache.AddOrUpdate(key, new TtlValue(value, ttl), (k, oldValue) => new TtlValue(value, ttl));
-        //if (isInWindow) _window.TryRemove(key, out _);
-
-        // Update the frequency of the key
-        _cms.Increment(key);
-        Interlocked.Increment(ref _currentSize);
-        _evictionWindow.TryAdd(_cms.EstimateFrequency(key), key);
-
-        // Check if eviction is necessary
-        if (TriggerEvictionJob())
-        {
-            _evictionCancellationToken = new();
-            _ = Task.Run(() => EvictLFUAsync(_evictionCancellationToken.Token));
+            // Determine which key to add and return the result
+            return (candidateFreq >= currFreq) switch
+            {
+                true  => _evictionWindow.TryAdd(candidateFreq, key),
+                false => _evictionWindow.TryAdd(currFreq, curr)
+            };
         }
-        else if (TerminateEvictionJob())
-        {
-            _evictionCancellationToken?.Cancel();
-        }
-        */
     }
 
     /// <inheritdoc/>
@@ -307,6 +289,9 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <inheritdoc/>
     public void Remove(TKey key)
     {
+        if (!_probation.TryRemove(key))
+            _protected.TryRemove(key);
+
         _cache.TryRemove(key, out _);
     }
 
