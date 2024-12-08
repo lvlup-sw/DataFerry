@@ -17,7 +17,7 @@ namespace lvlup.DataFerry.Collections
     /// This implementation offers:
     /// </para>
     /// <list type="bullet">
-    /// <item>Expected O(log n) time complexity for `Contains`, `TryGet`, `TryAdd`, `Update`, and `TryRemove` operations.</item> 
+    /// <item>Expected O(log n) time complexity for `Contains`, `TryGet`, `TryAdd`, `Update`, `TryRemove`, and 'TryDeleteMin' operations.</item> 
     /// <item>Lock-free and wait-free `Contains` and `TryGet` operations.</item>
     /// <item>Lock-free priority enumerations.</item>
     /// </list>
@@ -510,6 +510,12 @@ namespace lvlup.DataFerry.Collections
 
         /// <inheritdoc/>
         public int GetCount() => _count;
+
+        /// <inheritdoc/>
+        public void Clear()
+        {
+            throw new NotImplementedException();
+        }
 
         /// <inheritdoc/>
         public IEnumerator<TPriority> GetEnumerator()

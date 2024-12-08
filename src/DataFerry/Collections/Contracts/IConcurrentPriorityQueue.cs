@@ -79,6 +79,11 @@ namespace lvlup.DataFerry.Collections.Contracts
         int GetCount();
 
         /// <summary>
+        /// Removes all nodes from the SkipList.
+        /// </summary>
+        void Clear();
+
+        /// <summary>
         /// Provides a lock-free enumeration of the prioritys in the ConcurrentPriorityQueue. 
         /// Note that this enumeration provides READ COMMITTED semantics.
         /// </summary>

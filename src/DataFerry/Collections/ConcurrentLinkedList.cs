@@ -136,6 +136,32 @@ namespace lvlup.DataFerry.Collections
         /// <inheritdoc/>
         public int Count => _count;
 
+        /// <inheritdoc/>
+        public void Clear()
+        {
+            if (_head is null) return;
+
+            // Atomically detach the head and reset the tail
+            Node<T> currentHead = Interlocked.Exchange(ref _head!, null);
+
+            ClearNodePointers(currentHead);
+
+            // Reset the count
+            Interlocked.Exchange(ref _count, 0);
+
+            // Inner function to clear Prev pointers
+            static void ClearNodePointers(Node<T> node)
+            {
+                while (node is not null)
+                {
+                    if (node.Prev is not null) 
+                        _ = Interlocked.Exchange(ref node.Prev!, null);
+
+                    node = node.Next;
+                }
+            }
+        }
+
         /// <summary>
         /// Enlists a new node into the linked list.
         /// </summary>

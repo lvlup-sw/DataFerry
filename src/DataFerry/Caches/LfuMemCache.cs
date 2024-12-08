@@ -29,6 +29,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private readonly CountMinSketch<TKey> _cms;
 
     // Background processes
+    private readonly ConcurrentQueue<TKey> _recentEntries;
     private readonly ThreadBuffer<BufferItem> _writeBuffer;
     private readonly ITaskOrchestrator _taskOrchestrator;
     private readonly Timer _cleanUpTimer;
@@ -37,6 +38,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private CancellationTokenSource? _evictionCancellationToken;
     private long _evictionJobStarted = 0;
     private const int BufferSize = 8;
+    private const int RecentWindowMaxSize = 5;
     private readonly int _maxWindowSize;
     private readonly int _maxProbationSize;
     private readonly int _maxProtectedSize;
@@ -70,6 +72,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         // Helper data structures
         _cms = new(MaxSize);
         _writeBuffer = new(BufferSize);
+        _recentEntries = new();
         _taskOrchestrator = taskOrchestrator;
         // We create a concurrent priority queue to hold LFU candidates
         // This comparer gives lower frequency items higher priority
@@ -87,7 +90,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
             TimeSpan.FromMilliseconds(cleanupJobInterval));
 
         // Setup the buffer threshold eventing
-        _writeBuffer.ThresholdReached += (sender, args) => DrainBufferIntoCache(sender, args);
+        _writeBuffer.ThresholdReached += DrainBufferIntoCache;
+        // We should also trigger based on the timing wheel
     }
 
     /// <summary>
@@ -166,17 +170,68 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         _clearSemaphore.Wait();
         try
         {
-            _cache.Clear();
-            //_evictionWindow.Clear();
-            //_probation.Clear();
-            //_protected.Clear();
+            _evictionWindow.Clear();
+            _probation.Clear();
+            _protected.Clear();
             _cms.Clear();
             _writeBuffer.Clear();
+            _cache.Clear();
         }
         finally
         { 
             _clearSemaphore.Release();
         }
+    }
+
+    //private bool TriggerEvictionJob() => _currentSize >= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 1, 0) == 0;
+    //private bool TerminateEvictionJob() => _currentSize <= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 0, 1) == 1;
+
+    /// <summary>
+    /// Flushes the items from the write buffer into the appropriate cache segments.
+    /// </summary>
+    internal void DrainBufferIntoCache(object? sender, ThresholdReachedEventArgs args)
+    {
+        // Process flushed items for segment and promotion
+        foreach (var item in _writeBuffer.FlushItems())
+        {
+            // Determine promotion eligibility
+            var segment = DetermineCacheSegment(item.Value);
+
+            // Make sure we have room in the segments
+            EnsureAvailableSpaceInSegment(segment, item);
+
+            // Add the item to the corresponding segment list
+            switch (segment)
+            {
+                case CacheSegment.Protected:
+                    _protected.TryInsert(item.Key);
+                    break;
+                case CacheSegment.Probation:
+                    _probation.TryInsert(item.Key);
+                    break;
+                case CacheSegment.Invalid:
+                    continue;
+            }
+
+            _cache.AddOrUpdate(item.Key, item.Value, (existingKey, existingValue) => item.Value);
+
+            // Add to recent items queue
+            _recentEntries.Enqueue(item.Key);
+            if (_recentEntries.Count > RecentWindowMaxSize)
+            {
+                _recentEntries.TryDequeue(out _);
+            }
+        }
+    }
+
+    private void EnsureAvailableSpaceInSegment(CacheSegment segment, BufferItem item)
+    {
+        throw new NotImplementedException();
+    }
+
+    private CacheSegment DetermineCacheSegment(TtlValue value)
+    {
+        throw new NotImplementedException();
     }
 
     /// <inheritdoc/>
@@ -201,25 +256,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         // Found and not expired
         value = ttlValue.Value;
         _cms.Increment(key);
-        // We need to handle promotion here
-        // ShouldPromote(key);
         return true;
-    }
-
-    //private bool TriggerEvictionJob() => _currentSize >= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 1, 0) == 0;
-    //private bool TerminateEvictionJob() => _currentSize <= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 0, 1) == 1;
-
-    private void DrainBufferIntoCache(object? sender, ThresholdReachedEventArgs args)
-    {
-        /* Determining Segment and Promotion
-
-        For each item in the collected list:
-            The ShouldPromote method is called to check if the item should be promoted based on its frequency compared to the recent items in the _recentItems queue.
-            If the item should be promoted, the Promote method is called to move the item to the protected segment and demote a victim (if necessary).
-            The item is added to the main cache (_cache, a ConcurrentDictionary).
-            The item's key is added to the _recentItems queue, maintaining the sliding window.  
-        
-        */
     }
 
     /// <inheritdoc/>
@@ -231,7 +268,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         _writeBuffer.Add(
             new BufferItem(
                 key,
-                new TtlValue(value, ttl)
+                new TtlValue(value, CacheSegment.Invalid, ttl)
             ));
 
         // Update frequency in sketch
@@ -315,7 +352,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     {
         if (_cache.TryGetValue(key, out var value))
         {
-            var ttlValue = new TtlValue(value.Value, ttl);
+            var ttlValue = new TtlValue(value.Value, value.CacheSegment, ttl);
             _cache[key] = ttlValue;
         }
     }
@@ -345,13 +382,19 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         public readonly long _expirationTicks;
 
         /// <summary>
+        /// The segment of the cache this value is stored in.
+        /// </summary>
+        public readonly CacheSegment CacheSegment;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="TtlValue"/> class.
         /// </summary>
         /// <param name="value">The value to store.</param>
         /// <param name="ttl">The time-to-live (TTL) for the value.</param>
-        public TtlValue(TValue value, TimeSpan ttl)
+        public TtlValue(TValue value, CacheSegment segment, TimeSpan ttl)
         {
             Value = value;
+            CacheSegment = segment;
             _expirationTicks = Environment.TickCount64 + (long)ttl.TotalMilliseconds;
         }
 
@@ -361,32 +404,60 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         /// <returns>True if the value has expired; otherwise, false.</returns>
         public readonly bool IsExpired() => Environment.TickCount64 > _expirationTicks;
 
-        public readonly bool HasValue => !IsNullOrEmpty;
+        /// <summary>
+        /// Indicates whether this value is valid and unexpired.
+        /// </summary>
+        public readonly bool HasValue => !IsNullOrExpired;
 
-        private readonly bool IsNullOrEmpty
+        /// <summary>
+        /// Gets a value indicating whether the value is null or expired.
+        /// </summary>
+        private readonly bool IsNullOrExpired
         {
             get
             {
                 if (Value != null) return true;
+                if (CacheSegment == CacheSegment.Invalid) return true;
                 if (_expirationTicks > 0) return true;
                 return false;
             }
         }
     }
 
+    /// <summary>
+    /// Represents an item stored in the write buffer.
+    /// </summary>
     private readonly struct BufferItem
     {
+        /// <summary>
+        /// Gets the key of the item.
+        /// </summary>
         public readonly TKey Key;
+
+        /// <summary>
+        /// Gets the value of the item, along with its time-to-live (TTL).
+        /// </summary>
         public readonly TtlValue Value;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="BufferItem"/> struct.
+        /// </summary>
+        /// <param name="key">The key of the item.</param>
+        /// <param name="value">The value of the item.</param>
         public BufferItem(TKey key, TtlValue value)
         {
             Key = key;
             Value = value;
         }
 
+        /// <summary>
+        /// Gets a value indicating whether this item has a valid key and value.
+        /// </summary>
         public readonly bool HasValue => !IsNullOrEmpty;
 
+        /// <summary>
+        /// Gets a value indicating whether the key or value is null or empty.
+        /// </summary>
         private readonly bool IsNullOrEmpty
         {
             get
@@ -396,6 +467,27 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
                 return false;
             }
         }
+    }
+
+    /// <summary>
+    /// Represents the logical segments within the cache.
+    /// </summary>
+    private enum CacheSegment
+    {
+        /// <summary>
+        /// Indicates an invalid or unknown segment.
+        /// </summary>
+        Invalid = -1,
+
+        /// <summary>
+        /// The probationary segment where new items are initially added.
+        /// </summary>
+        Probation = 0,
+
+        /// <summary>
+        /// The protected segment for frequently accessed items.
+        /// </summary>
+        Protected = 1
     }
 
     #region IDisposable
