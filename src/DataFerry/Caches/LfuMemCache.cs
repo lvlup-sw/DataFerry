@@ -30,7 +30,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
 
     // Background processes
     private readonly ConcurrentQueue<TKey> _recentEntries;
-    private readonly ThreadBuffer<BufferItem> _writeBuffer;
+    private readonly BoundedBuffer<BufferItem> _writeBuffer;
     private readonly ITaskOrchestrator _taskOrchestrator;
     private readonly Timer _cleanUpTimer;
 
@@ -273,6 +273,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
 
         // Update frequency in sketch
         _cms.Increment(key);
+        return;
 
         // Admit the item to the cache
         bool Admit(TKey key)

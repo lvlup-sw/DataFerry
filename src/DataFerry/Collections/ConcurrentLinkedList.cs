@@ -88,7 +88,7 @@ namespace lvlup.DataFerry.Collections
             {
                 if (_comparer.Compare(curr.Key, key) == 0 && curr.State != NodeState.INV)
                 {
-                    return curr.State == NodeState.INS || curr.State == NodeState.DAT;
+                    return curr.State is NodeState.INS or NodeState.DAT;
                 }
             }
 
@@ -100,7 +100,7 @@ namespace lvlup.DataFerry.Collections
         {
             for (Node<T>? curr = _head; curr != null; curr = curr.Next)
             {
-                if ((curr.State == NodeState.DAT || curr.State == NodeState.INS)
+                if (curr.State is NodeState.DAT or NodeState.INS
                     && _comparer.Compare(curr.Key, value) == 0)
                 {
                     return curr;
@@ -124,7 +124,7 @@ namespace lvlup.DataFerry.Collections
             Node<T>? curr = _head;
             while (curr is not null)
             {
-                if (curr.State == NodeState.DAT || curr.State == NodeState.INS)
+                if (curr.State is NodeState.DAT or NodeState.INS)
                 {
                     array[i++] = curr.Key;
                 }
@@ -148,6 +148,7 @@ namespace lvlup.DataFerry.Collections
 
             // Reset the count
             Interlocked.Exchange(ref _count, 0);
+            return;
 
             // Inner function to clear Prev pointers
             static void ClearNodePointers(Node<T> node)
@@ -206,7 +207,7 @@ namespace lvlup.DataFerry.Collections
                 {   // Curr is being removed
                     return true;
                 }
-                else if (curr.State == NodeState.INS || curr.State == NodeState.DAT)
+                else if (curr.State is NodeState.INS or NodeState.DAT)
                 {   // Curr is being inserted or has been inserted
                     return false;
                 }

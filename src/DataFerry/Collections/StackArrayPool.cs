@@ -40,14 +40,14 @@ namespace lvlup.DataFerry.Collections
             _buckets = new();
 
             // Preallocate arrays in each bucket
-            for (int i = 0; i < _bucketSizes.Length; i++)
+            foreach (var t in _bucketSizes)
             {
                 var preallocatedArrays = Enumerable.Range(0, preallocation)
-                    .Select(_ => new T[_bucketSizes[i]])
+                    .Select(_ => new T[t])
                     .ToArray();
 
                 _buckets.AddOrUpdate(
-                    _bucketSizes[i],
+                    t,
                     new ConcurrentQueue<T[]>(preallocatedArrays),
                     (_, existingQueue) => existingQueue
                 );
@@ -137,8 +137,7 @@ namespace lvlup.DataFerry.Collections
             // Ensure length is within the valid range and is a power of 2
             // Note we're checking the binary representation here
             bool isValidLength = (length & (length - 1)) == 0 
-                && length >= (1 << MinPowOf2) 
-                && length <= (1 << MaxPowOf2);
+                && length is >= 1 << MinPowOf2 and <= 1 << MaxPowOf2;
 
             if (!isValidLength) return -1;
 
