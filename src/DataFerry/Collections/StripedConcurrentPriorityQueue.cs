@@ -3,7 +3,7 @@ using System.Collections;
 
 namespace lvlup.DataFerry.Collections.temp
 {
-    public class BasicCPQ<TElement, TPriority> : IProducerConsumerCollection<TElement>
+    public class StripedConcurrentPriorityQueue<TElement, TPriority> : IProducerConsumerCollection<TElement>
     {
         // Queues
         private readonly PriorityQueue<TElement, TPriority> _queue;
@@ -16,7 +16,7 @@ namespace lvlup.DataFerry.Collections.temp
         private readonly int _queueCapacity;
         private readonly int _stripeCount = 10;
 
-        public BasicCPQ(IComparer<TPriority> comparer, int capacity = 1000)
+        public StripedConcurrentPriorityQueue(IComparer<TPriority> comparer, int capacity = 1000)
         {
             _queue = new(comparer);
             _queueCapacity = capacity;

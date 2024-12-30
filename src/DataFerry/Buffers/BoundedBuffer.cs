@@ -24,12 +24,7 @@ public class BoundedBuffer<T> where T : struct
     ///  Lock object used to synchronize access between multiple producers.
     /// </summary>
     private readonly Lock @producerLock = new();
-
-    /// <summary>
-    /// A ManualResetEventSlim used to signal the consumer when the buffer is not empty.
-    /// </summary>
-    private readonly ManualResetEventSlim _notEmptyEvent = new(false);
-
+    
     // Pointers
     /// <summary>
     /// Index of the next position in the buffer to write to (used by producers).
@@ -50,6 +45,11 @@ public class BoundedBuffer<T> where T : struct
     /// The number of times the consumer will spin before waiting on the _notEmptyEvent.
     /// </summary>
     private readonly int _spinCountBeforeWait;
+    
+    /// <summary>
+    /// A ManualResetEventSlim used to signal the consumer when the buffer is not empty.
+    /// </summary>
+    public ManualResetEventSlim NotEmptyEvent { get; } = new(false);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BoundedBuffer{T}"/> class.
@@ -87,7 +87,7 @@ public class BoundedBuffer<T> where T : struct
             _count++;
 
             // If buffer has items, signal the consumer
-            if (_count == 1) _notEmptyEvent.Set();
+            if (_count == 1) NotEmptyEvent.Set();
             return true;
         }
     }
@@ -111,7 +111,7 @@ public class BoundedBuffer<T> where T : struct
             }
             else
             {
-                _notEmptyEvent.Wait();
+                NotEmptyEvent.Wait();
             }
         }
 
@@ -122,7 +122,7 @@ public class BoundedBuffer<T> where T : struct
         Interlocked.Decrement(ref _count);
 
         // Reset if buffer is empty
-        if (_count == 0) _notEmptyEvent.Reset();
+        if (_count == 0) NotEmptyEvent.Reset();
         return true;
     }
 
@@ -132,7 +132,7 @@ public class BoundedBuffer<T> where T : struct
     /// <returns>An IEnumerable containing all items removed from the buffer.</returns>
     public IEnumerable<T> FlushItems()
     {
-        _notEmptyEvent.Wait();
+        NotEmptyEvent.Wait();
 
         // No other consumers, so reading is safe without a lock
         while (_count > 0)
@@ -144,7 +144,7 @@ public class BoundedBuffer<T> where T : struct
             Interlocked.Decrement(ref _count);
         }
 
-        _notEmptyEvent.Reset();
+        NotEmptyEvent.Reset();
     }
 
     /// <summary>
@@ -152,7 +152,7 @@ public class BoundedBuffer<T> where T : struct
     /// </summary>
     public void Clear()
     {
-        _notEmptyEvent.Wait();
+        NotEmptyEvent.Wait();
 
         // No other consumers, so reading is safe without a lock
         // Effectively resets the buffer
@@ -161,6 +161,6 @@ public class BoundedBuffer<T> where T : struct
         // Update count
         Interlocked.Exchange(ref _count, 0);
 
-        _notEmptyEvent.Reset();
+        NotEmptyEvent.Reset();
     }
 }

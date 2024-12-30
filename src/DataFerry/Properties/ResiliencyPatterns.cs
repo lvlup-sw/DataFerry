@@ -1,9 +1,8 @@
-﻿namespace lvlup.DataFerry.Properties
+﻿namespace lvlup.DataFerry.Properties;
+
+public enum ResiliencyPatterns
 {
-    public enum ResiliencyPatterns
-    {
-        None = 0,
-        Basic = 1,
-        Advanced = 2
-    }
+    None = 0,
+    Basic = 1,
+    Advanced = 2
 }

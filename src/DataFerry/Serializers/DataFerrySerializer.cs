@@ -3,190 +3,189 @@ using Microsoft.IO;
 using System.Buffers;
 using System.Text.Json;
 
-namespace lvlup.DataFerry.Serializers
+namespace lvlup.DataFerry.Serializers;
+
+/// <summary>
+/// Implements the <see cref="IDataFerrySerializer"/> interface for serializing and deserializing data using JSON.
+/// </summary>
+/// <remarks>
+/// A <see cref="RecyclableMemoryStreamManager"/> is used to rent stream instances.
+/// This class is optimally used with an <see cref="IBufferWriter{T}"/>.
+/// </remarks>
+public sealed class DataFerrySerializer : IDataFerrySerializer
 {
+    private readonly RecyclableMemoryStreamManager _streamManager;
+    private readonly ILogger<DataFerrySerializer> _logger;
+
     /// <summary>
-    /// Implements the <see cref="IDataFerrySerializer"/> interface for serializing and deserializing data using JSON.
+    /// The tag passed to the <see cref="RecyclableMemoryStreamManager"/> <c>GetStream()</c> method.
     /// </summary>
-    /// <remarks>
-    /// A <see cref="RecyclableMemoryStreamManager"/> is used to rent stream instances.
-    /// This class is optimally used with an <see cref="IBufferWriter{T}"/>.
-    /// </remarks>
-    public sealed class DataFerrySerializer : IDataFerrySerializer
+    public string StreamTag { get; set; } = "DataFerry";
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DataFerrySerializer"/> class.
+    /// </summary>
+    /// <param name="streamManager">The <see cref="RecyclableMemoryStreamManager"/> to use for stream management.</param>
+    /// <param name="logger">The <see cref="ILogger"/> to use for logging.</param>
+    public DataFerrySerializer(
+        RecyclableMemoryStreamManager streamManager,
+        ILogger<DataFerrySerializer> logger)
     {
-        private readonly RecyclableMemoryStreamManager _streamManager;
-        private readonly ILogger<DataFerrySerializer> _logger;
+        _streamManager = streamManager;
+        _logger = logger;
+    }
 
-        /// <summary>
-        /// The tag passed to the <see cref="RecyclableMemoryStreamManager"/> <c>GetStream()</c> method.
-        /// </summary>
-        public string StreamTag { get; set; } = "DataFerry";
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DataFerrySerializer"/> class.
-        /// </summary>
-        /// <param name="streamManager">The <see cref="RecyclableMemoryStreamManager"/> to use for stream management.</param>
-        /// <param name="logger">The <see cref="ILogger"/> to use for logging.</param>
-        public DataFerrySerializer(
-            RecyclableMemoryStreamManager streamManager,
-            ILogger<DataFerrySerializer> logger)
+    /// <inheritdoc/>
+    public T? Deserialize<T>(ReadOnlySequence<byte> source, JsonSerializerOptions? options = default)
+    {
+        try
         {
-            _streamManager = streamManager;
-            _logger = logger;
+            var reader = new Utf8JsonReader(source);
+            return JsonSerializer.Deserialize<T>(ref reader, options);
         }
-
-        /// <inheritdoc/>
-        public T? Deserialize<T>(ReadOnlySequence<byte> source, JsonSerializerOptions? options = default)
+        catch (Exception ex)
         {
-            try
-            {
-                var reader = new Utf8JsonReader(source);
-                return JsonSerializer.Deserialize<T>(ref reader, options);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value.");
-                return default;
-            }
+            _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value.");
+            return default;
         }
+    }
 
-        /// <inheritdoc/>
-        public void Serialize<T>(T value, IBufferWriter<byte> destination, JsonSerializerOptions? options = default)
+    /// <inheritdoc/>
+    public void Serialize<T>(T value, IBufferWriter<byte> destination, JsonSerializerOptions? options = default)
+    {
+        try
         {
-            try
-            {
-                // This will write to the target buffer
-                using var writer = new Utf8JsonWriter(destination);
-                JsonSerializer.Serialize(writer, value, options);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex.GetBaseException(), "Failed to serialize the value.");
-                throw;
-            }
+            // This will write to the target buffer
+            using var writer = new Utf8JsonWriter(destination);
+            JsonSerializer.Serialize(writer, value, options);
         }
-
-        /// <inheritdoc/>
-        public string Serialize<T>(T value, JsonSerializerOptions? options = default)
+        catch (Exception ex)
         {
-            try
-            {
-                return JsonSerializer.Serialize(value, options);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex.GetBaseException(), "Failed to serialize the value.");
-                throw;
-            }
+            _logger.LogError(ex.GetBaseException(), "Failed to serialize the value.");
+            throw;
         }
+    }
 
-        /// <inheritdoc/>
-        public byte[] SerializeToUtf8Bytes<T>(T value, JsonSerializerOptions? options = default)
+    /// <inheritdoc/>
+    public string Serialize<T>(T value, JsonSerializerOptions? options = default)
+    {
+        try
         {
-            try
-            {
-                return JsonSerializer.SerializeToUtf8Bytes(value, options);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex.GetBaseException(), "Failed to serialize the value.");
-                throw;
-            }
+            return JsonSerializer.Serialize(value, options);
         }
-
-        /// <inheritdoc/>
-        public async ValueTask<T?> DeserializeAsync<T>(
-            byte[] serializedValue,
-            JsonSerializerOptions? options = default,
-            CancellationToken token = default)
+        catch (Exception ex)
         {
-            try
-            {
-                // Get a stream from the pool
-                using var stream = _streamManager.GetStream(StreamTag, serializedValue, 0, serializedValue.Length);
-
-                return await JsonSerializer.DeserializeAsync<T>(stream, options, token);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value.");
-                return default;
-            }
+            _logger.LogError(ex.GetBaseException(), "Failed to serialize the value.");
+            throw;
         }
+    }
 
-        /// <inheritdoc/>
-        public async ValueTask SerializeAsync<T>(
-            T value,
-            IBufferWriter<byte> destination,
-            JsonSerializerOptions? options = default,
-            CancellationToken token = default)
+    /// <inheritdoc/>
+    public byte[] SerializeToUtf8Bytes<T>(T value, JsonSerializerOptions? options = default)
+    {
+        try
         {
-            try
+            return JsonSerializer.SerializeToUtf8Bytes(value, options);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex.GetBaseException(), "Failed to serialize the value.");
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<T?> DeserializeAsync<T>(
+        byte[] serializedValue,
+        JsonSerializerOptions? options = default,
+        CancellationToken token = default)
+    {
+        try
+        {
+            // Get a stream from the pool
+            await using var stream = _streamManager.GetStream(StreamTag, serializedValue, 0, serializedValue.Length);
+
+            return await JsonSerializer.DeserializeAsync<T>(stream, options, token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex.GetBaseException(), "Failed to deserialize the value.");
+            return default;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask SerializeAsync<T>(
+        T value,
+        IBufferWriter<byte> destination,
+        JsonSerializerOptions? options = default,
+        CancellationToken token = default)
+    {
+        try
+        {
+            // Get a memory stream from the pool
+            await using var stream = _streamManager.GetStream(StreamTag);
+
+            await JsonSerializer.SerializeAsync(stream, value, options, token);
+
+            // Try to get the buffer from the stream
+            if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
             {
-                // Get a memory stream from the pool
-                using var stream = _streamManager.GetStream(StreamTag);
-
-                await JsonSerializer.SerializeAsync(stream, value, options, token);
-
-                // Try to get the buffer from the stream
-                if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
-                {
-                    // Write the buffer segment to the target
-                    // This allows us to avoid an allocation
-                    // if the target is also rented from a pool
-                    destination.Write(bufferSegment.AsSpan());
-                }
-                else
-                {
-                    // If this fails somehow, we fallback
-                    // to allocating the buffer
-                    _logger.LogWarning("Unable to get buffer from MemoryStream in SerializeAsync; using fallback with additional allocation.");
-
-                    destination.Write(stream.GetBuffer().AsSpan(0, (int)stream.Position));
-                }
+                // Write the buffer segment to the target
+                // This allows us to avoid an allocation
+                // if the target is also rented from a pool
+                destination.Write(bufferSegment.AsSpan());
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex.GetBaseException(), "Failed to serialize the value asynchronously.");
-                throw;
+                // If this fails somehow, we fallback
+                // to allocating the buffer
+                _logger.LogWarning("Unable to get buffer from MemoryStream in SerializeAsync; using fallback with additional allocation.");
+
+                destination.Write(stream.GetBuffer().AsSpan(0, (int)stream.Position));
             }
         }
-
-        /// <inheritdoc/>
-        public async ValueTask<byte[]> SerializeAsync<T>(
-            T value, 
-            JsonSerializerOptions? options = default, 
-            CancellationToken token = default)
+        catch (Exception ex)
         {
-            try
-            {
-                // Get a stream from the pool using the rented buffer
-                using var stream = _streamManager.GetStream(StreamTag);
+            _logger.LogError(ex.GetBaseException(), "Failed to serialize the value asynchronously.");
+            throw;
+        }
+    }
 
-                await JsonSerializer.SerializeAsync(stream, value, options, token);
-                
-                // Try to get the buffer from the stream
-                if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
-                {
-                    // Write the buffer segment to the a new byte[]
-                    return [.. bufferSegment];
-                }
-                else
-                {
-                    // If this fails somehow, we fallback
-                    // to allocating the entire buffer
-                    _logger.LogWarning("Unable to get buffer from MemoryStream in SerializeAsync; using fallback with additional allocation.");
+    /// <inheritdoc/>
+    public async ValueTask<byte[]> SerializeAsync<T>(
+        T value, 
+        JsonSerializerOptions? options = default, 
+        CancellationToken token = default)
+    {
+        try
+        {
+            // Get a stream from the pool using the rented buffer
+            await using var stream = _streamManager.GetStream(StreamTag);
 
-                    return stream.GetBuffer()
-                        .AsSpan(0, (int)stream.Position)
-                        .ToArray();
-                }
-            }
-            catch (Exception ex)
+            await JsonSerializer.SerializeAsync(stream, value, options, token);
+            
+            // Try to get the buffer from the stream
+            if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
             {
-                _logger.LogError(ex.GetBaseException(), "Failed to serialize the value asynchronously.");
-                throw;
+                // Write the buffer segment to the a new byte[]
+                return [.. bufferSegment];
             }
+            else
+            {
+                // If this fails somehow, we fallback
+                // to allocating the entire buffer
+                _logger.LogWarning("Unable to get buffer from MemoryStream in SerializeAsync; using fallback with additional allocation.");
+
+                return stream.GetBuffer()
+                    .AsSpan(0, (int)stream.Position)
+                    .ToArray();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex.GetBaseException(), "Failed to serialize the value asynchronously.");
+            throw;
         }
     }
 }
