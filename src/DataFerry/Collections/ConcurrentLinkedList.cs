@@ -3,7 +3,7 @@
 namespace lvlup.DataFerry.Collections;
 
 /// <summary>
-/// A non-blocking doubly linked list.
+/// A non-blocking thread-safe doubly linked list.
 /// </summary>
 /// <typeparam name="T">The type of elements in the list.</typeparam>
 /// <remarks>
@@ -20,7 +20,6 @@ namespace lvlup.DataFerry.Collections;
 /// <item>Lock-free count.</item>
 /// </list>
 /// </remarks>
-/// <typeparam name="T">The type of elements in the list.</typeparam>
 public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnull
 {
     /// <summary>
@@ -98,7 +97,7 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
     /// <inheritdoc/>
     public Node<T>? Find(T value)
     {
-        for (Node<T>? curr = _head; curr != null; curr = curr.Next)
+        for (Node<T>? curr = _head; curr is not null; curr = curr.Next)
         {
             if (curr.State is NodeState.DAT or NodeState.INS
                 && _comparer.Compare(curr.Key, value) == 0)

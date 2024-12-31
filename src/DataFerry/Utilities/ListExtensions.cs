@@ -31,4 +31,15 @@ internal static class ListExtensions
             collection[i] = value;
         }
     }
+    
+    /// <summary>
+    /// Executes an action on an object if the object is not null.
+    /// </summary>
+    /// <typeparam name="T">The type of the object.</typeparam>
+    /// <param name="obj">The object to execute the action on. Can be null.</param>
+    /// <param name="action">The action to execute if the object is not null.</param>
+    public static void Pipe<T>(this T? obj, Action<T> action) where T : class
+    {
+        if (obj is not null) action(obj);
+    }
 }

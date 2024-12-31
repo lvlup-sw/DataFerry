@@ -755,7 +755,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     #endregion
-    #region Internal Classes
+    #region Internal Types
 
     /// <summary>
     /// Represents a node in the SkipList.

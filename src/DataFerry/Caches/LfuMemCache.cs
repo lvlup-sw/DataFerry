@@ -7,6 +7,8 @@ using System.Collections.Concurrent;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
 
+using lvlup.DataFerry.Collections.Contracts;
+
 namespace lvlup.DataFerry.Caches;
 
 /// <summary>
@@ -19,8 +21,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
 
     // Logical partitions of cache
-    private readonly ConcurrentLinkedList<TKey> _probation;
-    private readonly ConcurrentLinkedList<TKey> _protected;
+    private readonly ConcurrentLinkedList<KeyLocation> _probation;
+    private readonly ConcurrentLinkedList<KeyLocation> _protected;
 
     // Frequency queue tracking LFU candidates
     private readonly ConcurrentPriorityQueue<int, TKey> _evictionWindow;
@@ -34,28 +36,26 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private readonly ITaskOrchestrator _taskOrchestrator;
     private readonly Timer _cleanUpTimer;
 
-    // Signalers and calcs
-    private CancellationTokenSource? _evictionCancellationToken;
-    private long _evictionJobStarted = 0;
+    // Sizes
     private const int BufferSize = 8;
     private const int RecentWindowMaxSize = 5;
     private readonly int _maxWindowSize;
     private readonly int _maxProbationSize;
     private readonly int _maxProtectedSize;
-    private int _currentSize;
 
     // Locks/Semaphores
-    private static readonly SemaphoreSlim _evictionSemaphore = new(1, 1);
-    private static readonly SemaphoreSlim _clearSemaphore = new(1, 1);
+    private static readonly SemaphoreSlim @evictionSemaphore = new(1, 1);
+    private static readonly SemaphoreSlim @clearSemaphore = new(1, 1);
 
     /// <inheritdoc/>
-    public int MaxSize { get; set; }
+    public int MaxSize { get; set; } // Set needs to update the internal objects
 
     /// <summary>
     /// Initializes a new instance of <see cref="LfuMemCache{TKey, TValue}"/>
     /// </summary>
+    /// <param name="taskOrchestrator">The scheduler used to orchestrate background tasks.</param>
     /// <param name="maxSize">The maximum number of items allowed in the cache.</param>        
-    /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
+    /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000.</param>
     public LfuMemCache(ITaskOrchestrator taskOrchestrator, int maxSize = 10000, int cleanupJobInterval = 10000)
     {
         // Cache sizes
@@ -90,10 +90,12 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
             TimeSpan.FromMilliseconds(cleanupJobInterval));
 
         // Setup the buffer threshold eventing
-        _writeBuffer.ThresholdReached += DrainBufferIntoCache;
+        //_writeBuffer.ThresholdReached += DrainBufferIntoCache;
         // We should also trigger based on the timing wheel
     }
 
+    #region Background Tasks
+    
     /// <summary>
     /// Immediately removes expired items from the cache.
     /// Typically unnecessary, as item retrieval already handles expiration checks.
@@ -118,7 +120,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
             {
                 foreach (var pair in dict)
                 {
-                    if (currTime > pair.Value._expirationTicks)
+                    if (currTime > pair.Value.ExpirationTicks)
                     {
                         dict.TryRemove(pair.Key, out _);
                     }
@@ -138,7 +140,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     {
         while (!token.IsCancellationRequested)
         {
-            await _evictionSemaphore.WaitAsync(token).ConfigureAwait(false);
+            await @evictionSemaphore.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 int evictionBatch = (int) Math.Sqrt(_evictionWindow.GetCount());
@@ -152,35 +154,12 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
             }
             finally
             {
-                _evictionSemaphore.Release();
+                @evictionSemaphore.Release();
             }
         }
 
         // Reset the eviction task status when the task completes
-        Interlocked.Exchange(ref _evictionJobStarted, 0);
-    }
-
-    /// <inheritdoc/>
-    // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
-    public int Count => _cache.Skip(0).Count() + _writeBuffer.GetCount();
-
-    /// <inheritdoc/>
-    public void Clear()
-    {
-        _clearSemaphore.Wait();
-        try
-        {
-            _evictionWindow.Clear();
-            _probation.Clear();
-            _protected.Clear();
-            _cms.Clear();
-            _writeBuffer.Clear();
-            _cache.Clear();
-        }
-        finally
-        { 
-            _clearSemaphore.Release();
-        }
+        //Interlocked.Exchange(ref _evictionJobStarted, 0);
     }
 
     //private bool TriggerEvictionJob() => _currentSize >= MaxSize && Interlocked.CompareExchange(ref _evictionJobStarted, 1, 0) == 0;
@@ -224,16 +203,32 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         }
     }
 
-    private void EnsureAvailableSpaceInSegment(CacheSegment segment, BufferItem item)
-    {
-        throw new NotImplementedException();
-    }
+    #endregion
+    #region Core Operations
+    
+    /// <inheritdoc/>
+    // No lock count: https://arbel.net/2013/02/03/best-practices-for-using-concurrentdictionary/ 
+    public int Count => _cache.Skip(0).Count() + _writeBuffer.Count;
 
-    private CacheSegment DetermineCacheSegment(TtlValue value)
+    /// <inheritdoc/>
+    public void Clear()
     {
-        throw new NotImplementedException();
-    }
-
+        @clearSemaphore.Wait();
+        try
+        {
+            _evictionWindow.Clear();
+            _probation.Clear();
+            _protected.Clear();
+            _cms.Clear();
+            _writeBuffer.Clear();
+            _cache.Clear();
+        }
+        finally
+        { 
+            @clearSemaphore.Release();
+        }
+    }    
+    
     /// <inheritdoc/>
     public bool TryGet(TKey key, out TValue value)
     {
@@ -242,7 +237,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         // Not found or expired
         if (!_cache.TryGetValue(key, out var ttlValue) || ttlValue.IsExpired())
         {
-            // Utilizes atomic conditional removal to eliminate the need for locks, 
+            // Utilizes atomic conditional removal to eliminate the need for locks
             // ensuring only items matching both key and value are removed.
             // See: https://devblogs.microsoft.com/pfxteam/little-known-gems-atomic-conditional-removals-from-concurrentdictionary/
             if (ttlValue.HasValue)
@@ -262,13 +257,13 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <inheritdoc/>
     public void AddOrUpdate(TKey key, TValue value, TimeSpan ttl)
     {
-        if (!Admit(key)) return;
+        if (!Admit()) return;
 
         // Add to WriteBuffer
-        _writeBuffer.Add(
+        _writeBuffer.TryAdd(
             new BufferItem(
                 key,
-                new TtlValue(value, CacheSegment.Invalid, ttl)
+                new TtlValue(value, ttl)
             ));
 
         // Update frequency in sketch
@@ -276,7 +271,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         return;
 
         // Admit the item to the cache
-        bool Admit(TKey key)
+        bool Admit()
         {
             if (!_evictionWindow.TryDeleteMinProbabilistically(out var curr))
             {
@@ -327,10 +322,13 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <inheritdoc/>
     public void Remove(TKey key)
     {
-        if (!_probation.TryRemove(key))
-            _protected.TryRemove(key);
+        if (_cache.TryRemove(key, out _))
+        {
+            var keyLocationToRemove = new KeyLocation(key, default);
 
-        _cache.TryRemove(key, out _);
+            RemoveFromSegment(_probation, keyLocationToRemove);
+            RemoveFromSegment(_protected, keyLocationToRemove);
+        }    
     }
 
     /// <summary>
@@ -353,7 +351,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     {
         if (_cache.TryGetValue(key, out var value))
         {
-            var ttlValue = new TtlValue(value.Value, value.CacheSegment, ttl);
+            var ttlValue = new TtlValue(value.Value, ttl);
             _cache[key] = ttlValue;
         }
     }
@@ -366,11 +364,40 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// (Explicit implementation of the IEnumerable.GetEnumerator method.)
     /// </summary>
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    
+    #endregion
+    #region Helper Methods
+    
+    private void EnsureAvailableSpaceInSegment(CacheSegment segment, BufferItem item)
+    {
+        throw new NotImplementedException();
+    }
 
+    private CacheSegment DetermineCacheSegment(TtlValue value)
+    {
+        throw new NotImplementedException();
+    }    
+    
+    /// <summary>
+    /// Attempts to find and remove a <see cref="KeyLocation"/> from the specified list.
+    /// </summary>
+    /// <param name="list">The list to remove the <see cref="KeyLocation"/> from.</param>
+    /// <param name="keyLocation">The <see cref="KeyLocation"/> to remove, used to find the corresponding node in the list.</param>
+    private static void RemoveFromSegment(ConcurrentLinkedList<KeyLocation> list, KeyLocation keyLocation)
+    {
+        list.Find(keyLocation)?.Pipe(node => list.TryRemove(node.Key));
+    }
+
+    #endregion
+    #region Internal Types
+    
     /// <summary>
     /// Represents a value with an associated time-to-live (TTL) for expiration.
     /// </summary>
-    private readonly struct TtlValue
+    /// <remarks>
+    /// This is the object stored within the physical cache.
+    /// </remarks>
+    internal readonly struct TtlValue : IEquatable<TtlValue>
     {
         /// <summary>
         /// The stored value.
@@ -380,30 +407,24 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         /// <summary>
         /// The tick count at which this value expires.
         /// </summary>
-        public readonly long _expirationTicks;
-
-        /// <summary>
-        /// The segment of the cache this value is stored in.
-        /// </summary>
-        public readonly CacheSegment CacheSegment;
+        public readonly long ExpirationTicks;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="TtlValue"/> class.
         /// </summary>
         /// <param name="value">The value to store.</param>
         /// <param name="ttl">The time-to-live (TTL) for the value.</param>
-        public TtlValue(TValue value, CacheSegment segment, TimeSpan ttl)
+        public TtlValue(TValue value, TimeSpan ttl)
         {
             Value = value;
-            CacheSegment = segment;
-            _expirationTicks = Environment.TickCount64 + (long)ttl.TotalMilliseconds;
+            ExpirationTicks = Environment.TickCount64 + (long)ttl.TotalMilliseconds;
         }
 
         /// <summary>
         /// Determines if this value has expired.
         /// </summary>
-        /// <returns>True if the value has expired; otherwise, false.</returns>
-        public readonly bool IsExpired() => Environment.TickCount64 > _expirationTicks;
+        /// <returns><c>true</c> if the value has expired (i.e., the current tick count is greater than <see cref="ExpirationTicks"/>); otherwise, <c>false</c>.</returns>
+        public readonly bool IsExpired() => Environment.TickCount64 > ExpirationTicks;
 
         /// <summary>
         /// Indicates whether this value is valid and unexpired.
@@ -413,15 +434,121 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         /// <summary>
         /// Gets a value indicating whether the value is null or expired.
         /// </summary>
-        private readonly bool IsNullOrExpired
+        private readonly bool IsNullOrExpired => Value is null || IsExpired();
+
+        /// <summary>
+        /// Determines whether the specified <see cref="TtlValue"/> is equal to the current <see cref="TtlValue"/>.
+        /// </summary>
+        /// <param name="other">The <see cref="TtlValue"/> to compare with the current <see cref="TtlValue"/>.</param>
+        /// <returns>
+        /// <c>true</c> if the specified <see cref="TtlValue"/> is equal to the current <see cref="TtlValue"/>; otherwise, <c>false</c>.
+        /// Equality is determined by comparing both the <see cref="Value"/> and <see cref="ExpirationTicks"/> properties.
+        /// </returns>
+        public bool Equals(TtlValue other)
         {
-            get
-            {
-                if (Value != null) return true;
-                if (CacheSegment == CacheSegment.Invalid) return true;
-                if (_expirationTicks > 0) return true;
-                return false;
-            }
+            return EqualityComparer<TValue>.Default.Equals(Value, other.Value) 
+                   && ExpirationTicks == other.ExpirationTicks;
+        }
+
+        /// <summary>
+        /// Determines whether the specified object is equal to the current object.
+        /// </summary>
+        /// <param name="obj">The object to compare with the current object.</param>
+        /// <returns>
+        /// <c>true</c> if the specified object is equal to the current object; otherwise, <c>false</c>.
+        /// This method checks if the provided object is a <see cref="TtlValue"/> and then delegates to the strongly-typed <see cref="Equals(TtlValue)"/> method.
+        /// </returns>
+        public override bool Equals(object? obj)
+        {
+            return obj is TtlValue other 
+                   && Equals(other);
+        }
+
+        /// <summary>
+        /// Serves as the default hash function.
+        /// </summary>
+        /// <returns>A hash code for the current object. The hash code is generated by combining the hash codes of the <see cref="Value"/> and <see cref="ExpirationTicks"/> properties.</returns>
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Value, ExpirationTicks);
+        }
+    }
+
+    /// <summary>
+    /// Represents the location of a key within the cache, specifically indicating the segment (Probation or Protected) to which the key belongs.
+    /// </summary>
+    /// <remarks>
+    /// This class is used to track the logical position of a key in the cache.
+    /// </remarks>
+    internal class KeyLocation : IEquatable<KeyLocation>
+    {
+        /// <summary>
+        /// The key associated with this location.
+        /// </summary>
+        public TKey Key { get; }
+
+        /// <summary>
+        /// The cache segment where the key is currently located.
+        /// </summary>
+        public CacheSegment Segment { get; set; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="KeyLocation"/> class.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="segment">The cache segment.</param>
+        public KeyLocation(TKey key, CacheSegment segment)
+        {
+            Key = key;
+            Segment = segment;
+        }
+
+        /// <summary>
+        /// Determines whether the specified <see cref="KeyLocation"/> is equal to the current <see cref="KeyLocation"/>.
+        /// </summary>
+        /// <param name="other">The <see cref="KeyLocation"/> to compare with the current <see cref="KeyLocation"/>.</param>
+        /// <returns>
+        /// <c>true</c> if the specified <see cref="KeyLocation"/> is equal to the current <see cref="KeyLocation"/>; otherwise, <c>false</c>.
+        /// Equality is determined by comparing the <see cref="Key"/> properties.
+        /// </returns>
+        public bool Equals(KeyLocation? other)
+        {
+            if (other is null) return false;
+            return ReferenceEquals(this, other) 
+                   || EqualityComparer<TKey>.Default.Equals(Key, other.Key);
+        }
+
+        /// <summary>
+        /// Determines whether the specified object is equal to the current object.
+        /// </summary>
+        /// <param name="obj">The object to compare with the current object.</param>
+        /// <returns>
+        /// <c>true</c> if the specified object is equal to the current object; otherwise, <c>false</c>.
+        /// This method checks if the provided object is a <see cref="KeyLocation"/> and then delegates to the strongly-typed <see cref="Equals(KeyLocation)"/> method.
+        /// </returns>
+        public override bool Equals(object? obj)
+        {
+            return obj is KeyLocation other 
+                   && Equals(other);
+        }
+
+        /// <summary>
+        /// Serves as the default hash function.
+        /// </summary>
+        /// <returns>A hash code for the current object. The hash code is generated from the <see cref="Key"/> property.</returns>
+        public override int GetHashCode()
+        {
+            return EqualityComparer<TKey>.Default.GetHashCode(Key);
+        }
+
+        public static bool operator ==(KeyLocation left, KeyLocation right)
+        {
+            return Equals(left, right);
+        }
+
+        public static bool operator !=(KeyLocation left, KeyLocation right)
+        {
+            return !Equals(left, right);
         }
     }
 
@@ -473,7 +600,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <summary>
     /// Represents the logical segments within the cache.
     /// </summary>
-    private enum CacheSegment
+    internal enum CacheSegment
     {
         /// <summary>
         /// Indicates an invalid or unknown segment.
@@ -490,6 +617,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         /// </summary>
         Protected = 1
     }
+    
+    #endregion
 
     #region IDisposable
 
@@ -502,18 +631,17 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
-        if (!_disposedValue)
-        {
-            if (disposing)
-            {
-                // Safe disposal even if _cleanUpTimer is null
-                _cleanUpTimer?.Dispose();
-            }
+        if (_disposedValue) return;
 
-            _disposedValue = true;
+        if (disposing)
+        {
+            // Safe disposal even if _cleanUpTimer is null
+            _cleanUpTimer?.Dispose();
         }
+
+        _disposedValue = true;
     }
 
     #endregion

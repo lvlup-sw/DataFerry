@@ -1,13 +1,9 @@
-﻿using System.Collections.Concurrent;
-using System.Diagnostics;
+﻿using lvlup.DataFerry.Buffers.Contracts;
 
 namespace lvlup.DataFerry.Buffers;
 
-/// <summary>
-/// Represents a bounded, multi-producer, single-consumer (MPSC) thread-safe buffer.
-/// </summary>
-/// <typeparam name="T">Specifies the type of elements in the buffer. Must be a struct.</typeparam>
-public class BoundedBuffer<T> where T : struct
+/// <inheritdoc/>
+public sealed class BoundedBuffer<T> : IBoundedBuffer<T> where T : struct
 {
     // Backing structures
     /// <summary>
@@ -21,7 +17,7 @@ public class BoundedBuffer<T> where T : struct
     private readonly int _capacity;
 
     /// <summary>
-    ///  Lock object used to synchronize access between multiple producers.
+    /// Lock object used to synchronize access between multiple producers.
     /// </summary>
     private readonly Lock @producerLock = new();
     
@@ -46,9 +42,7 @@ public class BoundedBuffer<T> where T : struct
     /// </summary>
     private readonly int _spinCountBeforeWait;
     
-    /// <summary>
-    /// A ManualResetEventSlim used to signal the consumer when the buffer is not empty.
-    /// </summary>
+    /// <inheritdoc/>
     public ManualResetEventSlim NotEmptyEvent { get; } = new(false);
 
     /// <summary>
@@ -69,12 +63,11 @@ public class BoundedBuffer<T> where T : struct
         _tail = 0;
         _count = 0;
     }
+    
+    /// <inheritdoc/>
+    public int Count => Interlocked.CompareExchange(ref _count, 0, 0);    
 
-    /// <summary>
-    /// Attempts to add an item to the buffer.
-    /// </summary>
-    /// <param name="item">The item to add.</param>
-    /// <returns>True if the item was added successfully; false if the buffer is full.</returns>
+    /// <inheritdoc/>
     public bool TryAdd(T item)
     {
         lock (@producerLock)
@@ -92,11 +85,7 @@ public class BoundedBuffer<T> where T : struct
         }
     }
 
-    /// <summary>
-    /// Attempts to remove and return an item from the buffer.
-    /// </summary>
-    /// <param name="item">When this method returns, contains the item removed from the buffer, if successful; otherwise, the default value of type T.</param>
-    /// <returns>True if an item was removed successfully; false if the buffer is empty.</returns>
+    /// <inheritdoc/>
     public bool TryTake(out T item)
     {
         item = default;
@@ -126,10 +115,7 @@ public class BoundedBuffer<T> where T : struct
         return true;
     }
 
-    /// <summary>
-    /// Removes all items from the buffer and returns them as an IEnumerable.
-    /// </summary>
-    /// <returns>An IEnumerable containing all items removed from the buffer.</returns>
+    /// <inheritdoc/>
     public IEnumerable<T> FlushItems()
     {
         NotEmptyEvent.Wait();
@@ -147,9 +133,7 @@ public class BoundedBuffer<T> where T : struct
         NotEmptyEvent.Reset();
     }
 
-    /// <summary>
-    /// Clears the contents of the buffer without returning them.
-    /// </summary>
+    /// <inheritdoc/>
     public void Clear()
     {
         NotEmptyEvent.Wait();
