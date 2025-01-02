@@ -140,7 +140,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <summary>
     /// Random number generator.
     /// </summary>
-    private static readonly Random RandomGenerator = new();
+    private readonly Random _randomGenerator = new();
 
     #endregion
 
@@ -225,6 +225,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                 }
                 predecessor.SetNextNode(level, node.GetNextNode(level));
             }
+            
+            return Task.CompletedTask;
         });
     }
 
@@ -396,7 +398,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         // Spray operation
         while (currHeight > 0)
         {
-            int currJumpLength = RandomGenerator.Next(0, jumpLengthMax + 1);
+            int currJumpLength = _randomGenerator.Next(0, jumpLengthMax + 1);
 
             // Move forward horizontally
             for (int i = 0; i < currJumpLength; i++)
@@ -417,15 +419,14 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         // Logically delete node
         if (!LogicallyDeleteNode(curr))
         {   // Failure case
-            if (RandomGenerator.NextDouble() < retryProbability)
+            if (_randomGenerator.NextDouble() < retryProbability)
             {   // Retry
                 return TryDeleteMinProbabilistically(out element, retryProbability * 0.5);
             }
-            else
-            {   // Return default
-                element = curr.Element;
-                return false;
-            }
+            
+            // Return default
+            element = curr.Element;
+            return false;
         }
 
         // Schedule removal then return result
@@ -560,7 +561,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     {
         int level = 0;
 
-        while (level < _topLevel && RandomGenerator.NextDouble() <= _promotionProbability)
+        while (level < _topLevel && _randomGenerator.NextDouble() <= _promotionProbability)
         {
             level++;
         }

@@ -2,25 +2,26 @@
 using Polly;
 using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
+using Polly.Timeout;
 using StackExchange.Redis;
 
 namespace lvlup.DataFerry.Utilities;
 
 public static class PollyPolicyGenerator
 {
-    private static ILogger? _logger;
-    private static CacheSettings? _settings;
+    private static ILogger? s_logger;
+    private static CacheSettings? s_settings;
 
     /// <summary>
     /// Creates a synchronous policy for handling exceptions when accessing the cache.
     /// </summary>
     /// <param name="logger">Logger instance to use for policy.</param>
     /// <param name="settings">The configured cache settings.</param>
-    /// <param name="configuredValue">The configured fall back value for the cache.</param>
+    /// <param name="configuredValue">The configured fallback value for the cache.</param>
     public static PolicyWrap<object> GenerateSyncPolicy(ILogger logger, CacheSettings settings, object? configuredValue = null)
     {
-        _logger = logger;
-        _settings = settings;
+        s_logger = logger;
+        s_settings = settings;
 
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(settings, nameof(settings));
@@ -38,11 +39,11 @@ public static class PollyPolicyGenerator
     /// </summary>
     /// <param name="logger">Logger instance to use for policy.</param>
     /// <param name="settings">The configured cache settings.</param>
-    /// <param name="configuredValue">The configured fall back value for the cache.</param>
+    /// <param name="configuredValue">The configured fallback value for the cache.</param>
     public static AsyncPolicyWrap<object> GenerateAsyncPolicy(ILogger logger, CacheSettings settings, object? configuredValue = null)
     {
-        _logger = logger;
-        _settings = settings;
+        s_logger = logger;
+        s_settings = settings;
 
         ArgumentNullException.ThrowIfNull(logger, nameof(logger));
         ArgumentNullException.ThrowIfNull(settings, nameof(settings));
@@ -57,19 +58,20 @@ public static class PollyPolicyGenerator
 
     private static PolicyWrap<object> GetAdvancedSyncPattern(object? configuredValue = null)
     {
-        if (_settings is null || _logger is null)
+        if (s_settings is null || s_logger is null)
         {
             return GetDefaultSyncPattern();
         }
 
         // First layer: timeouts
         var timeoutPolicy = Policy.Timeout(
-            TimeSpan.FromSeconds(_settings.TimeoutInterval));
+            TimeSpan.FromSeconds(s_settings.TimeoutInterval),
+            TimeoutStrategy.Optimistic);
 
         // Second layer: bulkhead isolation
         var bulkheadPolicy = Policy.Bulkhead(
-            maxParallelization: _settings.BulkheadMaxParallelization,
-            maxQueuingActions: _settings.BulkheadMaxQueuingActions
+            maxParallelization: s_settings.BulkheadMaxParallelization,
+            maxQueuingActions: s_settings.BulkheadMaxQueuingActions
         );
 
         // Third layer: circuit breaker
@@ -78,12 +80,12 @@ public static class PollyPolicyGenerator
             .Or<DbUpdateException>()
             .Or<DbUpdateConcurrencyException>()
         .CircuitBreaker(
-            exceptionsAllowedBeforeBreaking: _settings.CircuitBreakerCount,
-            durationOfBreak: TimeSpan.FromMinutes(_settings.CircuitBreakerInterval),
+            exceptionsAllowedBeforeBreaking: s_settings.CircuitBreakerCount,
+            durationOfBreak: TimeSpan.FromMinutes(s_settings.CircuitBreakerInterval),
             onBreak: (ex, breakDelay) =>
-                _logger.LogError("Circuit breaker opened. Exception: {Exception}, Delay: {BreakDelay}", ex, breakDelay),
-            onReset: () => _logger.LogDebug("Circuit breaker reset."),
-            onHalfOpen: () => _logger.LogDebug("Circuit breaker half-open.")
+                s_logger.LogError("Circuit breaker opened. Exception: {Exception}, Delay: {BreakDelay}", ex, breakDelay),
+            onReset: () => s_logger.LogDebug("Circuit breaker reset."),
+            onHalfOpen: () => s_logger.LogDebug("Circuit breaker half-open.")
         );
 
         // Fourth layer: automatic retries
@@ -92,7 +94,7 @@ public static class PollyPolicyGenerator
             .Or<DbUpdateConcurrencyException>()
             .Or<DbUpdateException>()
             .WaitAndRetry(
-                _settings.RetryCount,
+                s_settings.RetryCount,
                 CalculateRetryDelay,
                 LogRetryAttempt
             );
@@ -104,7 +106,7 @@ public static class PollyPolicyGenerator
                 fallbackValue: configuredValue ?? RedisValue.Null,
                 onFallback: (exception, context) =>
                 {
-                    _logger.LogError("Fallback executed due to: {exception}", exception);
+                    s_logger.LogError("Fallback executed due to: {exception}", exception);
                     return;
                 });
 
@@ -121,19 +123,20 @@ public static class PollyPolicyGenerator
 
     private static AsyncPolicyWrap<object> GetAdvancedAsyncPattern(object? configuredValue = null)
     {
-        if (_settings is null || _logger is null)
+        if (s_settings is null || s_logger is null)
         {
             return GetDefaultAsyncPattern();
         }
 
         // First layer: timeouts
         var timeoutPolicy = Policy.TimeoutAsync(
-            TimeSpan.FromSeconds(_settings.TimeoutInterval));
+            TimeSpan.FromSeconds(s_settings.TimeoutInterval),
+            TimeoutStrategy.Optimistic);
 
         // Second layer: bulkhead isolation
         var bulkheadPolicy = Policy.BulkheadAsync(
-            maxParallelization: _settings.BulkheadMaxParallelization,
-            maxQueuingActions: _settings.BulkheadMaxQueuingActions
+            maxParallelization: s_settings.BulkheadMaxParallelization,
+            maxQueuingActions: s_settings.BulkheadMaxQueuingActions
         );
 
         // Third layer: circuit breaker
@@ -142,12 +145,12 @@ public static class PollyPolicyGenerator
             .Or<DbUpdateException>()
             .Or<DbUpdateConcurrencyException>()
         .CircuitBreakerAsync(
-                exceptionsAllowedBeforeBreaking: _settings.CircuitBreakerCount,
-                durationOfBreak: TimeSpan.FromMinutes(_settings.CircuitBreakerInterval),
+                exceptionsAllowedBeforeBreaking: s_settings.CircuitBreakerCount,
+                durationOfBreak: TimeSpan.FromMinutes(s_settings.CircuitBreakerInterval),
                 onBreak: (ex, breakDelay) =>
-                    _logger.LogError("Circuit breaker opened. Exception: {Exception}, Delay: {BreakDelay}", ex, breakDelay),
-                onReset: () => _logger.LogDebug("Circuit breaker reset."),
-                onHalfOpen: () => _logger.LogDebug("Circuit breaker half-open.")
+                    s_logger.LogError("Circuit breaker opened. Exception: {Exception}, Delay: {BreakDelay}", ex, breakDelay),
+                onReset: () => s_logger.LogDebug("Circuit breaker reset."),
+                onHalfOpen: () => s_logger.LogDebug("Circuit breaker half-open.")
             );
 
         // Fourth layer: automatic retries
@@ -156,7 +159,7 @@ public static class PollyPolicyGenerator
             .Or<DbUpdateConcurrencyException>()
             .Or<DbUpdateException>()
             .WaitAndRetryAsync(
-                _settings.RetryCount,
+                s_settings.RetryCount,
                 CalculateRetryDelay,
                 LogRetryAttempt
             );
@@ -168,7 +171,7 @@ public static class PollyPolicyGenerator
                 fallbackValue: configuredValue ?? RedisValue.Null,
                 onFallbackAsync: (exception, context) =>
                 {
-                    _logger.LogError("Fallback executed due to: {exception}", exception);
+                    s_logger.LogError("Fallback executed due to: {exception}", exception);
                     return Task.CompletedTask;
                 });
 
@@ -185,14 +188,15 @@ public static class PollyPolicyGenerator
 
     private static PolicyWrap<object> GetBasicSyncPattern(object? configuredValue = null)
     {
-        if (_settings is null || _logger is null)
+        if (s_settings is null || s_logger is null)
         {
             return GetDefaultSyncPattern();
         }
 
         // First layer: timeouts
         var timeoutPolicy = Policy.Timeout(
-            TimeSpan.FromSeconds(_settings.TimeoutInterval));
+            TimeSpan.FromSeconds(s_settings.TimeoutInterval),
+            TimeoutStrategy.Optimistic);
 
         // Second layer: automatic retries
         var retryPolicy = Policy
@@ -200,7 +204,7 @@ public static class PollyPolicyGenerator
             .Or<DbUpdateConcurrencyException>()
             .Or<DbUpdateException>()
             .WaitAndRetry(
-                _settings.RetryCount,
+                s_settings.RetryCount,
                 CalculateRetryDelay,
                 LogRetryAttempt
             );
@@ -212,7 +216,7 @@ public static class PollyPolicyGenerator
                 fallbackValue: configuredValue ?? RedisValue.Null,
                 onFallback: (exception, context) =>
                 {
-                    _logger.LogError("Fallback executed due to: {exception}", exception);
+                    s_logger.LogError("Fallback executed due to: {exception}", exception);
                 });
 
         // Wrap policies in order
@@ -226,14 +230,15 @@ public static class PollyPolicyGenerator
 
     private static AsyncPolicyWrap<object> GetBasicAsyncPattern(object? configuredValue = null)
     {
-        if (_settings is null || _logger is null)
+        if (s_settings is null || s_logger is null)
         {
             return GetDefaultAsyncPattern();
         }
 
         // First layer: timeouts
         var timeoutPolicy = Policy.TimeoutAsync(
-            TimeSpan.FromSeconds(_settings.TimeoutInterval));
+            TimeSpan.FromSeconds(s_settings.TimeoutInterval), 
+            TimeoutStrategy.Optimistic);
 
         // Second layer: automatic retries
         var retryPolicy = Policy
@@ -241,7 +246,7 @@ public static class PollyPolicyGenerator
             .Or<DbUpdateConcurrencyException>()
             .Or<DbUpdateException>()
             .WaitAndRetryAsync(
-                _settings.RetryCount,
+                s_settings.RetryCount,
                 CalculateRetryDelay,
                 LogRetryAttempt
             );
@@ -253,7 +258,7 @@ public static class PollyPolicyGenerator
                 fallbackValue: configuredValue ?? RedisValue.Null,
                 onFallbackAsync: (exception, context) =>
                 {
-                    _logger.LogError("Fallback executed due to: {exception}", exception);
+                    s_logger.LogError("Fallback executed due to: {exception}", exception);
                     return Task.CompletedTask;
                 });
 
@@ -263,14 +268,15 @@ public static class PollyPolicyGenerator
             retryPolicy
         );
 
-        return fallbackPolicy.WrapAsync(retryPolicy);
+        return fallbackPolicy.WrapAsync(combinedPolicy);
     }
 
     private static PolicyWrap<object> GetDefaultSyncPattern()
     {
         // First layer: timeouts
         var timeoutPolicy = Policy.Timeout(
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            TimeoutStrategy.Optimistic);
 
         // Last resort: return default value
         var fallbackPolicy = Policy<object>
@@ -286,14 +292,16 @@ public static class PollyPolicyGenerator
     {
         // First layer: timeouts
         var timeoutPolicy = Policy.TimeoutAsync(
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromSeconds(30),
+            TimeoutStrategy.Optimistic);
 
         // Last resort: return default value
         var fallbackPolicy = Policy<object>
             .Handle<Exception>()
             .FallbackAsync(
                 fallbackValue: string.Empty,
-                onFallbackAsync: (exception, context) => Task.CompletedTask);
+                onFallbackAsync: (exception, context) 
+                    => Task.CompletedTask);
 
         return fallbackPolicy.WrapAsync(timeoutPolicy);
     }
@@ -301,14 +309,14 @@ public static class PollyPolicyGenerator
     // Exponential backoff or fixed value
     private static TimeSpan CalculateRetryDelay(int retryAttempt)
     {
-        if (_settings is null || _logger is null)
+        if (s_settings is null || s_logger is null)
         {
             return TimeSpan.FromSeconds(10);
         }
 
-        var baseDelay = _settings.UseExponentialBackoff
+        var baseDelay = s_settings.UseExponentialBackoff
         ? TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))
-            : TimeSpan.FromSeconds(_settings.RetryInterval);
+            : TimeSpan.FromSeconds(s_settings.RetryInterval);
 
         // Add jitter
         return baseDelay + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 100));
@@ -316,20 +324,20 @@ public static class PollyPolicyGenerator
 
     private static void LogRetryAttempt(Exception exception, TimeSpan timeSpan, int retryCount, Context context)
     {
-        if (_settings is null || _logger is null)
+        if (s_settings is null || s_logger is null)
         {
             return;
         }
 
-        bool retriesReached = retryCount == _settings.RetryCount;
+        bool retriesReached = retryCount == s_settings.RetryCount;
 
         var logLevel = retriesReached
             ? LogLevel.Error
             : LogLevel.Debug;
         var message = retriesReached
-            ? $"Retry limit of {_settings.RetryCount} reached. {exception}"
-            : $"Retry {retryCount} of {_settings.RetryCount} after {timeSpan.TotalSeconds} seconds delay due to: {exception}";
+            ? $"Retry limit of {s_settings.RetryCount} reached. {exception}"
+            : $"Retry {retryCount} of {s_settings.RetryCount} after {timeSpan.TotalSeconds} seconds delay due to: {exception}";
 
-        _logger.Log(logLevel, message);
+        s_logger.Log(logLevel, message);
     }
 }

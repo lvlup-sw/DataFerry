@@ -19,5 +19,5 @@ public interface ITaskOrchestrator
     /// Queues the specified work to run.
     /// </summary>
     /// <param name="action">The work to execute.</param>
-    void Run(Action action);
+    void Run(Func<Task> action);
 }

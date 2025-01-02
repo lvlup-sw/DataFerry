@@ -14,24 +14,47 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     private const int MaxBacklog = 32;
 
     // Backers
-    private readonly Channel<Action> _workChannel = Channel.CreateBounded<Action>(MaxBacklog);
+    private readonly Channel<Func<Task>> _workChannel;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task[] _workerTasks;
     private Exception? _lastException;
 
     // Inputs
     private readonly ILogger<TaskOrchestrator> _logger;
-    private readonly PolicyWrap<object> _retryPolicy;
+    private readonly PolicyWrap<object> _syncPolicy;
+    private readonly AsyncPolicyWrap<object> _asyncPolicy;
     private long _runCount;
+    
+    // Policy settings
+    private readonly CacheSettings _settings = new()
+    {
+        DesiredPolicy = ResiliencyPatterns.Basic
+    };
 
+    /// <summary>
+    /// Feature flags for the task orchestrator.
+    /// </summary>
+    public TaskOrchestratorFeatures Features { get; set; }
+    
     /// <summary>
     /// Initializes a new instance of the TaskOrchestrator class.
     /// </summary>
-    public TaskOrchestrator(ILogger<TaskOrchestrator> logger, int workerCount = 2)
+    public TaskOrchestrator(ILogger<TaskOrchestrator> logger, TaskOrchestratorFeatures features = TaskOrchestratorFeatures.None, int workerCount = 2)
     {
         _logger = logger;
-        _retryPolicy = GeneratePolicy();
+        Features = features;
+        _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings, string.Empty);
+        _asyncPolicy = PollyPolicyGenerator.GenerateAsyncPolicy(_logger, _settings, string.Empty);
 
+        _workChannel = Channel.CreateBounded<Func<Task>>(new BoundedChannelOptions(MaxBacklog)
+        {
+            FullMode = Features.HasFlag(TaskOrchestratorFeatures.AllowTaskDrop) 
+                ? BoundedChannelFullMode.DropWrite 
+                : BoundedChannelFullMode.Wait,
+            SingleReader = workerCount == 1,
+            SingleWriter = false
+        });
+        
         _workerTasks = Enumerable.Range(0, workerCount)
             .Select(_ => Task.Factory.StartNew(
                 () => Worker(_cts.Token),
@@ -56,76 +79,76 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     public long RunCount => _runCount;
 
     /// <inheritdoc/>
-    public void Run(Action action)
+    public void Run(Func<Task> action)
     {
-        _ = _retryPolicy.Execute((ctx) =>
+        try
         {
-            if (!_workChannel.Writer.TryWrite(action))
+            _syncPolicy.Execute(ctx =>
             {
-                _lastException = new InvalidOperationException("Task backlog full.");
-                _logger.LogError(_lastException, _lastException.Message);
-                throw _lastException;
-            };
+                if (_workChannel.Writer.TryWrite(action))
+                {
+                    return Task.CompletedTask;
+                }
 
-            return Task.CompletedTask;
-        }, new Context($"TaskOrchestrator.Run_{Environment.CurrentManagedThreadId}"));
+                if (!Features.HasFlag(TaskOrchestratorFeatures.AllowTaskDrop))
+                {
+                    throw new InvalidOperationException("Failed to write to the task backlog.");
+                }
 
-        Interlocked.Increment(ref _runCount);
+                _logger.LogWarning("Failed to write to the task backlog. Dropping task.");
+                return Task.CompletedTask;
+            }, new Context($"TaskOrchestrator.Run_{Environment.CurrentManagedThreadId}"));
+
+            Interlocked.Increment(ref _runCount);
+        }
+        catch (Exception ex)
+        {
+            _lastException = ex;
+            _logger.LogError(ex, "Error occurred while trying to enqueue action.");
+        }
     }
 
     /// <summary>
     /// Worker task which continuously processes work items as they are published to the channel.
     /// </summary>
     /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     private async Task Worker(CancellationToken cancellationToken)
     {
         _logger.LogDebug("Worker thread started with ID: {ThreadId}", Environment.CurrentManagedThreadId);
 
-        await foreach (var action in _workChannel.Reader.ReadAllAsync(cancellationToken))
+        try
         {
-            try
+            await foreach (var action in _workChannel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                _ = _retryPolicy.Execute((ctx) =>
-                {
-                    action();
-                    return Task.CompletedTask;
-                }, new Context($"TaskOrchestrator.Worker_{Environment.CurrentManagedThreadId}"));
+                await ExecuteActionAsync(action).ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                _lastException = ex;
-                _logger.LogError(ex.GetBaseException(), "Error occurred in worker thread.");
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("Worker thread received cancellation signal with ID: {ThreadId}", Environment.CurrentManagedThreadId);
+        }
+        catch (Exception ex)
+        {
+            _lastException = ex;
+            _logger.LogError(ex.GetBaseException(), "Error occurred in worker thread.");
         }
 
         _logger.LogDebug("Worker thread exiting with ID: {ThreadId}", Environment.CurrentManagedThreadId);
+    }
+    
+    private async Task ExecuteActionAsync(Func<Task> action)
+    {
+        await _asyncPolicy.ExecuteAsync((ctx) =>
+        {
+            action();
+            return Task.CompletedTask as Task<object>;
+        }, new Context($"TaskOrchestrator.Worker_{Environment.CurrentManagedThreadId}"));
     }
 
     /// <summary>
     /// Get the last recorded exception.
     /// </summary>
     public Exception? GetLastException() => _lastException;
-
-
-    /// <summary>
-    /// Generate a synchronous Polly retry policy.
-    /// </summary>
-    private static PolicyWrap<object> GeneratePolicy()
-    {
-        // First layer: timeouts
-        var timeoutPolicy = Policy.Timeout(
-            TimeSpan.FromMilliseconds(50));
-
-        // Last resort: return default value
-        var fallbackPolicy = Policy<object>
-            .Handle<Exception>()
-            .Fallback(
-                fallbackValue: string.Empty,
-                onFallback: (exception, context) => { });
-
-        return fallbackPolicy.Wrap(timeoutPolicy);
-    }
 
     /// <summary>
     /// Terminate the background thread.
@@ -134,5 +157,28 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     {
         _cts.Cancel();
         _workChannel.Writer.Complete();
+        try
+        {
+            if (!CompleteAll.Wait(TimeSpan.FromSeconds(20)))
+            {
+                _logger.LogError("Timeout triggered while waiting for worker tasks to complete during TaskOrchestrator shutdown.");
+            };
+        }
+        catch (AggregateException ex)
+        {
+            _lastException = ex;
+            _logger.LogError(ex, "Error during TaskOrchestrator shutdown.");
+        }
+        finally
+        {
+            _cts.Dispose();
+        }
     }
+    
+    [Flags]
+    public enum TaskOrchestratorFeatures
+    {
+        None = 0,
+        AllowTaskDrop = 1,
+    }    
 }

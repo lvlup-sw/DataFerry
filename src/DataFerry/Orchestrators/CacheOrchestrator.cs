@@ -453,7 +453,7 @@ public class CacheOrchestrator : ICacheOrchestrator
     /// <param name="key"></param>
     /// <param name="data"></param>
     /// <returns>A <c>bool</c> indicating the result of the operation.</returns>
-    internal bool TryGetFromMemoryCache(string key, out byte[]? data)
+    private bool TryGetFromMemoryCache(string key, out byte[]? data)
     {
         if (!_settings.UseMemoryCache)
         {
@@ -470,7 +470,7 @@ public class CacheOrchestrator : ICacheOrchestrator
     /// </summary>
     /// <param name="key"></param>
     /// <param name="kvp"></param>
-    internal void GetFromMemoryCache(string key, out KeyValuePair<string, byte[]?> kvp)
+    private void GetFromMemoryCache(string key, out KeyValuePair<string, byte[]?> kvp)
     {
         _memCache.CheckBackplane();
         kvp = _memCache.TryGet(key, out byte[] data)
@@ -486,7 +486,7 @@ public class CacheOrchestrator : ICacheOrchestrator
     /// <param name="destination"></param>
     /// <param name="token"></param>
     /// <returns>A <c>Task</c> containing the result of the operation.</returns>
-    internal async Task<(string Key, int Index, int Length)> GetFromRedisTask(string key, Task<RedisValue> operation, RentedBufferWriter<byte> destination, CancellationToken token)
+    private async Task<(string Key, int Index, int Length)> GetFromRedisTask(string key, Task<RedisValue> operation, RentedBufferWriter<byte> destination, CancellationToken token)
     {
         object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
         {
@@ -518,7 +518,7 @@ public class CacheOrchestrator : ICacheOrchestrator
     /// <param name="expiration"></param>
     /// <param name="token"></param>
     /// <returns>A <c>Task</c> containing the result of the operation.</returns>
-    internal async Task<bool> SetInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
+    private async Task<bool> SetInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
     {
         object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
         {
@@ -539,7 +539,7 @@ public class CacheOrchestrator : ICacheOrchestrator
     /// <param name="expiration"></param>
     /// <param name="token"></param>
     /// <returns>A <c>Task</c> containing the result of the operation.</returns>
-    internal async Task<bool> RefreshInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
+    private async Task<bool> RefreshInRedisTask(string key, Task<bool> operation, TimeSpan expiration, CancellationToken token)
     {
         object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
         {
@@ -559,7 +559,7 @@ public class CacheOrchestrator : ICacheOrchestrator
     /// <param name="operation"></param>
     /// <param name="token"></param>
     /// <returns>A <c>Task</c> containing the result of the operation.</returns>
-    internal async Task<bool> RemoveFromRedisTask(string key, Task<bool> operation, CancellationToken token)
+    private async Task<bool> RemoveFromRedisTask(string key, Task<bool> operation, CancellationToken token)
     {
         object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
         {

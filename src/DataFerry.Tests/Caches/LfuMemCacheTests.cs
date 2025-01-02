@@ -45,7 +45,7 @@ namespace lvlup.DataFerry.Tests.Caches
             var list = new List<LfuMemCache<int, int>>();
             for (int i = 0; i < 20; i++)
             {
-                var cache = new LfuMemCache<int, int>(_taskOrchestrator, cleanupJobInterval: 200);
+                var cache = new LfuMemCache<int, int>(_taskOrchestrator, new(), cleanupJobInterval: 200);
                 cache.AddOrUpdate(42, 42, TimeSpan.FromMilliseconds(100));
                 list.Add(cache);
             }

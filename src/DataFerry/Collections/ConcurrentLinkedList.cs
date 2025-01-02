@@ -35,7 +35,7 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
     /// <summary>
     /// The number of nodes in the list.
     /// </summary>
-    private int _count = 0;
+    private int _count;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConcurrentLinkedList{T}"/> class.

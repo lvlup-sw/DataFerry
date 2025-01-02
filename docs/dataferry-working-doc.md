@@ -1,6 +1,16 @@
-# LfuMemCache Design
-## Overview
-The LfuMemCache is an approximation of an LFU cache. The main cache follows a typical segmented LRU (SLRU) pattern, which includes probation and protected segments. 
+# DataFerry Working Doc
+
+## DistributedCache Data Flow
+- When the `DistributedCache` needs to retrieve a value from Redis, it uses the `RentedBufferWriter` to obtain a buffer.
+- The `RentedBufferWriter` internally uses the `StackArrayPool<byte>` to rent a buffer, avoiding a new allocation if possible.
+- The `DistributedCache` retrieves the raw bytes from Redis and copies them into the rented buffer provided by the `RentedBufferWriter`.
+- The `DistributedCache` then passes the `RentedBufferWriter` (which encapsulates the rented buffer) to the `DistributedCacheSerializer`.
+- The `DistributedCacheSerializer` uses the buffer within the `RentedBufferWriter` to perform the deserialization, potentially renting another buffer from the `StackArrayPool<byte>` if needed for temporary storage during deserialization.
+- The deserialized object is returned.
+- The `RentedBufferWriter` is disposed of, which returns the rented buffer to the `StackArrayPool<byte>`.
+
+## LfuMemCache Design Overview
+The LfuMemCache is an approximation of an LFU cache. The main cache follows a typical segmented LRU (SLRU) pattern, which includes probation and protected segments.
 
 In an SLRU cache, items are initially admitted to the probation segment. Frequently used items are then promoted to the protected segment, which acts as a "hot-path" for the most utilized cache items.  Items in the protected segment are less likely to be evicted.
 
@@ -47,3 +57,50 @@ graph LR
     classDef cms fill:#ff9,stroke:#d93,stroke-width:2px;
     class CMS cms;
 ```
+
+## ConcurrentPriorityQueue:
+
+### 2.0.0 Alpha Release
+
+-   [x] Clear()
+
+### 2.0.0 Full Release
+
+-   [ ] Duplicate Keys (buggy)
+-   [ ] Unit Tests
+
+## LfuMemCache:
+
+### 2.0.0 Alpha Release
+
+-   [x] SLRU logic
+-   [x] Promotion/Demotion
+-   [x] Eviction
+
+### 2.0.0 Full Release
+
+-   [ ] Unit Tests
+
+## DataFerry:
+
+### 2.0.0 Alpha Release
+
+-   [x] Basic Implementation
+-   [x] Resolve Inheritances
+
+### 2.0.0 Full Release
+
+-   [ ] Cache Stampede Protection
+-   [ ] OpenTelemetry
+-   [ ] Options Classes
+-   [ ] Unit Tests
+
+### 2.1.0 Release
+
+-   [ ] NetStandard Compatability
+-   [ ] Serializer Customization
+
+### 2.2.0 Release
+
+-   [ ] Tagging
+-   [ ] Perf Drilldown

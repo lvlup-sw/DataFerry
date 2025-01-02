@@ -1,13 +1,9 @@
 ﻿using lvlup.DataFerry.Buffers;
-using lvlup.DataFerry.Orchestrators;
 using lvlup.DataFerry.Orchestrators.Contracts;
-using System;
 using System.Collections;
 using System.Collections.Concurrent;
-using System.Reactive.Linq;
-using System.Threading.Tasks;
-
-using lvlup.DataFerry.Collections.Contracts;
+using System.ComponentModel;
+using Microsoft.Extensions.Logging;
 
 namespace lvlup.DataFerry.Caches;
 
@@ -35,6 +31,9 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private readonly BoundedBuffer<BufferItem> _writeBuffer;
     private readonly ITaskOrchestrator _taskOrchestrator;
     private readonly Timer _cleanUpTimer;
+    
+    // Logging/Tracing
+    private readonly ILogger<LfuMemCache<TKey, TValue>> _logger;
 
     // Sizes
     private const int BufferSize = 8;
@@ -43,9 +42,12 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private readonly int _maxProbationSize;
     private readonly int _maxProtectedSize;
 
-    // Locks/Semaphores
+    // Semaphores
     private static readonly SemaphoreSlim @evictionSemaphore = new(1, 1);
     private static readonly SemaphoreSlim @clearSemaphore = new(1, 1);
+    
+    // CancellationTokens
+    private readonly CancellationTokenSource _cts = new();
 
     /// <inheritdoc/>
     public int MaxSize { get; set; } // Set needs to update the internal objects
@@ -54,9 +56,10 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// Initializes a new instance of <see cref="LfuMemCache{TKey, TValue}"/>
     /// </summary>
     /// <param name="taskOrchestrator">The scheduler used to orchestrate background tasks.</param>
+    /// <param name="logger">The logger to use within the cache.</param>
     /// <param name="maxSize">The maximum number of items allowed in the cache.</param>        
     /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000.</param>
-    public LfuMemCache(ITaskOrchestrator taskOrchestrator, int maxSize = 10000, int cleanupJobInterval = 10000)
+    public LfuMemCache(ITaskOrchestrator taskOrchestrator, ILogger<LfuMemCache<TKey, TValue>> logger, int maxSize = 10000, int cleanupJobInterval = 10000)
     {
         // Cache sizes
         MaxSize = maxSize;
@@ -74,6 +77,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         _writeBuffer = new(BufferSize);
         _recentEntries = new();
         _taskOrchestrator = taskOrchestrator;
+        _logger = logger;
         // We create a concurrent priority queue to hold LFU candidates
         // This comparer gives lower frequency items higher priority
         _evictionWindow = new(
@@ -83,15 +87,15 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
             allowDuplicatePriorities: false);
 
         // Timer to trigger TTL-based eviction
+        // Consider replacing with a hierarchical TimerWheel
         _cleanUpTimer = new Timer(
             _ => _taskOrchestrator.Run(EvictExpired),
             default,
             TimeSpan.FromMilliseconds(cleanupJobInterval),
             TimeSpan.FromMilliseconds(cleanupJobInterval));
 
-        // Setup the buffer threshold eventing
-        //_writeBuffer.ThresholdReached += DrainBufferIntoCache;
-        // We should also trigger based on the timing wheel
+        // Run the background task for the WriteBuffer
+        _taskOrchestrator.Run(() => DrainBufferIntoCache(_cts.Token));
     }
 
     #region Background Tasks
@@ -100,9 +104,9 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// Immediately removes expired items from the cache.
     /// Typically unnecessary, as item retrieval already handles expiration checks.
     /// </summary>
-    public void EvictExpired()
+    public Task EvictExpired()
     {
-        if (!Monitor.TryEnter(_cleanUpTimer)) return;
+        if (!Monitor.TryEnter(_cleanUpTimer)) return Task.CompletedTask;
 
         try
         {
@@ -131,6 +135,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         {
             Monitor.Exit(_cleanUpTimer);
         }
+        
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -168,39 +174,59 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <summary>
     /// Flushes the items from the write buffer into the appropriate cache segments.
     /// </summary>
-    internal void DrainBufferIntoCache(object? sender, ThresholdReachedEventArgs args)
+    private Task DrainBufferIntoCache(CancellationToken cancellationToken)
     {
-        // Process flushed items for segment and promotion
-        foreach (var item in _writeBuffer.FlushItems())
+        try
         {
-            // Determine promotion eligibility
-            var segment = DetermineCacheSegment(item.Value);
-
-            // Make sure we have room in the segments
-            EnsureAvailableSpaceInSegment(segment, item);
-
-            // Add the item to the corresponding segment list
-            switch (segment)
+            while (!_cts.IsCancellationRequested)
             {
-                case CacheSegment.Protected:
-                    _protected.TryInsert(item.Key);
-                    break;
-                case CacheSegment.Probation:
-                    _probation.TryInsert(item.Key);
-                    break;
-                case CacheSegment.Invalid:
-                    continue;
-            }
+                _writeBuffer.NotEmptyEvent.Wait(cancellationToken);
 
-            _cache.AddOrUpdate(item.Key, item.Value, (existingKey, existingValue) => item.Value);
+                // Process flushed items for segment and promotion
+                foreach (var item in _writeBuffer.FlushItems())
+                {
+                    // Determine promotion eligibility
+                    var segment = DetermineCacheSegment(item.Value);
 
-            // Add to recent items queue
-            _recentEntries.Enqueue(item.Key);
-            if (_recentEntries.Count > RecentWindowMaxSize)
-            {
-                _recentEntries.TryDequeue(out _);
+                    // Make sure we have room in the segments
+                    EnsureAvailableSpaceInSegment(segment, item);
+
+                    // Add the item to the corresponding segment list
+                    switch (segment)
+                    {
+                        case CacheSegment.Protected:
+                            _protected.TryInsert(new KeyLocation(item.Key, segment));
+                            break;
+                        case CacheSegment.Probation:
+                            _probation.TryInsert(new KeyLocation(item.Key, segment));
+                            break;
+                        case CacheSegment.Invalid:
+                            continue;
+                        default:
+                            throw new InvalidEnumArgumentException("Could not determine CacheSegment.");
+                    }
+
+                    _cache.AddOrUpdate(item.Key, item.Value, (existingKey, existingValue) => item.Value);
+
+                    // Add to recent items queue
+                    _recentEntries.Enqueue(item.Key);
+                    if (_recentEntries.Count > RecentWindowMaxSize)
+                    {
+                        _recentEntries.TryDequeue(out _);
+                    }
+                }
             }
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("DrainBufferIntoCache task received cancellation signal.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred in DrainBufferIntoCache task.");
+        }
+        
+        return Task.CompletedTask;
     }
 
     #endregion
@@ -260,6 +286,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         if (!Admit()) return;
 
         // Add to WriteBuffer
+        // Need to account for full buffer case
         _writeBuffer.TryAdd(
             new BufferItem(
                 key,
@@ -424,17 +451,17 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         /// Determines if this value has expired.
         /// </summary>
         /// <returns><c>true</c> if the value has expired (i.e., the current tick count is greater than <see cref="ExpirationTicks"/>); otherwise, <c>false</c>.</returns>
-        public readonly bool IsExpired() => Environment.TickCount64 > ExpirationTicks;
+        public bool IsExpired() => Environment.TickCount64 > ExpirationTicks;
 
         /// <summary>
         /// Indicates whether this value is valid and unexpired.
         /// </summary>
-        public readonly bool HasValue => !IsNullOrExpired;
+        public bool HasValue => !IsNullOrExpired;
 
         /// <summary>
         /// Gets a value indicating whether the value is null or expired.
         /// </summary>
-        private readonly bool IsNullOrExpired => Value is null || IsExpired();
+        private bool IsNullOrExpired => Value is null || IsExpired();
 
         /// <summary>
         /// Determines whether the specified <see cref="TtlValue"/> is equal to the current <see cref="TtlValue"/>.
@@ -581,12 +608,12 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         /// <summary>
         /// Gets a value indicating whether this item has a valid key and value.
         /// </summary>
-        public readonly bool HasValue => !IsNullOrEmpty;
+        public bool HasValue => !IsNullOrEmpty;
 
         /// <summary>
         /// Gets a value indicating whether the key or value is null or empty.
         /// </summary>
-        private readonly bool IsNullOrEmpty
+        private bool IsNullOrEmpty
         {
             get
             {
@@ -619,7 +646,6 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     }
     
     #endregion
-
     #region IDisposable
 
     private bool _disposedValue;
@@ -637,8 +663,10 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
 
         if (disposing)
         {
+            _cts.Cancel();
             // Safe disposal even if _cleanUpTimer is null
             _cleanUpTimer?.Dispose();
+            _cts.Dispose();
         }
 
         _disposedValue = true;

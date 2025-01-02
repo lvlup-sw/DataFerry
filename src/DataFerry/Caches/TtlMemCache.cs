@@ -36,9 +36,9 @@ public class TtlMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// Immediately removes expired items from the cache.
     /// Typically unnecessary, as item retrieval already handles expiration checks.
     /// </summary>
-    public void EvictExpired()
+    public Task EvictExpired()
     {
-        if (!Monitor.TryEnter(_cleanUpTimer)) return;
+        if (!Monitor.TryEnter(_cleanUpTimer)) return Task.CompletedTask;
 
         try
         {
@@ -62,6 +62,8 @@ public class TtlMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         {
             Monitor.Exit(_cleanUpTimer);
         }
+        
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
