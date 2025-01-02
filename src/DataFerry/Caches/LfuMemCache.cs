@@ -89,13 +89,13 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         // Timer to trigger TTL-based eviction
         // Consider replacing with a hierarchical TimerWheel
         _cleanUpTimer = new Timer(
-            _ => _taskOrchestrator.Run(EvictExpired),
+            _ => _taskOrchestrator.Run(() => { EvictExpired(); return Task.CompletedTask; }),
             default,
             TimeSpan.FromMilliseconds(cleanupJobInterval),
             TimeSpan.FromMilliseconds(cleanupJobInterval));
 
         // Run the background task for the WriteBuffer
-        _taskOrchestrator.Run(() => DrainBufferIntoCache(_cts.Token));
+        _taskOrchestrator.Run(() => { DrainBufferIntoCache(_cts.Token); return Task.CompletedTask; });
     }
 
     #region Background Tasks
@@ -104,9 +104,9 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// Immediately removes expired items from the cache.
     /// Typically unnecessary, as item retrieval already handles expiration checks.
     /// </summary>
-    public Task EvictExpired()
+    public void EvictExpired()
     {
-        if (!Monitor.TryEnter(_cleanUpTimer)) return Task.CompletedTask;
+        if (!Monitor.TryEnter(_cleanUpTimer)) return;
 
         try
         {
@@ -135,8 +135,6 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         {
             Monitor.Exit(_cleanUpTimer);
         }
-        
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -174,7 +172,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <summary>
     /// Flushes the items from the write buffer into the appropriate cache segments.
     /// </summary>
-    private Task DrainBufferIntoCache(CancellationToken cancellationToken)
+    private void DrainBufferIntoCache(CancellationToken cancellationToken)
     {
         try
         {
@@ -225,8 +223,6 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         {
             _logger.LogError(ex, "Error occurred in DrainBufferIntoCache task.");
         }
-        
-        return Task.CompletedTask;
     }
 
     #endregion

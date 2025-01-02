@@ -87,6 +87,7 @@ graph LR
 
 -   [x] Basic Implementation
 -   [x] Resolve Inheritances
+-   [x] JetBrains Code Analysis
 
 ### 2.0.0 Full Release
 

@@ -20,13 +20,15 @@ public class TtlMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <summary>
     /// Initializes a new instance of <see cref="TtlMemCache{TKey, TValue}"/>
     /// </summary>
-    /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000</param>
+    /// <param name="taskOrchestrator">The scheduler used to orchestrate background tasks.</param>
+    /// <param name="maxSize">The maximum number of items allowed in the cache.</param>        
+    /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000.</param>
     public TtlMemCache(ITaskOrchestrator taskOrchestrator, int maxSize = 10000, int cleanupJobInterval = 10000)
     {
         MaxSize = maxSize;
         _taskOrchestrator = taskOrchestrator;
         _cleanUpTimer = new Timer(
-            _ => _taskOrchestrator.Run(EvictExpired),
+            _ => _taskOrchestrator.Run(() => { EvictExpired(); return Task.CompletedTask; }),
             default,
             TimeSpan.FromMilliseconds(cleanupJobInterval),
             TimeSpan.FromMilliseconds(cleanupJobInterval));
@@ -36,9 +38,9 @@ public class TtlMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// Immediately removes expired items from the cache.
     /// Typically unnecessary, as item retrieval already handles expiration checks.
     /// </summary>
-    public Task EvictExpired()
+    public void EvictExpired()
     {
-        if (!Monitor.TryEnter(_cleanUpTimer)) return Task.CompletedTask;
+        if (!Monitor.TryEnter(_cleanUpTimer)) return;
 
         try
         {
@@ -62,8 +64,6 @@ public class TtlMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         {
             Monitor.Exit(_cleanUpTimer);
         }
-        
-        return Task.CompletedTask;
     }
 
     /// <inheritdoc/>

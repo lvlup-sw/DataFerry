@@ -89,7 +89,7 @@ public interface IMemCache<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue
     /// <summary>
     /// Evicts all expired items from the cache.
     /// </summary>
-    Task EvictExpired();
+    void EvictExpired();
 
     /// <summary>
     /// Check backplane for messages from subscription
