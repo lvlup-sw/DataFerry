@@ -3,14 +3,14 @@
   <PropertyGroup>
 	<PackageId>lvlup.DataFerry</PackageId>
     <Title>DataFerry</Title>
-	<Version>2.0.0-prerelease5</Version>
+	<Version>2.0.0-alpha</Version>
 	<RootNamespace>lvlup.DataFerry</RootNamespace>
 	<Authors>lvlup; rsalus</Authors>
     <Description>Simplify data access and boost resiliency with DataFerry, a generic caching solution designed to tightly couple your cache and database.</Description>
     <PackageProjectUrl>https://github.com/lvlup-sw/DataFerry</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 	<PackageLicenseExpression>MIT</PackageLicenseExpression>
-	<PackageTags>Redis;StackExchange.Redis;Cache;Caching;Provider;ASP.NET;Polly</PackageTags>
+	<PackageTags>Redis;StackExchange.Redis;Cache;Caching;Provider;ASP.NET;Polly;HybridCache</PackageTags>
 	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
