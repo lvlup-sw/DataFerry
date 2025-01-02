@@ -221,7 +221,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error occurred in DrainBufferIntoCache task.");
+            _logger.LogError(ex.GetBaseException(), "Error occurred in DrainBufferIntoCache task.");
         }
     }
 
@@ -390,15 +390,17 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     #endregion
     #region Helper Methods
     
-    private void EnsureAvailableSpaceInSegment(CacheSegment segment, BufferItem item)
-    {
-        throw new NotImplementedException();
-    }
-
     private CacheSegment DetermineCacheSegment(TtlValue value)
     {
+        // We need to handle the promotion/demotion logic here
         throw new NotImplementedException();
-    }    
+    }
+    
+    private void EnsureAvailableSpaceInSegment(CacheSegment segment, BufferItem item)
+    {
+        // We need to handle the size limitations of the segments here
+        throw new NotImplementedException();
+    }
     
     /// <summary>
     /// Attempts to find and remove a <see cref="KeyLocation"/> from the specified list.

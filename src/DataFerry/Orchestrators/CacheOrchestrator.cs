@@ -22,10 +22,13 @@ public class CacheOrchestrator : ICacheOrchestrator
     private AsyncPolicyWrap<object> _asyncPolicy;
 
     /// <summary>
-    /// The primary constructor for the <see cref="CacheOrchestrator"/> class.
+    /// Initializes a new instance of the <see cref="CacheOrchestrator"/> class.
     /// </summary>
-    /// <param name="settings">The settings for the cache.</param>
-    /// <exception cref="ArgumentNullException"></exception>""
+    /// <param name="cache">The Redis connection multiplexer.</param>
+    /// <param name="memCache">The in-memory cache.</param>
+    /// <param name="settings">The cache settings.</param>
+    /// <param name="logger">The logger.</param>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="cache"/>, <paramref name="memCache"/>, <paramref name="settings"/>, or <paramref name="logger"/> is null.</exception>
     public CacheOrchestrator(
         IConnectionMultiplexer cache,
         IMemCache<string, byte[]> memCache,
@@ -117,12 +120,12 @@ public class CacheOrchestrator : ICacheOrchestrator
         object result = _syncPolicy.Execute((context) =>
         {
             _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
-            RedisValue data = database.StringGet(key, CommandFlags.PreferReplica);
+            RedisValue redisValue = database.StringGet(key, CommandFlags.PreferReplica);
 
-            return data.HasValue ? data : default;
+            return redisValue.HasValue ? redisValue : default;
         }, new Context($"SparseDistributedCache.GetFromCache for {key}"));
 
-        if (result is RedisValue value && value.HasValue)
+        if (result is RedisValue { HasValue: true } value)
         {
             // We have a value, and RedisValue contains
             // an implicit conversion operator to byte[]
@@ -220,13 +223,13 @@ public class CacheOrchestrator : ICacheOrchestrator
         object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
         {
             _logger.LogDebug("Attempting to retrieve entry with key {key} from cache.", key);
-            RedisValue data = await database.StringGetAsync(key, CommandFlags.PreferReplica)
+            RedisValue redisValue = await database.StringGetAsync(key, CommandFlags.PreferReplica)
                 .ConfigureAwait(false);
 
-            return data.HasValue ? data : default;
+            return redisValue.HasValue ? redisValue : default;
         }, new Context($"SparseDistributedCache.GetFromCache for {key}"), token);
 
-        if (result is RedisValue value && value.HasValue)
+        if (result is RedisValue { HasValue: true } value)
         {
             // We have a value, and RedisValue contains
             // an implicit conversion operator to byte[]
@@ -308,10 +311,13 @@ public class CacheOrchestrator : ICacheOrchestrator
     #region ASYNCHRONOUS BATCH OPERATIONS
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<(string Key, int Index, int Length)> GetBatchFromCacheAsync(IEnumerable<string> keys, RentedBufferWriter<byte> destination, [EnumeratorCancellation] CancellationToken token = default)
+    public async IAsyncEnumerable<(string Key, int Index, int Length)> GetBatchFromCacheAsync(
+        IEnumerable<string> keys, 
+        RentedBufferWriter<byte> destination, 
+        [EnumeratorCancellation] CancellationToken token = default)
     {
         // Get as many entries from the memory cache as possible
-        HashSet<string> remainingKeys = new(keys);
+        HashSet<string> remainingKeys = [..keys];
         if (_settings.UseMemoryCache)
         {
             foreach (var key in keys)
@@ -350,7 +356,10 @@ public class CacheOrchestrator : ICacheOrchestrator
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(IDictionary<string, byte[]> data, DistributedCacheEntryOptions? options, [EnumeratorCancellation] CancellationToken token = default)
+    public async IAsyncEnumerable<KeyValuePair<string, bool>> SetBatchInCacheAsync(
+        IDictionary<string, byte[]> data, 
+        DistributedCacheEntryOptions? options, 
+        [EnumeratorCancellation] CancellationToken token = default)
     {
         // Set our entries in the memory cache
         if (_settings.UseMemoryCache)
@@ -383,7 +392,10 @@ public class CacheOrchestrator : ICacheOrchestrator
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(IEnumerable<string> keys, TimeSpan ttl, [EnumeratorCancellation] CancellationToken token = default)
+    public async IAsyncEnumerable<KeyValuePair<string, bool>> RefreshBatchFromCacheAsync(
+        IEnumerable<string> keys, 
+        TimeSpan ttl, 
+        [EnumeratorCancellation] CancellationToken token = default)
     {
         // Set our entries in the memory cache
         if (_settings.UseMemoryCache)
@@ -414,7 +426,9 @@ public class CacheOrchestrator : ICacheOrchestrator
     }
 
     /// <inheritdoc/>
-    public async IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(IEnumerable<string> keys, [EnumeratorCancellation] CancellationToken token = default)
+    public async IAsyncEnumerable<KeyValuePair<string, bool>> RemoveBatchFromCacheAsync(
+        IEnumerable<string> keys, 
+        [EnumeratorCancellation] CancellationToken token = default)
     {
         // Remove as many entries from the memory cache as possible
         if (_settings.UseMemoryCache)
@@ -486,7 +500,11 @@ public class CacheOrchestrator : ICacheOrchestrator
     /// <param name="destination"></param>
     /// <param name="token"></param>
     /// <returns>A <c>Task</c> containing the result of the operation.</returns>
-    private async Task<(string Key, int Index, int Length)> GetFromRedisTask(string key, Task<RedisValue> operation, RentedBufferWriter<byte> destination, CancellationToken token)
+    private async Task<(string Key, int Index, int Length)> GetFromRedisTask(
+        string key, 
+        Task<RedisValue> operation, 
+        RentedBufferWriter<byte> destination, 
+        CancellationToken token)
     {
         object result = await _asyncPolicy.ExecuteAsync(async (ctx, ct) =>
         {
@@ -496,7 +514,7 @@ public class CacheOrchestrator : ICacheOrchestrator
         },
         new Context($"SparseDistributedCache.GetBatchAsync for {key}"), token);
 
-        if (result is RedisValue value && value.HasValue)
+        if (result is RedisValue { HasValue: true } value)
         {
             // We have a value, and RedisValue contains
             // an implicit conversion operator to byte[]
