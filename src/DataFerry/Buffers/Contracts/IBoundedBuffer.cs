@@ -17,7 +17,14 @@ public interface IBoundedBuffer<T> where T : struct
     /// <summary>
     /// Gets the current number of items in the buffer.
     /// </summary>
-    int Count { get; }    
+    int Count { get; }
+
+    /// <summary>
+    /// Adds an item to the buffer, blocking the calling thread until space becomes available.
+    /// </summary>
+    /// <typeparam name="T">The type of items in the buffer.</typeparam>
+    /// <param name="item">The item to add.</param>
+    void Add(T item);
     
     /// <summary>
     /// Attempts to add an item to the buffer.

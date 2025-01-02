@@ -185,6 +185,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
                 {
                     // Determine promotion eligibility
                     var segment = DetermineCacheSegment(item.Value);
+                    if (segment == CacheSegment.Invalid) continue;
 
                     // Make sure we have room in the segments
                     EnsureAvailableSpaceInSegment(segment, item);
@@ -199,9 +200,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
                             _probation.TryInsert(new KeyLocation(item.Key, segment));
                             break;
                         case CacheSegment.Invalid:
-                            continue;
                         default:
-                            throw new InvalidEnumArgumentException("Could not determine CacheSegment.");
+                            throw new InvalidEnumArgumentException($"Unexpected CacheSegment value: {segment}");
                     }
 
                     _cache.AddOrUpdate(item.Key, item.Value, (existingKey, existingValue) => item.Value);
@@ -282,8 +282,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         if (!Admit()) return;
 
         // Add to WriteBuffer
-        // Need to account for full buffer case
-        _writeBuffer.TryAdd(
+        _writeBuffer.Add(
             new BufferItem(
                 key,
                 new TtlValue(value, ttl)

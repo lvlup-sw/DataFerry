@@ -65,8 +65,30 @@ public sealed class BoundedBuffer<T> : IBoundedBuffer<T> where T : struct
     }
     
     /// <inheritdoc/>
-    public int Count => Interlocked.CompareExchange(ref _count, 0, 0);    
+    public int Count => Interlocked.CompareExchange(ref _count, 0, 0);
 
+    /// <inheritdoc/>
+    public void Add(T item)
+    {
+        lock (@producerLock)
+        {
+            // Wait if the buffer is full
+            while (_count == _capacity)
+            {   // Release the lock
+                Monitor.Wait(@producerLock);
+            }
+            
+            _buffer[_head] = item;
+            _head = (_head + 1) % _capacity;
+            _count++;
+            
+            // Signal that the buffer is not empty
+            Monitor.PulseAll(@producerLock);
+            // If buffer has items, signal the consumer
+            if (_count == 1) NotEmptyEvent.Set();
+        }    
+    }
+    
     /// <inheritdoc/>
     public bool TryAdd(T item)
     {
