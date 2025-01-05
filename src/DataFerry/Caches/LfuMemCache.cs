@@ -1,5 +1,5 @@
 ﻿using lvlup.DataFerry.Buffers;
-using lvlup.DataFerry.Orchestrators.Contracts;
+using lvlup.DataFerry.Orchestrators;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.ComponentModel;
@@ -29,7 +29,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     // Background processes
     private readonly ConcurrentQueue<TKey> _recentEntries;
     private readonly BoundedBuffer<BufferItem> _writeBuffer;
-    private readonly ITaskOrchestrator _taskOrchestrator;
+    private readonly TaskOrchestrator _taskOrchestrator;
     private readonly Timer _cleanUpTimer;
     
     // Logging/Tracing
@@ -59,8 +59,10 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// <param name="logger">The logger to use within the cache.</param>
     /// <param name="maxSize">The maximum number of items allowed in the cache.</param>        
     /// <param name="cleanupJobInterval">Cleanup interval in milliseconds; default is 10000.</param>
-    public LfuMemCache(ITaskOrchestrator taskOrchestrator, ILogger<LfuMemCache<TKey, TValue>> logger, int maxSize = 10000, int cleanupJobInterval = 10000)
+    public LfuMemCache(ITaskOrchestratorFactory taskOrchestratorFactory, ILogger<LfuMemCache<TKey, TValue>> logger, int maxSize = 10000, int cleanupJobInterval = 10000)
     {
+        _logger = logger;
+        
         // Cache sizes
         MaxSize = maxSize;
         _maxWindowSize = maxSize / 100; // 1% of entire cache
@@ -76,8 +78,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         _cms = new(MaxSize);
         _writeBuffer = new(BufferSize);
         _recentEntries = new();
-        _taskOrchestrator = taskOrchestrator;
-        _logger = logger;
+        _taskOrchestrator = taskOrchestratorFactory.Create();
+        
         // We create a concurrent priority queue to hold LFU candidates
         // This comparer gives lower frequency items higher priority
         _evictionWindow = new(
@@ -90,7 +92,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         // Consider replacing with a hierarchical TimerWheel
         _cleanUpTimer = new Timer(
             _ => _taskOrchestrator.Run(() => { EvictExpired(); return Task.CompletedTask; }),
-            default,
+            null,
             TimeSpan.FromMilliseconds(cleanupJobInterval),
             TimeSpan.FromMilliseconds(cleanupJobInterval));
 

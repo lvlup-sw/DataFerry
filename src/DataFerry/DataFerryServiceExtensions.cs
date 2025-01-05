@@ -11,7 +11,7 @@ namespace lvlup.DataFerry;
 /// </summary>
 public static class DataFerryServiceExtensions
 {
-    public static IServiceCollection AddDataFerry(this IServiceCollection services, Action<CacheSettings>? setupAction = default)
+    public static IServiceCollection AddDataFerry(this IServiceCollection services, Action<CacheSettings>? setupAction = null)
     {
         // Null check
         ArgumentNullException.ThrowIfNull(services, nameof(services));
@@ -22,12 +22,12 @@ public static class DataFerryServiceExtensions
             services.Configure(setupAction);
 
         // Add pooled resource managers
-        services.TryAddSingleton(serviceProvider => StackArrayPool<byte>.Shared);
+        services.TryAddSingleton(StackArrayPool<byte>.Shared);
         services.TryAddSingleton<RecyclableMemoryStreamManager>();
 
         // Add and return services
         services.TryAddSingleton<IDataFerrySerializer, DataFerrySerializer>();
-        services.TryAddSingleton<ITaskOrchestrator, TaskOrchestrator>();
+        services.TryAddSingleton<ITaskOrchestratorFactory, TaskOrchestratorFactory>();
         services.TryAddSingleton<IMemCache<string, byte[]>, LfuMemCache<string, byte[]>>();
         services.TryAddSingleton<ICacheOrchestrator, CacheOrchestrator>();
         services.TryAddSingleton<IDataFerry, DataFerry>();
