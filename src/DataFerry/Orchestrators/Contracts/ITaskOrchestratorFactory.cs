@@ -4,5 +4,5 @@ namespace lvlup.DataFerry.Caches.Contracts;
 
 public interface ITaskOrchestratorFactory
 {
-    TaskOrchestrator Create(TaskOrchestrator.TaskOrchestratorFeatures features = TaskOrchestrator.TaskOrchestratorFeatures.None, int workerCount = 2);
+    TaskOrchestrator Create(TaskOrchestrator.TaskOrchestratorFeatures features = TaskOrchestrator.TaskOrchestratorFeatures.BlockTaskDrop, int workerCount = 2);
 }

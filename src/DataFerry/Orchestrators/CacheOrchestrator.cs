@@ -326,7 +326,7 @@ public class CacheOrchestrator : ICacheOrchestrator
                 if (kvp.Value is null) continue;
 
                 // Deserialize and write to buffer
-                var (index, length) = destination.WriteAndGetPosition(kvp.Value);
+                (int index, int length) = destination.WriteAndGetPosition(kvp.Value);
                 remainingKeys.Remove(kvp.Key);
 
                 // Return properties of write operation

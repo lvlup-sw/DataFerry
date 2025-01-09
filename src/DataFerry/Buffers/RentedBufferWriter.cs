@@ -106,7 +106,7 @@ public sealed class RentedBufferWriter<T> : IBufferWriter<T>, IDisposable
     /// <param name="sizeHint">The minimum size that the buffer should be able to accommodate.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="sizeHint"/> is negative.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void CheckAndResizeBuffer(int sizeHint)
+    private void CheckAndResizeBuffer(int sizeHint)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(sizeHint, 0, nameof(sizeHint));
 
