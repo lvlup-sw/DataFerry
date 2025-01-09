@@ -6,6 +6,9 @@ using System.Threading.Channels;
 
 namespace lvlup.DataFerry.Orchestrators;
 
+/// <summary>
+/// A background task scheduler that handles the low-level work of queuing tasks onto threads.
+/// </summary>
 public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
 {
     /// <summary>
@@ -39,7 +42,10 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     /// <summary>
     /// Initializes a new instance of the TaskOrchestrator class.
     /// </summary>
-    public TaskOrchestrator(ILogger<TaskOrchestrator> logger, TaskOrchestratorFeatures features = TaskOrchestratorFeatures.None, int workerCount = 2)
+    public TaskOrchestrator(
+        ILogger<TaskOrchestrator> logger, 
+        TaskOrchestratorFeatures features = TaskOrchestratorFeatures.BlockTaskDrop, 
+        int workerCount = 2)
     {
         _logger = logger;
         Features = features;
@@ -178,7 +184,7 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     [Flags]
     public enum TaskOrchestratorFeatures
     {
-        None = 0,
+        BlockTaskDrop = 0,
         AllowTaskDrop = 1,
     }    
 }

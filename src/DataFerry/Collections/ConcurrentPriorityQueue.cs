@@ -687,7 +687,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         {
             // Note that this is required for correctness.
             // Remove takes a dependency of the fact that if found at expected level, all the predecessors have already been correctly linked.
-            // Hence we only need to use a MemoryBarrier before linking in the top level. 
+            // Hence, we only need to use a MemoryBarrier before linking in the top level. 
             if (level == insertLevel)
             {
                 Thread.MemoryBarrier();

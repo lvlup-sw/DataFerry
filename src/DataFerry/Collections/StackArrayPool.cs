@@ -68,7 +68,7 @@ public class StackArrayPool<T> : ArrayPool<T>
         }
 
         // Check if capacity of request is within bounds
-        var bucketIndex = StackArrayPool<T>.GetBucketIndex(minimumLength);
+        var bucketIndex = GetBucketIndex(minimumLength);
         if (bucketIndex < 0 || bucketIndex >= _bucketSizes.Length)
         {
             // Return new if out of bounds
@@ -111,7 +111,7 @@ public class StackArrayPool<T> : ArrayPool<T>
         }
 
         // Check if capacity of array is within bounds
-        var bucketIndex = StackArrayPool<T>.GetBucketIndex(array.Length);
+        var bucketIndex = GetBucketIndex(array.Length);
         if (bucketIndex < 0 || bucketIndex >= _bucketSizes.Length)
         {   // Discard if out of bounds
             return;
