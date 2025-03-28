@@ -168,7 +168,7 @@ public sealed class DataFerrySerializer : IDataFerrySerializer
             // Try to get the buffer from the stream
             if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
             {
-                // Write the buffer segment to the a new byte[]
+                // Write the buffer segment to the new byte[]
                 return [.. bufferSegment];
             }
             else

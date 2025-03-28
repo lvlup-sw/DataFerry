@@ -135,7 +135,7 @@ public sealed class RentedBufferWriter<T> : IBufferWriter<T>, IDisposable
 
                 ArgumentOutOfRangeException.ThrowIfGreaterThan(needed, (uint)Array.MaxLength,
                     "Requested buffer size exceeds max length.");
-
+ 
                 newSize = Array.MaxLength;
             }
 
@@ -156,5 +156,5 @@ public sealed class RentedBufferWriter<T> : IBufferWriter<T>, IDisposable
     /// If the buffer contains references, it is cleared before being returned to the pool to prevent memory leaks.
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void ReturnBuffer(T[] oldBuffer) => _pool.Return(oldBuffer, RuntimeHelpers.IsReferenceOrContainsReferences<T>());
+    private void ReturnBuffer(T[] oldBuffer) => _pool.Return(oldBuffer, clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<T>());
 }

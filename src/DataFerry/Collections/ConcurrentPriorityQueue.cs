@@ -3,7 +3,7 @@ using lvlup.DataFerry.Orchestrators.Contracts;
 
 namespace lvlup.DataFerry.Collections;
 
-/// <summary>
+  /// <summary>
 /// A concurrent PriorityQueue implemented as a lock-based SkipList with relaxed semantics.
 /// </summary>
 /// <typeparam name="TPriority">The priority.</typeparam>
@@ -50,12 +50,22 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <summary>
     /// Invalid level.
     /// </summary>
-    internal const int InvalidLevel = -1;
+    private const int InvalidLevel = -1;
 
     /// <summary>
     /// Bottom level.
     /// </summary>
-    internal const int BottomLevel = 0;
+    private const int BottomLevel = 0;
+
+    /// <summary>
+    /// Constant used during Spray operation in TryDeleteMin.
+    /// </summary>
+    private const int OffsetK = 1;
+
+    /// <summary>
+    /// Constant used during Spray operation in TryDeleteMin.
+    /// </summary>
+    private const int OffsetM = 1;
 
     /// <summary>
     /// Default size limit
@@ -66,16 +76,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// Default number of levels
     /// </summary>
     internal const int DefaultNumberOfLevels = 32;
-
-    /// <summary>
-    /// Constant used during Spray operation in TryDeleteMin.
-    /// </summary>
-    internal const int Offset_K = 1;
-
-    /// <summary>
-    /// Constant used during Spray operation in TryDeleteMin.
-    /// </summary>
-    internal const int Offset_M = 1;
 
     /// <summary>
     /// Default promotion chance for each level. [0, 1).
@@ -160,11 +160,11 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
     public ConcurrentPriorityQueue(
-        ITaskOrchestrator taskOrchestrator, 
-        IComparer<TPriority> comparer, 
-        IComparer<TElement>? elementComparer = default, 
-        int maxSize = 10000, 
-        int? numberOfLevels = default, 
+        ITaskOrchestrator taskOrchestrator,
+        IComparer<TPriority> comparer,
+        IComparer<TElement>? elementComparer = null,
+        int maxSize = 10000,
+        int? numberOfLevels = null,
         double promotionProbability = 0.5,
         bool allowDuplicatePriorities = true)
     {
@@ -219,13 +219,15 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             for (int level = startingLevel; level >= 0; level--)
             {
                 SkipListNode predecessor = _head;
+
                 while (predecessor.GetNextNode(level) != node)
                 {
                     predecessor = predecessor.GetNextNode(level);
                 }
+
                 predecessor.SetNextNode(level, node.GetNextNode(level));
             }
-            
+
             return Task.CompletedTask;
         });
     }
@@ -249,7 +251,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             {
                 var curr = searchResult.GetNodeFound();
 
-                if (curr.IsDeleted || curr is null) continue;
+                if (curr.IsDeleted) continue;
 
                 WaitUntilIsInserted(searchResult.GetNodeFound());
                 return false;
@@ -267,7 +269,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                 InsertNode(newNode, searchResult, insertLevel);
 
                 // Linearization point: MemoryBarrier not required since IsInserted
-                // is a volatile member (hence implicitly uses MemoryBarrier). 
+                // is a volatile member (hence implicitly uses MemoryBarrier)
                 newNode.IsInserted = true;
                 if (Interlocked.Increment(ref _count) > _maxSize) TryDeleteMin(out _);
                 return true;
@@ -299,19 +301,18 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             var searchResult = WeakSearch(priority);
             curr ??= searchResult.GetNodeFound();
 
-            if (!isLogicallyDeleted && NodeIsInvalidOrDeleted(curr, searchResult))
-            {   // Node not fully linked or already deleted
-                return false;
-            }
-
-            // Logically delete the node if not already done
-            if (!isLogicallyDeleted && !LogicallyDeleteNode(curr, searchResult, ref topLevel))
+            switch (isLogicallyDeleted)
             {
-                return false;
+                // Logically delete the node if not already done
+                case false when NodeIsInvalidOrDeleted(curr, searchResult):
+                // Node not fully linked or already deleted
+                case false when !LogicallyDeleteNode(curr, searchResult, ref topLevel):
+                    return false;
             }
-            isLogicallyDeleted = true;
 
+            isLogicallyDeleted = true;
             int highestLevelLocked = InvalidLevel;
+
             try
             {
                 if (!ValidateDeletion(curr, searchResult, topLevel, ref highestLevelLocked))
@@ -381,8 +382,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     public bool TryDeleteMinProbabilistically(out TElement element, double retryProbability = 1.0)
     {
         // Init our constants
-        int height = (int)Math.Log(_count) + Offset_K;
-        int jumpLengthMax = Offset_M * (int)Math.Pow(Math.Log(_count), 3);
+        int height = (int)Math.Log(_count) + OffsetK;
+        int jumpLengthMax = OffsetM * (int)Math.Pow(Math.Log(_count), 3);
         int descentLength = (int)Math.Max(1, Math.Log(Math.Log(_count)));
 
         // Ensure height is divisible by the descent
@@ -393,7 +394,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         // Prepare spray operation
         int currHeight = height;
-        var curr = _head; //.GetNextNode(height);
+        var curr = _head; // .GetNextNode(height);
 
         // Spray operation
         while (currHeight > 0)
@@ -418,12 +419,12 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         // Logically delete node
         if (!LogicallyDeleteNode(curr))
-        {   // Failure case
+        { // Failure case
             if (_randomGenerator.NextDouble() < retryProbability)
-            {   // Retry
+            { // Retry
                 return TryDeleteMinProbabilistically(out element, retryProbability * 0.5);
             }
-            
+
             // Return default
             element = curr.Element;
             return false;
@@ -435,7 +436,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         curr.Unlock();
         Interlocked.Decrement(ref _count);
-        
+
         return true;
     }
 
@@ -598,13 +599,13 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         {
             SkipListNode current = predecessor.GetNextNode(level);
 
-            while (Compare(current, priority) < 0) 
+            while (Compare(current, priority) < 0)
             {
                 predecessor = current;
                 current = predecessor.GetNextNode(level);
             }
 
-            // At this point, current is >= searchpriority
+            // At this point, current is >= SearchPriority
             if (levelFound == InvalidLevel && Compare(current, priority) == 0)
             {
                 levelFound = level;
@@ -752,6 +753,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             Interlocked.Exchange(ref highestLevelUnlocked, level);
             isValid = predecessor.IsDeleted == false && predecessor.GetNextNode(level) == curr;
         }
+
         return isValid;
     }
 
@@ -767,6 +769,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         private readonly SkipListNode[] _nextNodeArray;
         private volatile bool _isInserted;
         private volatile bool _isDeleted;
+        private long _sequenceGenerator = 0;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Node"/> class.
@@ -779,6 +782,12 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             Element = default!;
             Type = nodeType;
             _nextNodeArray = new SkipListNode[height + 1];
+            SequenceNumber = nodeType switch
+            {
+                NodeType.Head => long.MinValue,
+                NodeType.Tail => long.MaxValue,
+                _ => -1
+            };
         }
 
         /// <summary>
@@ -793,6 +802,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             Element = element;
             Type = NodeType.Data;
             _nextNodeArray = new SkipListNode[height + 1];
+            SequenceNumber = Interlocked.Increment(ref _sequenceGenerator);
         }
 
         /// <summary>
@@ -825,6 +835,11 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// Gets or sets the element associated with the node.
         /// </summary>
         public TElement Element { get; set; }
+
+        /// <summary>
+        /// Unique identifier for this node instance. Readonly after construction.
+        /// </summary>
+        public long SequenceNumber { get; }
 
         /// <summary>
         /// Gets or sets the type of the node.
@@ -881,6 +896,52 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// Releases the lock associated with the node.
         /// </summary>
         public void Unlock() => _nodeLock.Exit();
+
+        /// <summary>
+        /// Compares this node to another node based first on Priority, then SequenceNumber.
+        /// Required for correct ordering when priorities are duplicated.
+        /// Handles Head/Tail nodes.
+        /// </summary>
+        /// <returns>
+        /// -1 if this node is less than <paramref name="other"/>.
+        ///  0 if this node is equal to other (should only happen if comparing node to itself).
+        ///  1 if this node is greater than <paramref name="other"/>.
+        /// </returns>
+        public int CompareTo(SkipListNode other)
+        {
+            // Head is always less, anything is less than Tail
+            if (this.Type == NodeType.Head || other.Type == NodeType.Tail) return -1;
+
+            // Tail is always greater, anything is greater than Head
+            if (this.Type == NodeType.Tail || other.Type == NodeType.Head) return 1;
+
+            // Compare priorities using the default comparer for TPriority
+            int priorityComparison = Comparer<TPriority>.Default.Compare(this.Priority, other.Priority);
+
+            return priorityComparison is not 0
+                ? priorityComparison
+                // Priorities are equal, compare by sequence number (lower sequence number is considered "smaller")
+                : this.SequenceNumber.CompareTo(other.SequenceNumber);
+        }
+
+        /// <summary>
+        /// Compares this node's priority to a given priority value.
+        /// Does NOT use the sequence number. Useful for initial phase of search.
+        /// </summary>
+        public int CompareToPriority(TPriority priority)
+        {
+            return this.Type switch
+            {
+                // Head is always less
+                NodeType.Head => -1,
+
+                // Tail is always greater
+                NodeType.Tail => 1,
+
+                // Compare priorities using the default comparer for TPriority
+                _ => Comparer<TPriority>.Default.Compare(this.Priority, priority)
+            };
+        }
     }
 
     /// <summary>
@@ -889,12 +950,12 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <param name="LevelFound">The level at which the priority was found (or <see cref="NotFoundLevel"/> if not found).</param>
     /// <param name="PredecessorArray">An array of predecessor nodes at each level.</param>
     /// <param name="SuccessorArray">An array of successor nodes at each level.</param>
-    public sealed record SearchResult(int LevelFound, SkipListNode[] PredecessorArray, SkipListNode[] SuccessorArray)
+    private sealed record SearchResult(int LevelFound, SkipListNode[] PredecessorArray, SkipListNode[] SuccessorArray)
     {
         /// <summary>
         /// Represents the level element when a priority is not found in the SkipList.
         /// </summary>
-        public const int NotFoundLevel = -1;
+        private const int NotFoundLevel = -1;
 
         /// <summary>
         /// Gets a element indicating whether the priority was found in the SkipList.
@@ -937,5 +998,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             return SuccessorArray[LevelFound];
         }
     }
+
     #endregion
 }

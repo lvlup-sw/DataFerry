@@ -10,7 +10,7 @@
     <PackageReference Include="BenchmarkDotNet" />
     <PackageReference Include="BenchmarkDotNet.Annotations" />
     <PackageReference Include="BitFaster.Caching" />
-    <PackageReference Include="coverlet.collector">
+    <PackageReference Include="coverlet.msbuild">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

@@ -27,7 +27,7 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     private readonly PolicyWrap<object> _syncPolicy;
     private readonly AsyncPolicyWrap<object> _asyncPolicy;
     private long _runCount;
-    
+
     // Policy settings
     private readonly CacheSettings _settings = new()
     {
@@ -38,15 +38,17 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     /// Feature flags for the task orchestrator.
     /// </summary>
     public TaskOrchestratorFeatures Features { get; set; }
-    
+
     /// <summary>
     /// Initializes a new instance of the TaskOrchestrator class.
     /// </summary>
     public TaskOrchestrator(
-        ILogger<TaskOrchestrator> logger, 
-        TaskOrchestratorFeatures features = TaskOrchestratorFeatures.BlockTaskDrop, 
+        ILogger<TaskOrchestrator> logger,
+        TaskOrchestratorFeatures features = TaskOrchestratorFeatures.BlockTaskDrop,
         int workerCount = 2)
     {
+        ArgumentNullException.ThrowIfNull(logger, nameof(logger));
+
         _logger = logger;
         Features = features;
         _syncPolicy = PollyPolicyGenerator.GenerateSyncPolicy(_logger, _settings, string.Empty);
@@ -54,16 +56,16 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
 
         _workChannel = Channel.CreateBounded<Func<Task>>(new BoundedChannelOptions(MaxBacklog)
         {
-            FullMode = Features.HasFlag(TaskOrchestratorFeatures.AllowTaskDrop) 
-                ? BoundedChannelFullMode.DropWrite 
+            FullMode = Features.HasFlag(TaskOrchestratorFeatures.AllowTaskDrop)
+                ? BoundedChannelFullMode.DropWrite
                 : BoundedChannelFullMode.Wait,
             SingleReader = workerCount == 1,
             SingleWriter = false
         });
-        
+
         _workerTasks = Enumerable.Range(0, workerCount)
             .Select(_ => Task.Factory.StartNew(
-                () => Worker(_cts.Token),
+                () => WorkerAsync(_cts.Token),
                 _cts.Token,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default))
@@ -89,7 +91,7 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     {
         try
         {
-            _syncPolicy.Execute(ctx =>
+            _syncPolicy.Execute(_ =>
             {
                 if (_workChannel.Writer.TryWrite(action))
                 {
@@ -118,7 +120,7 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     /// Worker task which continuously processes work items as they are published to the channel.
     /// </summary>
     /// <param name="cancellationToken"></param>
-    private async Task Worker(CancellationToken cancellationToken)
+    private async Task WorkerAsync(CancellationToken cancellationToken)
     {
         _logger.LogDebug("Worker thread started with ID: {ThreadId}", Environment.CurrentManagedThreadId);
 
@@ -144,11 +146,11 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
     
     private async Task ExecuteActionAsync(Func<Task> action)
     {
-        await _asyncPolicy.ExecuteAsync((ctx) =>
+        await _asyncPolicy.ExecuteAsync(_ =>
         {
             action();
             return Task.CompletedTask as Task<object>;
-        }, new Context($"TaskOrchestrator.Worker_{Environment.CurrentManagedThreadId}"));
+        }, new Context($"TaskOrchestrator.Worker_{Environment.CurrentManagedThreadId}")).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -180,11 +182,11 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
             _cts.Dispose();
         }
     }
-    
+
     [Flags]
     public enum TaskOrchestratorFeatures
     {
         BlockTaskDrop = 0,
         AllowTaskDrop = 1,
-    }    
+    }
 }

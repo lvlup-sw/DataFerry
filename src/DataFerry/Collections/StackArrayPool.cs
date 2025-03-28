@@ -27,7 +27,7 @@ public class StackArrayPool<T> : ArrayPool<T>
     // Therefore, we don't need to implement any explicit locking mechanism to handle contention
     [ThreadStatic]
     private static T[][]? s_threadLocalCache;
-
+  
     /// <summary>
     /// Initializes a new instance of the `StackArrayPool` class, pre-allocating arrays for efficient reuse.
     /// </summary>

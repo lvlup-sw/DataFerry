@@ -11,11 +11,18 @@ indent_size = 2
 # C# files
 [*.cs]
 
+# Enforce addressing warnings at compile-time
+[*.csproj]
+WarningsAsErrors = true
+
 #### Core EditorConfig Options ####
 
 # Indentation and spacing
 indent_size = 4
 tab_width = 4
+end_of_line = crlf
+trim_trailing_whitespace = true
+max_line_length = 120
 
 # New line preferences
 insert_final_newline = false
@@ -99,7 +106,7 @@ csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
 csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
 csharp_style_prefer_extended_property_pattern = true:suggestion
 csharp_style_prefer_not_pattern = true:suggestion
-csharp_style_prefer_pattern_matching = true:silent
+csharp_style_prefer_pattern_matching = true:suggestion
 csharp_style_prefer_switch_expression = true:suggestion
 
 # Null-checking preferences
@@ -119,6 +126,7 @@ csharp_style_namespace_declarations = file_scoped:suggestion
 csharp_style_prefer_method_group_conversion = true:silent
 csharp_style_prefer_primary_constructors = true:suggestion
 csharp_style_prefer_top_level_statements = true:silent
+csharp_method_declaration_parameter_list_wrapping = wrap_if_long
 
 # Expression-level preferences
 csharp_prefer_simple_default_expression = true:suggestion
@@ -136,26 +144,32 @@ csharp_style_unused_value_assignment_preference = discard_variable:suggestion
 csharp_style_unused_value_expression_statement_preference = discard_variable:silent
 
 # 'using' directive preferences
-csharp_using_directive_placement = outside_namespace:silent
+csharp_using_directive_placement = outside_namespace:warning
+csharp_style_prefer_null_propagation = true:suggestion
+csharp_style_object_initializer = true:suggestion
+csharp_style_collection_initializer = true:suggestion
+csharp_prefer_implicit_typing = true:suggestion
+csharp_blank_lines_between_using_directives = 0
 
 #### C# Formatting Rules ####
 
 # New line preferences
-csharp_new_line_before_catch = true
-csharp_new_line_before_else = true
-csharp_new_line_before_finally = true
-csharp_new_line_before_members_in_anonymous_types = true
-csharp_new_line_before_members_in_object_initializers = true
-csharp_new_line_before_open_brace = all
-csharp_new_line_between_query_expression_clauses = true
+csharp_new_line_before_members_in_object_initializers = true:warning
+csharp_new_line_before_members_in_anonymous_types = true:warning
+csharp_new_line_between_query_expression_clauses = true:warning
+csharp_new_line_before_open_brace = all:warning
+csharp_new_line_before_parameters = true:warning
+csharp_new_line_before_catch = true:warning
+csharp_new_line_before_else = true:warning
+csharp_new_line_before_finally = true:warning
 
 # Indentation preferences
-csharp_indent_block_contents = true
-csharp_indent_braces = false
-csharp_indent_case_contents = true
-csharp_indent_case_contents_when_block = true
-csharp_indent_labels = one_less_than_current
-csharp_indent_switch_labels = true
+csharp_indent_block_contents = true:warning
+csharp_indent_braces = false:warning
+csharp_indent_case_contents = true:warning
+csharp_indent_case_contents_when_block = true:warning
+csharp_indent_labels = one_less_than_current:warning
+csharp_indent_switch_labels = true:warning
 
 # Space preferences
 csharp_space_after_cast = false
@@ -181,15 +195,19 @@ csharp_space_between_method_declaration_parameter_list_parentheses = false
 csharp_space_between_parentheses = false
 csharp_space_between_square_brackets = false
 
+# Readability
+csharp_style_prefer_inferred_anonymous_type_member_names = true:suggestion
+csharp_style_prefer_inferred_tuple_names = true:suggestion
+
 # Wrapping preferences
 csharp_preserve_single_line_blocks = true
 csharp_preserve_single_line_statements = true
+csharp_prefer_system_threading_lock = true:suggestion
 
 #### Naming styles ####
 [*.{cs,vb}]
 
 # Naming rules
-
 dotnet_naming_rule.types_and_namespaces_should_be_pascalcase.severity = suggestion
 dotnet_naming_rule.types_and_namespaces_should_be_pascalcase.symbols = types_and_namespaces
 dotnet_naming_rule.types_and_namespaces_should_be_pascalcase.style = pascalcase
@@ -300,6 +318,12 @@ dotnet_naming_symbols.private_static_fields.applicable_kinds = field
 dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private, protected, protected_internal, private_protected
 dotnet_naming_symbols.private_static_fields.required_modifiers = static
 
+dotnet_naming_style.s_prefix_camel_case.required_prefix = s_
+dotnet_naming_style.s_prefix_camel_case.capitalization = camel_case
+dotnet_naming_rule.private_static_fields_must_have_s_prefix.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields_must_have_s_prefix.style = s_prefix_camel_case
+dotnet_naming_rule.private_static_fields_must_have_s_prefix.severity = warning
+
 dotnet_naming_symbols.types_and_namespaces.applicable_kinds = namespace, class, struct, interface, enum
 dotnet_naming_symbols.types_and_namespaces.applicable_accessibilities = public, internal, private, protected, protected_internal, private_protected
 dotnet_naming_symbols.types_and_namespaces.required_modifiers = 
@@ -375,3 +399,40 @@ dotnet_naming_style.s_camelcase.required_prefix = s_
 dotnet_naming_style.s_camelcase.required_suffix = 
 dotnet_naming_style.s_camelcase.word_separator = 
 dotnet_naming_style.s_camelcase.capitalization = camel_case
+
+# Diagnostics
+dotnet_diagnostics.documentation_comments_must_be_xml_compliant = warning
+
+# Analyzer Rules
+dotnet_diagnostic.IDE0290.severity = none
+dotnet_diagnostic.IDE0130.severity = warning
+dotnet_diagnostic.IDE1006.severity = suggestion
+dotnet_diagnostic.SA0001.severity = none
+dotnet_diagnostic.SA1000.severity = none
+dotnet_diagnostic.SA1010.severity = none
+dotnet_diagnostic.SA1101.severity = none
+dotnet_diagnostic.SA1118.severity = none
+dotnet_diagnostic.SA1124.severity = none
+dotnet_diagnostic.SA1200.severity = none
+dotnet_diagnostic.SA1201.severity = none
+dotnet_diagnostic.SA1206.severity = none
+dotnet_diagnostic.SA1308.severity = none
+dotnet_diagnostic.SA1309.severity = none
+dotnet_diagnostic.SA1311.severity = suggestion
+dotnet_diagnostic.SA1413.severity = none
+dotnet_diagnostic.SA1503.severity = silent
+dotnet_diagnostic.SA1515.severity = suggestion
+dotnet_diagnostic.SA1600.severity = warning
+dotnet_diagnostic.SA1601.severity = warning
+dotnet_diagnostic.SA1602.severity = warning
+dotnet_diagnostic.SA1623.severity = silent
+dotnet_diagnostic.SA1636.severity = none
+dotnet_diagnostic.VSTHRD001.severity = error
+dotnet_diagnostic.VSTHRD002.severity = error
+dotnet_diagnostic.VSTHRD004.severity = error
+dotnet_diagnostic.VSTHRD012.severity = suggestion
+dotnet_diagnostic.VSTHRD101.severity = error
+dotnet_diagnostic.VSTHRD105.severity = warning
+dotnet_diagnostic.VSTHRD111.severity = error
+dotnet_diagnostic.VSTHRD114.severity = error
+dotnet_diagnostic.VSTHRD200.severity = suggestion
