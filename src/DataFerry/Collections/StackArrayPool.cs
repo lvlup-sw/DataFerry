@@ -1,4 +1,9 @@
-﻿using System.Buffers;
+﻿// ===========================================================================
+// <copyright file="StackArrayPool.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// ===========================================================================
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Numerics;
 
@@ -10,7 +15,6 @@ namespace lvlup.DataFerry.Collections;
 /// <remarks>
 /// This class is designed to be injected into your application as a singleton using <see cref="ArrayPool{T}.Shared"/>.
 /// </remarks>
-/// <typeparam name="T"></typeparam>
 public class StackArrayPool<T> : ArrayPool<T>
 {
     // Any array less than 2^4 is cheaper to create than rent
@@ -27,9 +31,9 @@ public class StackArrayPool<T> : ArrayPool<T>
     // Therefore, we don't need to implement any explicit locking mechanism to handle contention
     [ThreadStatic]
     private static T[][]? s_threadLocalCache;
-  
+
     /// <summary>
-    /// Initializes a new instance of the `StackArrayPool` class, pre-allocating arrays for efficient reuse.
+    /// Initializes a new instance of the <see cref="StackArrayPool{T}"/> class, pre-allocating arrays for efficient reuse.
     /// </summary>
     /// <param name="preallocation">The number of arrays to pre-allocate for each bucket size (default: 1).</param>
     public StackArrayPool(int preallocation = 1)
@@ -38,7 +42,7 @@ public class StackArrayPool<T> : ArrayPool<T>
             .Select(i => (int)Math.Pow(2, i))
             .ToArray();
 
-        _buckets = new();
+        _buckets = new ConcurrentDictionary<int, ConcurrentQueue<T[]>>();
 
         // Preallocate arrays in each bucket
         foreach (var t in _bucketSizes)
@@ -50,8 +54,7 @@ public class StackArrayPool<T> : ArrayPool<T>
             _buckets.AddOrUpdate(
                 t,
                 new ConcurrentQueue<T[]>(preallocatedArrays),
-                (_, existingQueue) => existingQueue
-            );
+                (_, existingQueue) => existingQueue);
         }
     }
 
@@ -80,7 +83,7 @@ public class StackArrayPool<T> : ArrayPool<T>
 
         // Try to get from thread-local storage first
         var localArray = s_threadLocalCache[bucketIndex];
-        if (localArray is not null && localArray.Length >= minimumLength)
+        if (localArray.Length >= minimumLength)
         {
             s_threadLocalCache[bucketIndex] = null!;
             return localArray;
@@ -106,19 +109,19 @@ public class StackArrayPool<T> : ArrayPool<T>
         ArgumentNullException.ThrowIfNull(array);
 
         if (clearArray)
-        {   // Replaces array contents with default values
+        { // Replaces array contents with default values
             Array.Clear(array, 0, array.Length);
         }
 
         // Check if capacity of array is within bounds
         var bucketIndex = GetBucketIndex(array.Length);
         if (bucketIndex < 0 || bucketIndex >= _bucketSizes.Length)
-        {   // Discard if out of bounds
+        { // Discard if out of bounds
             return;
         }
 
         // Try to store in thread-local storage first
-        if (s_threadLocalCache is not null && s_threadLocalCache[bucketIndex] is null)
+        if (s_threadLocalCache is not null)
         {
             s_threadLocalCache[bucketIndex] = array;
             return;
@@ -128,8 +131,7 @@ public class StackArrayPool<T> : ArrayPool<T>
         _buckets.AddOrUpdate(
             _bucketSizes[bucketIndex],
             new ConcurrentQueue<T[]>([array]),
-            (_, existingQueue) => existingQueue
-        );
+            (_, existingQueue) => existingQueue);
     }
 
     // Since our sizing follows an exponential scale, we can calculate this based on Log2
@@ -137,12 +139,12 @@ public class StackArrayPool<T> : ArrayPool<T>
     {
         // Ensure length is within the valid range and is a power of 2
         // Note we're checking the binary representation here
-        bool isValidLength = (length & (length - 1)) == 0 
+        bool isValidLength = (length & (length - 1)) == 0
             && length is >= 1 << MinPowOf2 and <= 1 << MaxPowOf2;
 
         if (!isValidLength) return -1;
 
-        // Calculate the bucket index 
+        // Calculate the bucket index
         int bucketIndex = BitOperations.Log2((uint)length) - MinPowOf2;
 
         return bucketIndex;

@@ -1,4 +1,9 @@
-﻿using lvlup.DataFerry.Collections.Contracts;
+﻿// ===========================================================================
+// <copyright file="ConcurrentLinkedList.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// ===========================================================================
+using lvlup.DataFerry.Collections.Contracts;
 
 namespace lvlup.DataFerry.Collections;
 
@@ -8,7 +13,7 @@ namespace lvlup.DataFerry.Collections;
 /// <typeparam name="T">The type of elements in the list.</typeparam>
 /// <remarks>
 /// <para>
-/// This concurrent linked list is implemented using a lock-free algorithm based on the research paper 
+/// This concurrent linked list is implemented using a lock-free algorithm based on the research paper
 /// "Practical Non-blocking Unordered Lists" by Kunlong Zhang, Yujiao Zhao, Yajun Yang, Yujie Liu, and Michael Spear.
 /// </para>
 /// <para>
@@ -41,9 +46,9 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
     /// Initializes a new instance of the <see cref="ConcurrentLinkedList{T}"/> class.
     /// </summary>
     /// <param name="comparer">The comparer to use for comparing keys.</param>
-    public ConcurrentLinkedList(IComparer<T>? comparer = default)
+    public ConcurrentLinkedList(IComparer<T>? comparer = null)
     {
-        _head = new(default!, NodeState.REM);
+        _head = new Node<T>(default!, NodeState.REM);
         _comparer = comparer ?? Comparer<T>.Default;
     }
 
@@ -106,7 +111,7 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
             }
         }
 
-        return default;
+        return null;
     }
 
     /// <inheritdoc/>
@@ -116,8 +121,7 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
         ArgumentOutOfRangeException.ThrowIfNegative(index);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(array.Length, 0);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, array.Length);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(_count, array.Length - index, 
-            "The number of elements in the list is greater than the available space from index to the end of the destination array.");
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(_count, array.Length - index, "The number of elements in the list is greater than the available space from index to the end of the destination array.");
 
         int i = index;
         Node<T>? curr = _head;
@@ -154,8 +158,10 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
         {
             while (node is not null)
             {
-                if (node.Prev is not null) 
+                if (node.Prev is not null)
+                {
                     _ = Interlocked.Exchange(ref node.Prev!, null);
+                }
 
                 node = node.Next;
             }
@@ -194,20 +200,20 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
         while (curr is not null)
         {
             if (curr.State == NodeState.INV)
-            {   // State is Invalid
+            { // State is Invalid
                 ReplaceNode(pred, ref curr);
             }
             else if (_comparer.Compare(curr.Key, key) != 0)
-            {   // Keys don't match, move to the next node
+            { // Keys don't match, move to the next node
                 pred = curr;
                 curr = curr.Next;
             }
             else if (curr.State == NodeState.REM)
-            {   // Curr is being removed
+            { // Curr is being removed
                 return true;
             }
             else if (curr.State is NodeState.INS or NodeState.DAT)
-            {   // Curr is being inserted or has been inserted
+            { // Curr is being inserted or has been inserted
                 return false;
             }
         }
@@ -230,20 +236,20 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
         while (curr is not null)
         {
             if (curr.State == NodeState.INV)
-            {   // State is Invalid
+            { // State is Invalid
                 ReplaceNode(pred, ref curr);
             }
             else if (_comparer.Compare(curr.Key, key) != 0)
-            {   // Keys don't match, move to the next node
+            { // Keys don't match, move to the next node
                 pred = curr;
                 curr = curr.Next;
             }
             else if (curr.State == NodeState.REM)
-            {   // Curr was successfully marked for removal
+            { // Curr was successfully marked for removal
                 return true;
             }
             else if (TryUpdateState(curr))
-            {   // Validate the state and return
+            { // Validate the state and return
                 if (curr.State == NodeState.DAT)
                 {
                     curr.State = NodeState.INV;
@@ -280,8 +286,8 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
     /// </returns>
     private bool TryUpdateState(Node<T> curr)
     {
-        if (curr.State == NodeState.INS 
-            && Interlocked.CompareExchange(ref curr.State, NodeState.REM, NodeState.INS) == NodeState.INS)
+        if (curr.State == NodeState.INS &&
+            Interlocked.CompareExchange(ref curr.State, NodeState.REM, NodeState.INS) == NodeState.INS)
         {
             Interlocked.Decrement(ref _count);
             return true;
@@ -300,12 +306,12 @@ public class Node<T>
     /// <summary>
     /// The key stored in the node.
     /// </summary>
-    public T Key;
+    public T Key { get; }
 
     /// <summary>
     /// The ID of the thread that created the node.
     /// </summary>
-    public int ThreadId;
+    public int ThreadId { get; init; }
 
     /// <summary>
     /// The next node in the list.
@@ -331,8 +337,8 @@ public class Node<T>
     {
         Key = key;
         State = state;
-        Next = default!;
-        Prev = default!;
+        Next = null!;
+        Prev = null!;
         ThreadId = Environment.CurrentManagedThreadId;
     }
 }

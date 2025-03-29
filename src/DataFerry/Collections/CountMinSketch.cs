@@ -1,7 +1,12 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿// =======================================================================
+// <copyright file="CountMinSketch.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// =======================================================================
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
-using System.Runtime.Intrinsics.X86;
 using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace lvlup.DataFerry.Collections;
 
@@ -20,9 +25,7 @@ public class CountMinSketch<T> where T : notnull
 
     // Backing fields
     private long[] _table;
-    private int _sampleSize;
     private int _blockMask;
-    private int _size;
 
     // Hashing function
     private readonly Func<T, int> _hashFunction;
@@ -52,12 +55,12 @@ public class CountMinSketch<T> where T : notnull
     /// <summary>
     /// Gets the size of the sketch after the last reset.
     /// </summary>
-    public int ResetSampleSize => _sampleSize;
+    public int ResetSampleSize { get; private set; }
 
     /// <summary>
     /// Gets the current size of the sketch.
     /// </summary>
-    public int Size => _size;
+    public int Size { get; private set; }
 
     /// <summary>
     /// Estimates the frequency of the specified item in the sketch.
@@ -171,7 +174,7 @@ public class CountMinSketch<T> where T : notnull
             tablePtr[blockOffset.GetElement(3)] += inc.GetElement(3);
 
             // If the size has reached the sample size, reset the sketch
-            if (wasInc && ++_size == _sampleSize) Reset();
+            if (wasInc && ++Size == ResetSampleSize) Reset();
         }
     }
 
@@ -181,7 +184,7 @@ public class CountMinSketch<T> where T : notnull
     public void Clear()
     {
         _table = new long[_table.Length];
-        _size = 0;
+        Size = 0;
     }
 
     /// <summary>
@@ -199,10 +202,10 @@ public class CountMinSketch<T> where T : notnull
 
         // Calculate the block mask and sample size
         _blockMask = (_table.Length >>> 3) - 1;
-        _sampleSize = maximumSize == 0 ? 10 : 10 * maximum;
+        ResetSampleSize = maximumSize == 0 ? 10 : 10 * maximum;
 
         // Reset the size
-        _size = 0;
+        Size = 0;
     }
 
     /// <summary>
@@ -265,6 +268,6 @@ public class CountMinSketch<T> where T : notnull
         count0 = count0 + count1 + count2 + count3;
 
         // Update the size
-        _size = _size - (count0 >> 2) >> 1;
+        Size = (Size - (count0 >> 2)) >> 1;
     }
 }

@@ -76,6 +76,9 @@ public interface IConcurrentPriorityQueue<TPriority, TElement>
     /// <summary>
     /// Gets the number of nodes in the SkipList.
     /// </summary>
+    /// <remarks>
+    /// Returns a moment-in-time count. Provides a thread-safe, lock-free atomic read.
+    /// </remarks>
     int GetCount();
 
     /// <summary>
