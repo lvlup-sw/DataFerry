@@ -27,8 +27,7 @@ namespace lvlup.DataFerry.Tests.Benchmarks
             _frequencyQueue = new(
                 _taskOrchestrator,
                 Comparer<int>.Create((x, y) => x.CompareTo(y)),
-                maxSize: 1000,
-                allowDuplicatePriorities: false);
+                maxSize: 1000);
 
             // /*
             // Enqueue the values into the queue

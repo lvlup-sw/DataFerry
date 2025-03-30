@@ -105,7 +105,7 @@ public sealed class DataFerrySerializer : IDataFerrySerializer
             // Get a stream from the pool
             await using var stream = _streamManager.GetStream(StreamTag, serializedValue, 0, serializedValue.Length);
 
-            return await JsonSerializer.DeserializeAsync<T>(stream, options, token);
+            return await JsonSerializer.DeserializeAsync<T>(stream, options, token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -126,7 +126,7 @@ public sealed class DataFerrySerializer : IDataFerrySerializer
             // Get a memory stream from the pool
             await using var stream = _streamManager.GetStream(StreamTag);
 
-            await JsonSerializer.SerializeAsync(stream, value, options, token);
+            await JsonSerializer.SerializeAsync(stream, value, options, token).ConfigureAwait(false);
 
             // Try to get the buffer from the stream
             if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
@@ -163,8 +163,8 @@ public sealed class DataFerrySerializer : IDataFerrySerializer
             // Get a stream from the pool using the rented buffer
             await using var stream = _streamManager.GetStream(StreamTag);
 
-            await JsonSerializer.SerializeAsync(stream, value, options, token);
-            
+            await JsonSerializer.SerializeAsync(stream, value, options, token).ConfigureAwait(false);
+
             // Try to get the buffer from the stream
             if (stream.TryGetBuffer(out ArraySegment<byte> bufferSegment))
             {

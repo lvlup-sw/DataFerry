@@ -167,10 +167,12 @@ public sealed class TaskOrchestrator : ITaskOrchestrator, IDisposable
         _workChannel.Writer.Complete();
         try
         {
+            /*
             if (!CompleteAll.Wait(TimeSpan.FromSeconds(20)))
             {
                 _logger.LogError("Timeout triggered while waiting for worker tasks to complete during TaskOrchestrator shutdown.");
             };
+            */
         }
         catch (AggregateException ex)
         {

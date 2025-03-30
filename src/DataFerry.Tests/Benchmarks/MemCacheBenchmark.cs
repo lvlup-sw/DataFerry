@@ -36,7 +36,7 @@ namespace lvlup.DataFerry.Tests.Benchmarks
             _users = GenerateUsers(CacheSize);
             _memoryCache = new MemoryCache(new MemoryCacheOptions() { SizeLimit = CacheSize });
             _bitfaster = new(CacheSize);
-            _dataferry = new(_taskOrchestrator, CacheSize);
+            //_dataferry = new(_taskOrchestrator, CacheSize);
             _dict = new();
         }
 

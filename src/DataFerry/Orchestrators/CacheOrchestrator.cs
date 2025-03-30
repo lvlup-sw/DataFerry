@@ -227,7 +227,7 @@ public class CacheOrchestrator : ICacheOrchestrator
                 .ConfigureAwait(false);
 
             return redisValue.HasValue ? redisValue : default;
-        }, new Context($"SparseDistributedCache.GetFromCache for {key}"), token);
+        }, new Context($"SparseDistributedCache.GetFromCache for {key}"), token).ConfigureAwait(false);
 
         if (result is RedisValue { HasValue: true } value)
         {
@@ -255,7 +255,7 @@ public class CacheOrchestrator : ICacheOrchestrator
             _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, ttl);
             return await database.StringSetAsync(key, serializedValue, ttl)
                 .ConfigureAwait(false);
-        }, new Context($"SparseDistributedCache.SetInCache for {key}"), token);
+        }, new Context($"SparseDistributedCache.SetInCache for {key}"), token).ConfigureAwait(false);
 
         return result as bool?
             ?? default;
@@ -278,7 +278,7 @@ public class CacheOrchestrator : ICacheOrchestrator
             _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, ttl);
             return await database.KeyExpireAsync(key, ttl, ExpireWhen.Always)
                 .ConfigureAwait(false);
-        }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token);
+        }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token).ConfigureAwait(false);
 
         return result as bool?
             ?? default;
@@ -301,7 +301,7 @@ public class CacheOrchestrator : ICacheOrchestrator
             _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
             return await database.KeyDeleteAsync(key)
                 .ConfigureAwait(false);
-        }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"), token);
+        }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"), token).ConfigureAwait(false);
 
         return result as bool?
             ?? default;
@@ -512,7 +512,7 @@ public class CacheOrchestrator : ICacheOrchestrator
             return await operation
                 .ConfigureAwait(false);
         },
-        new Context($"SparseDistributedCache.GetBatchAsync for {key}"), token);
+        new Context($"SparseDistributedCache.GetBatchAsync for {key}"), token).ConfigureAwait(false);
 
         if (result is RedisValue { HasValue: true } value)
         {
@@ -543,7 +543,7 @@ public class CacheOrchestrator : ICacheOrchestrator
             _logger.LogDebug("Attempting to add entry with key {key} and ttl {ttl} to cache.", key, expiration);
             return await operation
                 .ConfigureAwait(false);
-        }, new Context($"SparseDistributedCache.SetInCache for {key}"), token);
+        }, new Context($"SparseDistributedCache.SetInCache for {key}"), token).ConfigureAwait(false);
 
         return result as bool?
             ?? default;
@@ -564,7 +564,7 @@ public class CacheOrchestrator : ICacheOrchestrator
             _logger.LogDebug("Attempting to refresh entry with key {key} and ttl {ttl} from cache.", key, expiration);
             return await operation
                 .ConfigureAwait(false);
-        }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token);
+        }, new Context($"SparseDistributedCache.RefreshInCache for {key}"), token).ConfigureAwait(false);
 
         return result as bool?
             ?? default;
@@ -584,7 +584,7 @@ public class CacheOrchestrator : ICacheOrchestrator
             _logger.LogDebug("Attempting to remove entry with key {key} from cache.", key);
             return await operation
                 .ConfigureAwait(false);
-        }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"), token);
+        }, new Context($"SparseDistributedCache.RemoveFromCache for {key}"), token).ConfigureAwait(false);
 
         return result as bool?
             ?? default;

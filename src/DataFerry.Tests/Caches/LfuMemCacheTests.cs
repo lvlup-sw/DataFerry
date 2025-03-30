@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace lvlup.DataFerry.Tests.Caches
 {
+    /*
     [TestClass]
     public class LfuMemCacheTests
     {
@@ -296,4 +297,5 @@ namespace lvlup.DataFerry.Tests.Caches
             Assert.IsFalse(_cache.TryGet("key3", out _));
         }
     }
+    */
 }

@@ -85,8 +85,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         _evictionWindow = new(
             _taskOrchestrator,
             Comparer<int>.Create((x, y) => x.CompareTo(y)), 
-            maxSize: _maxWindowSize,
-            allowDuplicatePriorities: false);
+            maxSize: _maxWindowSize);
 
         // Timer to trigger TTL-based eviction
         // Consider replacing with a hierarchical TimerWheel
@@ -240,7 +239,6 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
         @clearSemaphore.Wait();
         try
         {
-            _evictionWindow.Clear();
             _probation.Clear();
             _protected.Clear();
             _cms.Clear();
