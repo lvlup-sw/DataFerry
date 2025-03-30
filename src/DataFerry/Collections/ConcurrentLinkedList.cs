@@ -3,6 +3,7 @@
 // Copyright (c) Level Up Software. All rights reserved.
 // </copyright>
 // ===========================================================================
+
 using lvlup.DataFerry.Collections.Contracts;
 
 namespace lvlup.DataFerry.Collections;

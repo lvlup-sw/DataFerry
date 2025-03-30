@@ -1,95 +1,120 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿// ===========================================================================
+// <copyright file="IConcurrentPriorityQueue.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// ===========================================================================
+
+using System.Diagnostics.CodeAnalysis;
 
 namespace lvlup.DataFerry.Collections.Contracts;
 
 /// <summary>
-/// A contract for interacting with a concurrent PriorityQueue implemented as a SkipList.
+/// Defines a thread-safe priority queue based on a SkipList structure
+/// allowing concurrent additions, deletions, and updates.
 /// </summary>
+/// <typeparam name="TPriority">The type used for priority values.</typeparam>
+/// <typeparam name="TElement">The type of the elements stored in the queue.</typeparam>
+/// <remarks>
+/// Implementations typically use fine-grained locking and techniques like logical deletion
+/// for efficient concurrent operations with expected logarithmic time complexity for major operations.
+/// Duplicate priorities are generally supported via internal mechanisms (like sequence numbers).
+/// </remarks>
 public interface IConcurrentPriorityQueue<TPriority, TElement>
 {
     /// <summary>
-    /// Attempts to add the specified priority and element to the ConcurrentPriorityQueue.
+    /// Attempts to add the specified priority and element pair to the queue.
     /// </summary>
     /// <param name="priority">The priority of the element to add.</param>
-    /// <param name="element">The element of the element to add.</param>
-    /// <remarks>If allowDuplicatePriorities is true, nodes with the same <see cref="TPriority"/> but unique <see cref="TElement"/> will be added.</remarks>
-    /// <returns>true if the priority/element pair was added to the ConcurrentPriorityQueue successfully; otherwise, false.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+    /// <param name="element">The element to add.</param>
+    /// <remarks>
+    /// Duplicate priorities are allowed. The internal ordering for equal priorities
+    /// typically depends on insertion order (sequence number).
+    /// If the queue has a maximum size and is full, adding a new item may trigger
+    /// the removal of a low-priority item.
+    /// </remarks>
+    /// <returns><c>true</c> if the priority/element pair was added successfully; otherwise, <c>false</c> (which is uncommon for typical SkipList implementations unless specific preconditions fail).</returns>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="element"/> is null (if nulls are disallowed by the implementation).</exception>
+    /// <exception cref="ArgumentException">May be thrown if <paramref name="priority"/> is deemed invalid by the comparer.</exception>
     bool TryAdd(TPriority priority, TElement element);
 
     /// <summary>
-    /// Attempts to remove the element with the minimum priority from the ConcurrentPriorityQueue and return its element.
+    /// Attempts to remove the element with the minimum priority (and lowest sequence number in case of ties)
+    /// from the queue and returns its element.
     /// </summary>
-    /// <param name="item">When this method returns, contains the element of the removed element, 
-    /// if the ConcurrentPriorityQueue is not empty; otherwise, the default element for the type of the <paramref name="item"/> parameter. 
+    /// <param name="element">When this method returns, contains the element value of the removed item
+    /// if the operation was successful; otherwise, the default value for <typeparamref name="TElement"/>.
     /// This parameter is passed uninitialized.</param>
-    /// <returns>true if an element was removed successfully; otherwise, false.</returns>
-    bool TryDeleteMin(out TElement item);
+    /// <returns><c>true</c> if an element was successfully removed; otherwise, <c>false</c> (e.g., if the queue was empty).</returns>
+    bool TryDeleteMin([MaybeNullWhen(false)] out TElement element);
 
     /// <summary>
-    /// Attempts to probabilistically remove the element with the minimum priority from the ConcurrentPriorityQueue and return its element.
+    /// Attempts to probabilistically remove an element with a priority near the minimum from the queue
+    /// and returns its element, aiming to reduce contention on the absolute minimum node.
     /// </summary>
     /// <remarks>
-    /// This method utilizes the SprayList algorithm to emulate a uniform choice among the O(p*log^3(p)) highest priority items.
-    /// This is typically useful in high-volume scenarios where throughput is limited by contention on the minimal node.
+    /// This method utilizes the SprayList algorithm, performing a random walk to select a candidate node
+    /// typically from among the items with the lowest priorities. This is useful in high-contention scenarios
+    /// where standard <see cref="TryDeleteMin"/> becomes a bottleneck. The exact range of items considered
+    /// depends on internal tuning parameters (like OffsetM).
     /// </remarks>
-    /// <param name="item">When this method returns, contains the element of the removed element, 
-    /// if the ConcurrentPriorityQueue is not empty; otherwise, the default element for the type of the <paramref name="item"/> parameter. 
+    /// <param name="element">When this method returns, contains the element value of the removed item
+    /// if the operation was successful; otherwise, the default value for <typeparamref name="TElement"/>.
     /// This parameter is passed uninitialized.</param>
-    /// <param name="retryProbability">The probability a Spray is retried if the initial operation fails.</param>
-    /// <returns>true if an element was removed successfully; otherwise, false. <paramref name="item"/> may be null if false.</returns>
-    bool TryDeleteMinProbabilistically([MaybeNull] out TElement item, double retryProbability);
+    /// <param name="retryProbability">Optional. The probability (0.0 to 1.0) that the spray operation is retried recursively if the first attempt fails due to transient conditions (e.g., concurrent modification). Defaults to 1.0 (always retry first failure).</param>
+    /// <returns><c>true</c> if an element was successfully removed; otherwise, <c>false</c>.</returns>
+    bool TryDeleteMinProbabilistically([MaybeNullWhen(false)] out TElement element, double retryProbability = 1.0);
 
     /// <summary>
-    /// Attempts to remove the specified priority from the ConcurrentPriorityQueue.
+    /// Attempts to remove the first valid node found with the specified priority from the queue.
     /// </summary>
     /// <param name="priority">The priority to remove.</param>
-    /// <returns>true if the priority was removed successfully; otherwise, false.</returns>
+    /// <returns><c>true</c> if a node with the specified priority was found and successfully removed; otherwise, <c>false</c>.</returns>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
     bool TryDelete(TPriority priority);
 
     /// <summary>
-    /// Updates the element associated with the specified priority.
+    /// Attempts to update the element of the first valid node found with the specified priority.
     /// </summary>
-    /// <param name="priority">The priority of the element to update.</param>
-    /// <param name="element">The new element.</param>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
+    /// <param name="priority">The priority of the element to find and update.</param>
+    /// <param name="element">The new element value.</param>
+    /// <returns><c>true</c> if a node with the specified priority was found and successfully updated; <c>false</c> if the node was not found or was deleted concurrently before the update could complete.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="element"/> is null (if nulls are disallowed).</exception>
     bool Update(TPriority priority, TElement element);
 
     /// <summary>
-    /// Updates the element associated with the specified priority using the provided update function.
+    /// Attempts to update the element of the first valid node found with the specified priority using the provided update function.
     /// </summary>
-    /// <param name="priority">The priority of the element to update.</param>
-    /// <param name="updateFunction">The function used to generate the new element.</param>
+    /// <param name="priority">The priority of the element to find and update.</param>
+    /// <param name="updateFunction">A function that takes the priority and current element, and returns the new element value.</param>
+    /// <returns><c>true</c> if a node with the specified priority was found and successfully updated; <c>false</c> if the node was not found or was deleted concurrently before the update could complete.</returns>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="updateFunction"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
     bool Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction);
 
     /// <summary>
-    /// Determines whether the ConcurrentPriorityQueue contains the specified priority.
+    /// Determines whether the queue contains a valid (inserted and not deleted) node with the specified priority.
     /// </summary>
-    /// <param name="priority">The frequency to locate.</param>
-    /// <returns>true if the ConcurrentPriorityQueue contains the specified priority; otherwise, false.</returns>
+    /// <param name="priority">The priority to locate.</param>
+    /// <returns><c>true</c> if the queue contains a valid node with the specified priority; otherwise, <c>false</c>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
     bool ContainsPriority(TPriority priority);
 
     /// <summary>
-    /// Gets the number of nodes in the SkipList.
+    /// Gets the approximate number of elements contained in the queue.
     /// </summary>
+    /// <returns>An integer representing the number of elements at a moment in time.</returns>
     /// <remarks>
-    /// Returns a moment-in-time count. Provides a thread-safe, lock-free atomic read.
+    /// Returns a moment-in-time count using a thread-safe, lock-free atomic read.
     /// </remarks>
     int GetCount();
 
     /// <summary>
-    /// Removes all nodes from the SkipList.
+    /// Returns an enumerator that iterates through the priorities in the queue (typically in ascending priority order).
     /// </summary>
-    void Clear();
-
-    /// <summary>
-    /// Provides a lock-free enumeration of the prioritys in the ConcurrentPriorityQueue. 
-    /// Note that this enumeration provides READ COMMITTED semantics.
-    /// </summary>
-    /// <returns>An enumerator that represents the prioritys in the ConcurrentPriorityQueue.</returns>
+    /// <returns>An enumerator for the priorities in the queue.</returns>
+    /// <remarks>
+    /// The enumeration typically provides lock-free, "Read Committed" or snapshot semantics, reflecting the state
+    /// of the queue at a point in time or observing only committed insertions/deletions.
+    /// The exact consistency model depends on the implementation.
+    /// </remarks>
     IEnumerator<TPriority> GetEnumerator();
 }

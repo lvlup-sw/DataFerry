@@ -5,7 +5,6 @@
 // ===========================================================================
 
 using System.Diagnostics.CodeAnalysis;
-
 using lvlup.DataFerry.Collections.Contracts;
 using lvlup.DataFerry.Orchestrators.Contracts;
 
@@ -14,41 +13,52 @@ namespace lvlup.DataFerry.Collections;
 /// <summary>
 /// A concurrent PriorityQueue implemented as a lock-based SkipList with relaxed semantics.
 /// </summary>
-/// <typeparam name="TPriority">The priority.</typeparam>
-/// <typeparam name="TElement">The element.</typeparam>
+/// <typeparam name="TPriority">The type used for priority values.</typeparam>
+/// <typeparam name="TElement">The type of the elements stored in the queue.</typeparam>
 /// <remarks>
 /// <para>
-/// A SkipList is a probabilistic data structure that provides efficient search, insertion, and deletion operations with an expected logarithmic time complexity.
-/// Unlike balanced search trees (e.g., AVL trees, Red-Black trees), SkipLists achieve efficiency through probabilistic balancing, making them well-suited for concurrent implementations.
+/// A SkipList is a probabilistic data structure providing efficient search, insertion, and deletion
+/// operations with an expected logarithmic time complexity. Its probabilistic balancing is well-suited
+/// for concurrent scenarios. This implementation uses locks on individual nodes during mutation
+/// operations and supports sequence numbers internally to handle duplicate priorities correctly.
 /// </para>
 /// <para>
 /// This implementation offers:
 /// </para>
 /// <list type="bullet">
-/// <item>Expected O(log n) time complexity for 'Contains', 'TryGet', 'TryAdd', 'Update', 'TryRemove', and 'TryDeleteMin' operations.</item>
-/// <item>Lock-free and wait-free 'Contains' and 'TryGet' operations.</item>
-/// <item>Lock-free priority enumerations.</item>
+/// <item>Expected O(log n) time complexity for <c>TryAdd</c>, <c>Update</c>, <c>TryDelete</c>, <c>TryDeleteMin</c>, and <c>TryDeleteMinProbabilistically</c> operations.</item>
+/// <item>Lock-free reads for <c>ContainsPriority</c> and <c>GetCount</c>.</item>
+/// <item>Lock-free priority enumeration via <c>GetEnumerator</c>.</item>
+/// <item>Support for custom priority comparison via injected <see cref="IComparer{TPriority}"/>.</item>
+/// <item>Support for bounding the queue size or allowing effectively unbounded queue size.</item>
 /// </list>
 /// <para>
 /// <b>Implementation Details:</b>
 /// </para>
 /// <para>
-/// This implementation employs logical deletion and insertion to optimize performance and ensure thread safety.
-/// Nodes are marked as deleted logically before being physically removed, and they are inserted level by level to maintain consistency.
-/// A background task on a dedicated thread processes the physical deletion of nodes.
-/// This implementation is based on the Lotan-Shavit algorithm, with an optional method utilizing the SprayList algorithm for probabilistic deletion of the minimal queue element.
+/// This implementation employs logical deletion (<c>IsDeleted</c> flag) and insertion (<c>IsInserted</c> flag)
+/// to optimize performance and ensure thread safety. Nodes are marked as deleted logically before being physically removed, and
+/// they are inserted level by level to maintain structural consistency. Physical node removal is scheduled to run asynchronously via the
+/// provided <see cref="ITaskOrchestrator"/>. Internal sequence numbers ensure unique node identity even
+/// with duplicate priorities. This implementation is based on the Lotan-Shavit algorithm,
+/// with an alternative <see cref="TryDeleteMinProbabilistically"/> method utilizing the SprayList
+/// algorithm (with tunable parameters <c>OffsetK</c> and <c>OffsetM</c>) for potentially
+/// lower-contention removal of near-minimum elements, which is especially useful when the queue is at capacity or being utilized in high-throughput scenarios.
 /// </para>
 /// <para>
 /// <b>Invariants:</b>
 /// </para>
 /// <para>
-/// The list at a lower level is always a subset of the list at a higher level. This invariant ensures that nodes are added from the bottom up and removed from the top down.
+/// The list at any level <c>L</c> is a subset of the list at level <c>L-1</c>. This invariant ensures
+/// structural consistency, facilitated by adding nodes bottom-up and removing them (physically) top-down.
 /// </para>
 /// <para>
 /// <b>Locking:</b>
 /// </para>
 /// <para>
-/// Locks are acquired in a bottom-up manner to prevent deadlocks. The order of lock release is not critical.
+/// Fine-grained locking is used on individual nodes during mutation operations (add, delete, update).
+/// Locks are generally acquired bottom-up during validation phases (e.g., <c>ValidateInsertion</c>)
+/// to help prevent deadlocks. Typically, the order of lock release is not critical.
 /// </para>
 /// </remarks>
 public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
@@ -58,17 +68,28 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <summary>
     /// Default size limit.
     /// </summary>
-    internal const int DefaultMaxSize = 10000;
-
-    /// <summary>
-    /// Default number of levels.
-    /// </summary>
-    internal const int DefaultNumberOfLevels = 32;
+    public const int DefaultMaxSize = 10000;
 
     /// <summary>
     /// Default promotion chance for each level. [0, 1).
     /// </summary>
-    internal const double DefaultPromotionProbability = 0.5;
+    public const double DefaultPromotionProbability = 0.5;
+
+    /// <summary>
+    /// The default tuning constant (K) added to the height used in the calculation during the Spray operation within <see cref="TryDeleteMinProbabilistically"/>.
+    /// </summary>
+    /// <remarks>
+    /// Increasing this value starts the spray slightly higher, potentially giving it more room to spread. This does not typically need to be adjusted.
+    /// </remarks>
+    public const int DefaultSprayOffsetK = 1;
+
+    /// <summary>
+    /// The default tuning constant (M) multiplied by the jump length used in the calculation during the Spray operation within <see cref="TryDeleteMinProbabilistically"/>.
+    /// </summary>
+    /// <remarks>
+    /// This value directly scales the maximum jump length. This should be adjusted in the case where reducing contention is more desirable than deleting a node with a strictly higher priority.
+    /// </remarks>
+    public const int DefaultSprayOffsetM = 1;
 
     /// <summary>
     /// Invalid level.
@@ -79,16 +100,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// Bottom level.
     /// </summary>
     private const int BottomLevel = 0;
-
-    /// <summary>
-    /// Constant used during Spray operation in TryDeleteMin.
-    /// </summary>
-    private const int OffsetK = 1;
-
-    /// <summary>
-    /// Constant used during Spray operation in TryDeleteMin.
-    /// </summary>
-    private const int OffsetM = 1;
 
     /// <summary>
     /// The maximum number of elements allowed in the queue.
@@ -106,6 +117,16 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     private readonly int _topLevel;
 
     /// <summary>
+    /// The configured tuning constant (K) for the current <see cref="ConcurrentPriorityQueue{TPriority,TElement}"/> instance.
+    /// </summary>
+    private readonly int _offsetK;
+
+    /// <summary>
+    /// The configured tuning constant (M) for the current <see cref="ConcurrentPriorityQueue{TPriority,TElement}"/> instance.
+    /// </summary>
+    private readonly int _offsetM;
+
+    /// <summary>
     /// The promotion chance for each level. [0, 1).
     /// </summary>
     private readonly double _promotionProbability;
@@ -114,11 +135,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// The number of nodes in the SkipList.
     /// </summary>
     private int _count;
-
-    /// <summary>
-    /// If true, permits the insertion of duplicate priorities.
-    /// </summary>
-    private readonly bool _allowDuplicatePriorities;
 
     /// <summary>
     /// Head of the skip list.
@@ -136,11 +152,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     private readonly IComparer<TPriority> _comparer;
 
     /// <summary>
-    /// Element comparer used to order the elements.
-    /// </summary>
-    private readonly IComparer<TElement> _elementComparer;
-
-    /// <summary>
     /// Background task processor which handles node removal.
     /// </summary>
     private readonly ITaskOrchestrator _taskOrchestrator;
@@ -151,91 +162,91 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     private readonly Random _randomGenerator = new();
 
     #endregion
-
     #region Constructors
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConcurrentPriorityQueue{TPriority, TElement}"/> class.
     /// </summary>
-    /// <param name="taskOrchestrator">The scheduler used to orchestrate background tasks.</param>
-    /// <param name="comparer">The comparer used to compare priorities.</param>
-    /// <param name="elementComparer">The comparer used to compare elements.</param>
-    /// <param name="maxSize">The maximum number of elements allowed in the queue.</param>
-    /// <param name="numberOfLevels">The maximum number of levels in the SkipList.</param>
-    /// <param name="promotionProbability">The probability of promoting a node to a higher level.</param>
-    /// <param name="allowDuplicatePriorities">Determines if duplicate priority keys are allowed.</param>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="comparer"/> is null.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="numberOfLevels"/> is less than or equal to 0.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than 0 or greater than 1.</exception>
+    /// <param name="taskOrchestrator">The scheduler used to orchestrate background tasks processing the physical deletion of nodes.</param>
+    /// <param name="comparer">The comparer used to compare priorities. This will be used for all priority comparisons within the queue.</param>
+    /// <param name="maxSize">Optional. The maximum number of elements allowed in the queue. Defaults to <see cref="DefaultMaxSize"/>. Pass <c>int.MaxValue</c> to functionally avoid a size bound.</param>
+    /// <param name="offsetK">Optional. The tuning constant K (affecting spray height) for the SprayList probabilistic delete-min operation (<see cref="TryDeleteMinProbabilistically"/>). Defaults to <see cref="DefaultSprayOffsetK"/>.</param>
+    /// <param name="offsetM">Optional. The tuning constant M (scaling spray jump length) for the SprayList probabilistic delete-min operation (<see cref="TryDeleteMinProbabilistically"/>). Defaults to <see cref="DefaultSprayOffsetM"/>.</param>
+    /// <param name="promotionProbability">Optional. The probability (0 to 1, exclusive) of promoting a new node to the next higher level during insertion. Defaults to <see cref="DefaultPromotionProbability"/>.</param>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="taskOrchestrator"/> or <paramref name="comparer"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="maxSize"/> is less than 1.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="offsetK"/> is less than or equal to 0.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="offsetM"/> is less than or equal to 0.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="promotionProbability"/> is less than or equal to 0 or greater than or equal to 1.</exception>
+    /// <remarks>
+    /// This constructor sets up the essential components of the concurrent priority queue,
+    /// including the head/tail sentinel nodes, level calculation (if not provided), and tuning parameters.
+    /// The actual number of levels and other parameters might be further adjusted based on internal logic (e.g., capping levels).
+    /// </remarks>
     public ConcurrentPriorityQueue(
         ITaskOrchestrator taskOrchestrator,
         IComparer<TPriority> comparer,
-        IComparer<TElement>? elementComparer = null,
-        int maxSize = 10000,
-        int? numberOfLevels = null,
-        double promotionProbability = 0.5,
-        bool allowDuplicatePriorities = true)
+        int maxSize = DefaultMaxSize,
+        int offsetK = DefaultSprayOffsetK,
+        int offsetM = DefaultSprayOffsetM,
+        double promotionProbability = DefaultPromotionProbability)
     {
+        ArgumentNullException.ThrowIfNull(taskOrchestrator, nameof(taskOrchestrator));
         ArgumentNullException.ThrowIfNull(comparer, nameof(comparer));
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSize, nameof(maxSize));
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(numberOfLevels ?? 1, 0, nameof(numberOfLevels));
-        ArgumentOutOfRangeException.ThrowIfLessThan(promotionProbability, 0, nameof(promotionProbability));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(promotionProbability, 1, nameof(promotionProbability));
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxSize, 1, nameof(maxSize));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(offsetK, nameof(offsetK));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(offsetM, nameof(offsetM));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(promotionProbability, nameof(promotionProbability));
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(promotionProbability, 1, nameof(promotionProbability));
 
         _taskOrchestrator = taskOrchestrator;
         _comparer = comparer;
-        _elementComparer = elementComparer ?? Comparer<TElement>.Default;
-        _numberOfLevels = numberOfLevels ?? (int)Math.Ceiling(Math.Log(maxSize / 10, 1 / 0.5));
-        _promotionProbability = promotionProbability;
-        _allowDuplicatePriorities = allowDuplicatePriorities;
         _maxSize = maxSize;
+        _offsetK = offsetK;
+        _offsetM = offsetM;
+        _promotionProbability = promotionProbability;
+        _numberOfLevels = CalculateOptimalLevels(_maxSize, _promotionProbability);
         _topLevel = _numberOfLevels - 1;
+        _count = 0;
 
         _head = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
         _tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
 
         // Link head to tail at all levels
-        for (int level = 0; level <= _topLevel; level++)
+        for (int level = BottomLevel; level <= _topLevel; level++)
         {
             _head.SetNextNode(level, _tail);
-            Interlocked.Increment(ref _count);
         }
 
         _head.IsInserted = true;
         _tail.IsInserted = true;
-    }
+        return;
 
-    #endregion
-    #region Background Tasks
-
-    /// <summary>
-    /// Schedule the node to be physically deleted.
-    /// </summary>
-    /// <remarks>Node must already be logically deleted.</remarks>
-    internal void ScheduleNodeRemoval(SkipListNode node, int? topLevel = null)
-    {
-        if (!node.IsDeleted) return;
-
-        _taskOrchestrator.Run(() =>
+        // Calculate optimal number of levels for the SkipList
+        static int CalculateOptimalLevels(int currentMaxSize, double currentPromotionProbability)
         {
-            // To preserve the invariant that lower levels are super-sets
-            // of higher levels, always unlink top to bottom.
-            int startingLevel = topLevel ?? node.TopLevel;
+            // Define the absolute maximum cap
+            const int maxLevelCap = 32;
 
-            for (int level = startingLevel; level >= 0; level--)
+            // Handle "unlimited" size case explicitly
+            if (currentMaxSize == int.MaxValue)
             {
-                SkipListNode predecessor = _head;
-
-                while (predecessor.GetNextNode(level) != node)
-                {
-                    predecessor = predecessor.GetNextNode(level);
-                }
-
-                predecessor.SetNextNode(level, node.GetNextNode(level));
+                return maxLevelCap;
             }
 
-            return Task.CompletedTask;
-        });
+            // Handle edge case for logarithm calculation (N must be >= 2)
+            int n = Math.Max(2, currentMaxSize);
+
+            // Calculate the logarithm base (1/p)
+            double logBase = 1.0 / currentPromotionProbability;
+
+            // Calculate theoretical levels needed
+            double theoreticalLevels = Math.Log(n, logBase);
+
+            // Round up and apply the absolute cap
+            int calculatedLevels = (int)Math.Ceiling(theoreticalLevels);
+            return Math.Min(calculatedLevels, maxLevelCap);
+        }
     }
 
     #endregion
@@ -247,27 +258,37 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
         ArgumentNullException.ThrowIfNull(element, nameof(element));
 
+        // Generate a new level and node
         int insertLevel = GenerateLevel();
-        var newNode = new SkipListNode(priority, element, insertLevel);
+        var newNode = new SkipListNode(priority, element, insertLevel, _comparer);
 
         while (true)
         {
+            // Identify the links the new level and node will have
             var searchResult = StructuralSearch(newNode);
             int highestLevelLocked = InvalidLevel;
 
             try
             {
+                // Ensure we can proceed with physical insertion
                 if (!ValidateInsertion(searchResult, insertLevel, ref highestLevelLocked))
                 {
                     continue;
                 }
 
+                // Physically insert the new node
                 InsertNode(newNode, searchResult, insertLevel);
 
-                // Linearization point: MemoryBarrier not required since IsInserted
-                // is a volatile member (hence implicitly uses MemoryBarrier)
+                // Linearization point: MemoryBarrier not required since IsInserted is a volatile member
                 newNode.IsInserted = true;
-                if (Interlocked.Increment(ref _count) > _maxSize) TryDeleteMin(out _);
+
+                // If we exceed the size bound, delete the minimal node
+                if (Interlocked.Increment(ref _count) > _maxSize && _maxSize is not int.MaxValue)
+                {
+                    // We use our SprayList algorithm to avoid contention
+                    TryDeleteMinProbabilistically(out _);
+                }
+
                 return true;
             }
             finally
@@ -286,48 +307,39 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     {
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-        SkipListNode? curr = null;
-        bool isLogicallyDeleted = false;
+        // Locate the node to delete
+        var nodeToDelete = InlineSearch(priority);
 
-        // Level at which the to be deleted node was found.
-        int topLevel = InvalidLevel;
+        // Check if a candidate was found
+        if (nodeToDelete is null) return false;
 
         while (true)
         {
-            var searchResult = StructuralSearch(priority);
-            curr ??= searchResult.GetNodeFound();
+            var searchResult = StructuralSearch(nodeToDelete);
 
-            switch (isLogicallyDeleted)
-            {
-                // Logically delete the node if not already done
-                case false when NodeIsInvalidOrDeleted(curr, searchResult):
-                // Node not fully linked or already deleted
-                case false when !LogicallyDeleteNode(curr, searchResult, ref topLevel):
-                    return false;
-            }
+            // Ensure validity before deletion
+            if (NodeIsInvalidOrDeleted(nodeToDelete)) return false;
 
-            isLogicallyDeleted = true;
-            int highestLevelLocked = InvalidLevel;
+            // Attempt logical delete
+            if (!LogicallyDeleteNode(nodeToDelete)) return false;
 
+            // Validate that the logical deletion succeeded
+            // and that the state of predecessors is correct
+            bool isValid = TryValidateAfterLogicalDelete(nodeToDelete, searchResult);
+
+            // If this is not the case, retry
+            if (!isValid) continue;
+
+            // Success path; schedule node removal
             try
             {
-                if (!ValidateDeletion(curr, searchResult, topLevel, ref highestLevelLocked))
-                {
-                    continue;
-                }
-
-                ScheduleNodeRemoval(curr, topLevel);
-
-                curr.Unlock();
+                SchedulePhysicalNodeRemoval(nodeToDelete, nodeToDelete.TopLevel);
                 Interlocked.Decrement(ref _count);
                 return true;
             }
             finally
             {
-                for (int level = highestLevelLocked; level >= 0; level--)
-                {
-                    searchResult.GetPredecessor(level).Unlock();
-                }
+                nodeToDelete.Unlock();
             }
         }
     }
@@ -353,7 +365,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                 try
                 {
                     // Schedule removal and return
-                    ScheduleNodeRemoval(curr);
+                    SchedulePhysicalNodeRemoval(curr);
                     element = curr.Element;
 
                     Interlocked.Decrement(ref _count);
@@ -378,31 +390,20 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         int currCount = GetCount();
         if (currCount <= 1) return TryDeleteMin(out element);
 
-        // Init our constants
-        int height = Math.Min(_topLevel, Math.Max(0, (int)Math.Log(currCount) + OffsetK));
-        int jumpLengthMax = OffsetM * (int)Math.Pow(Math.Max(1.0, Math.Log(currCount)), 3);
-        int descentLength = Math.Max(1, (int)Math.Log(Math.Max(1.0, Math.Log(currCount))));
+        element = default!;
 
-        // Ensure height is divisible by the descent
-        if (height >= descentLength &&
-            height % descentLength != 0)
-        {
-            height = descentLength * (height / descentLength);
-        }
-        else if (height < descentLength)
-        { // Avoid making height 0 or negative if descentLength is larger
-            height = Math.Max(0, height);
-        }
+        // Init our parameters
+        var sprayParams = SprayParameters.CalculateParameters(currCount, _topLevel, _offsetK, _offsetM);
 
         // Prepare spray operation
-        int currHeight = height;
+        int currHeight = sprayParams.StartHeight;
         var curr = _head;
 
         // Spray operation
         while (currHeight >= 0)
         {
-            int currJumpLength = (jumpLengthMax > 0)
-                ? _randomGenerator.Next(0, jumpLengthMax + 1)
+            int currJumpLength = (sprayParams.MaxJumpLength > 0)
+                ? _randomGenerator.Next(0, sprayParams.MaxJumpLength + 1)
                 : 0;
 
             // Move forward horizontally
@@ -417,34 +418,30 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             }
 
             // Descend D levels
-            if (currHeight < descentLength) break;
-            currHeight -= descentLength;
+            if (currHeight < sprayParams.DescentLength) break;
+            currHeight -= sprayParams.DescentLength;
         }
 
         // Spray complete; attempt to logically delete candidate
-        if (LogicallyDeleteNode(curr))
+        if (!LogicallyDeleteNode(curr))
         {
-            try
-            {
-                ScheduleNodeRemoval(curr);
-                element = curr.Element;
-                Interlocked.Decrement(ref _count);
-                return true;
-            }
-            finally
-            {
-                curr.Unlock();
-            }
+            // Failure path; retry probabilistically
+            return _randomGenerator.NextDouble() < retryProbability &&
+                TryDeleteMinProbabilistically(out element, retryProbability * 0.5);
         }
 
-        // Retry probabilistically on failure
-        if (_randomGenerator.NextDouble() < retryProbability)
+        try
         {
-            return TryDeleteMinProbabilistically(out element, retryProbability * 0.5);
+            // Success path
+            SchedulePhysicalNodeRemoval(curr);
+            element = curr.Element;
+            Interlocked.Decrement(ref _count);
+            return true;
         }
-
-        element = default!;
-        return false;
+        finally
+        {
+            curr.Unlock();
+        }
     }
 
     /// <inheritdoc/>
@@ -530,12 +527,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     public int GetCount() => Interlocked.CompareExchange(ref _count, 0, 0);
 
     /// <inheritdoc/>
-    public void Clear()
-    {
-        throw new NotImplementedException();
-    }
-
-    /// <inheritdoc/>
     public IEnumerator<TPriority> GetEnumerator()
     {
         SkipListNode curr = _head;
@@ -555,108 +546,44 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     #endregion
-    #region Helper Methods
+    #region Shared Helper Methods
 
     /// <summary>
-    /// Generates a random level for a new node based on the promotion probability.
-    /// The probability of picking a given level is P(L) = p ^ -(L + 1) where p = PromotionChance.
+    /// Checks if a SkipList node is invalid for standard operations (e.g., update, delete).
     /// </summary>
-    /// <returns>The generated level.</returns>
-    internal int GenerateLevel()
-    {
-        int level = 0;
-
-        while (level < _topLevel && _randomGenerator.NextDouble() <= _promotionProbability)
-        {
-            level++;
-        }
-
-        return level;
-    }
-
-    internal static bool IsValidLevel(SkipListNode predecessor, SkipListNode successor, int level)
-    {
-        ArgumentNullException.ThrowIfNull(predecessor, nameof(predecessor));
-        ArgumentNullException.ThrowIfNull(successor, nameof(successor));
-
-        return !predecessor.IsDeleted
-               && !successor.IsDeleted
-               && predecessor.GetNextNode(level) == successor;
-    }
-
-    internal static bool ValidateInsertion(SearchResult searchResult, int insertLevel, ref int highestLevelLocked)
-    {
-        bool isValid = true;
-        for (int level = 0; isValid && level <= insertLevel; level++)
-        {
-            var predecessor = searchResult.GetPredecessor(level);
-            var successor = searchResult.GetSuccessor(level);
-
-            predecessor.Lock();
-            Interlocked.Exchange(ref highestLevelLocked, level);
-
-            // If predecessor is locked and the predecessor is still pointing at the successor, successor cannot be deleted.
-            isValid = IsValidLevel(predecessor, successor, level);
-        }
-
-        return isValid;
-    }
-
-    internal static void InsertNode(SkipListNode newNode, SearchResult searchResult, int insertLevel)
-    {
-        // Initialize all the next pointers.
-        for (int level = 0; level <= insertLevel; level++)
-        {
-            newNode.SetNextNode(level, searchResult.GetSuccessor(level));
-        }
-
-        // Ensure that the node is fully initialized before physical linking starts.
-        Thread.MemoryBarrier();
-
-        for (int level = 0; level <= insertLevel; level++)
-        {
-            // Note that this is required for correctness.
-            // Remove takes a dependency of the fact that if found at expected level, all the predecessors have already been correctly linked.
-            // Hence, we only need to use a MemoryBarrier before linking in the top level.
-            if (level == insertLevel)
-            {
-                Thread.MemoryBarrier();
-            }
-
-            searchResult.GetPredecessor(level).SetNextNode(level, newNode);
-        }
-    }
-
-    internal static bool NodeIsInvalidOrDeleted(SkipListNode curr, SearchResult searchResult)
-    {
-        return !curr.IsInserted
-            || curr.TopLevel != searchResult.LevelFound
-            || curr.IsDeleted;
-    }
-
+    /// <param name="curr">The node to check. Can be null.</param>
+    /// <returns>
+    /// <c>true</c> if the node is null, a Tail node, not yet fully inserted (<see cref="SkipListNode.IsInserted"/> is false),
+    /// or already marked as deleted (<see cref="SkipListNode.IsDeleted"/> is true); otherwise, <c>false</c>.
+    /// </returns>
+    /// <remarks>
+    /// This is typically used as a preliminary check before attempting an operation like locking or deletion on a node.
+    /// It performs lock-free reads of the node's properties (including volatile fields).
+    /// </remarks>
     internal static bool NodeIsInvalidOrDeleted(SkipListNode? curr)
     {
         return curr is null
-            || curr.Type is SkipListNode.NodeType.Tail
-            || !curr.IsInserted
-            || curr.IsDeleted;
+               || curr.Type is SkipListNode.NodeType.Tail
+               || !curr.IsInserted
+               || curr.IsDeleted;
     }
 
-    internal static bool LogicallyDeleteNode(SkipListNode curr, SearchResult searchResult, ref int topLevel)
-    {
-        Interlocked.Exchange(ref topLevel, searchResult.LevelFound);
-        curr.Lock();
-        if (curr.IsDeleted)
-        {
-            curr.Unlock();
-            return false;
-        }
-
-        // Linearization point: IsDeleted is volatile.
-        curr.IsDeleted = true;
-        return true;
-    }
-
+    /// <summary>
+    /// Attempts to atomically mark the specified data node as logically deleted.
+    /// </summary>
+    /// <param name="curr">The data node to mark as deleted.</param>
+    /// <returns>
+    /// <c>true</c> if the node was successfully marked as deleted (node remains locked by this method);
+    /// <c>false</c> if the node is not a Data node or was already deleted (node is unlocked by this method).
+    /// </returns>
+    /// <remarks>
+    /// This method acquires the node's lock (<see cref="SkipListNode.Lock"/>).
+    /// If successful (returns <c>true</c>), the node's <see cref="SkipListNode.IsDeleted"/> flag is set,
+    /// and the caller is responsible for eventually unlocking the node after subsequent operations
+    /// (e.g., validation, scheduling physical removal).
+    /// If it fails (returns <c>false</c>), the node is unlocked internally before returning.
+    /// The write to the volatile <c>IsDeleted</c> field acts as the linearization point for the logical deletion.
+    /// </remarks>
     internal static bool LogicallyDeleteNode(SkipListNode curr)
     {
         if (curr.Type != SkipListNode.NodeType.Data) return false;
@@ -673,10 +600,178 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         return true;
     }
 
+    #endregion
+    #region TryAdd Helper Methods
+
+    /// <summary>
+    /// Generates a random level for a new node based on the promotion probability.
+    /// </summary>
+    /// <returns>The generated level index, ranging from <see cref="BottomLevel"/> up to <see cref="_topLevel"/>.</returns>
+    /// <remarks>
+    /// The probability of generating level L is determined by <see cref="_promotionProbability"/>.
+    /// A higher level means the node participates in more layers of the SkipList, improving search efficiency.
+    /// </remarks>
+    internal int GenerateLevel()
+    {
+        // Start at the bottom level (level 0)
+        int level = BottomLevel;
+
+        // Probabilistically increase the level
+        // Continue promoting as long as we are below the max level and the random check passes
+        while (level < _topLevel && _randomGenerator.NextDouble() <= _promotionProbability)
+        {
+            level++;
+        }
+
+        return level;
+    }
+
+    /// <summary>
+    /// Validates that the insertion path is clear by locking predecessors and checking links.
+    /// Called before <see cref="InsertNode"/> to ensure a safe insertion point.
+    /// </summary>
+    /// <param name="searchResult">The structural search result containing predecessors and successors for the insertion position.</param>
+    /// <param name="insertLevel">The highest level index of the node being inserted.</param>
+    /// <param name="highestLevelLocked">A reference parameter updated to track the highest level at which a predecessor lock was acquired during this validation attempt.</param>
+    /// <returns><c>true</c> if the insertion path is valid (predecessors point to successors, neither is deleted) up to <paramref name="insertLevel"/>; <c>false</c> otherwise.</returns>
+    /// <remarks>
+    /// Locks predecessors from <see cref="BottomLevel"/> up to <paramref name="insertLevel"/>.
+    /// The caller (typically <c>TryAdd</c>) is responsible for unlocking these predecessors using the final value of <paramref name="highestLevelLocked"/>, usually in a <c>finally</c> block.
+    /// </remarks>
+    internal static bool ValidateInsertion(SearchResult searchResult, int insertLevel, ref int highestLevelLocked)
+    {
+        bool isValid = true;
+
+        // Iterate from bottom up to the insertion level
+        for (int level = BottomLevel; isValid && level <= insertLevel; level++)
+        {
+            var predecessor = searchResult.GetPredecessor(level);
+            var successor = searchResult.GetSuccessor(level);
+
+            // Lock predecessor before checking
+            predecessor.Lock();
+
+            // Record the highest level locked so far
+            Interlocked.Exchange(ref highestLevelLocked, level);
+
+            // Check if predecessor is valid and still points to the expected successor
+            // Also check if successor is marked as deleted (shouldn't insert before a deleted node)
+            isValid = !predecessor.IsDeleted &&
+                !successor.IsDeleted &&
+                predecessor.GetNextNode(level) == successor;
+
+            // If validation fails at this level, DO NOT unlock here; the loop condition stops
+            // Caller's finally block handles unlocks based on highestLevelLocked
+        }
+
+        return isValid;
+    }
+
+    /// <summary>
+    /// Physically links the <paramref name="newNode"/> into the SkipList structure at levels from <see cref="BottomLevel"/> up to <paramref name="insertLevel"/>.
+    /// </summary>
+    /// <param name="newNode">The new node to insert. Its internal `next` pointers should already be initialized to point to the correct successors.</param>
+    /// <param name="searchResult">The structural search result containing the correct predecessors and successors (obtained from structural search).</param>
+    /// <param name="insertLevel">The highest level index at which to insert the <paramref name="newNode"/>.</param>
+    /// <remarks>
+    /// This method assumes the relevant predecessors (up to <paramref name="insertLevel"/> as found in <paramref name="searchResult"/>) have already been locked by the caller (e.g., via <see cref="ValidateInsertion"/>).
+    /// It includes <see cref="Thread.MemoryBarrier"/> calls to ensure correct memory ordering, making the node's internal state visible before it's linked and ensuring lower levels are linked before the top level for dependency reasons (e.g., physical removal logic).
+    /// The caller is responsible for unlocking the predecessors after this method returns.
+    /// </remarks>
+    internal static void InsertNode(SkipListNode newNode, SearchResult searchResult, int insertLevel)
+    {
+        // Initialize all the next pointers of the new node first
+        for (int level = BottomLevel; level <= insertLevel; level++)
+        {
+            newNode.SetNextNode(level, searchResult.GetSuccessor(level));
+        }
+
+        // Ensure that the newNode's internal state (its next pointers) is fully written and visible
+        // before any external pointers (from predecessors) are set to point to it
+        Thread.MemoryBarrier();
+
+        // Link predecessors to the newNode, level by level
+        for (int level = BottomLevel; level <= insertLevel; level++)
+        {
+            // Memory barrier before linking at the highest level ensures all lower-level links
+            // are established first, satisfying potential dependencies for other operations like physical removal
+            if (level == insertLevel)
+            {
+                Thread.MemoryBarrier();
+            }
+
+            // Update the predecessor's next pointer to link newNode into the list at this level
+            searchResult.GetPredecessor(level).SetNextNode(level, newNode);
+        }
+    }
+
+    #endregion
+    #region TryDelete Helper Methods
+
+    /// <summary>
+    /// Validates that predecessors still correctly point to the candidate node after it has been logically deleted (and locked).
+    /// Manages the lock state of the candidate node based on validation outcome and ensures predecessors are unlocked.
+    /// </summary>
+    /// <param name="candidateNode">The node that has been logically deleted and is currently locked. Its lock will be released by this method ONLY if validation fails.</param>
+    /// <param name="preciseSearchResult">The structural search result obtained by searching for the <paramref name="candidateNode"/>, containing its predecessors.</param>
+    /// <returns><c>true</c> if validation succeeds (predecessors are unlocked, <paramref name="candidateNode"/> remains locked); <c>false</c> if validation fails (<paramref name="candidateNode"/> and predecessors are unlocked).</returns>
+    /// <remarks>
+    /// This method is called during deletion operations (like TryDelete) after <c>LogicallyDeleteNode</c> succeeds.
+    /// It coordinates the validation check and manages the lock state of the <paramref name="candidateNode"/> to signal whether the calling operation should proceed (return true) or retry (return false).
+    /// </remarks>
+    internal static bool TryValidateAfterLogicalDelete(SkipListNode candidateNode, SearchResult preciseSearchResult)
+    {
+        int highestLevelLocked = InvalidLevel;
+        try
+        {
+            // Validate predecessors point to 'curr'. Locks predecessors.
+            // Uses the node's actual top level for the loop bound.
+            bool isValid = ValidateDeletion(
+                candidateNode,
+                preciseSearchResult,
+                candidateNode.TopLevel,
+                ref highestLevelLocked);
+
+            if (isValid)
+            {
+                // Signal validation success
+                return true;
+            }
+
+            // Validation failed. Unlock the candidate node as we need to retry.
+            // ValidateDeletion should have unlocked the failing predecessor.
+            candidateNode.Unlock();
+            return false;
+        }
+        finally
+        {
+            // Always unlock predecessors locked during ValidateDeletion,
+            // unless they were already unlocked because validation failed mid-way.
+            for (int level = highestLevelLocked; level >= 0; level--)
+            {
+                preciseSearchResult?.GetPredecessor(level)?.Unlock();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks levels <see cref="BottomLevel"/> through <paramref name="topLevel"/> to ensure each predecessor is valid (not deleted)
+    /// and still points to the target node <paramref name="curr"/>. Locks predecessors during the check.
+    /// </summary>
+    /// <param name="curr">The target node being validated (assumed logically deleted and locked by the caller of the caller).</param>
+    /// <param name="searchResult">The structural search result containing the predecessors for <paramref name="curr"/>.</param>
+    /// <param name="topLevel">The highest level index of the <paramref name="curr"/> node to validate.</param>
+    /// <param name="highestLevelUnlocked">A reference parameter updated to track the highest level at which a predecessor lock was acquired during this validation attempt.</param>
+    /// <returns><c>true</c> if all predecessors up to <paramref name="topLevel"/> are valid and point to <paramref name="curr"/>; <c>false</c> otherwise.</returns>
+    /// <remarks>
+    /// This method locks predecessors as it checks them. It updates <paramref name="highestLevelUnlocked"/> allowing the caller
+    /// (typically within a <c>finally</c> block) to unlock these predecessors correctly.
+    /// This method does *not* unlock the predecessors itself.
+    /// </remarks>
     internal static bool ValidateDeletion(SkipListNode curr, SearchResult searchResult, int topLevel, ref int highestLevelUnlocked)
     {
         bool isValid = true;
-        for (int level = 0; isValid && level <= topLevel; level++)
+        for (int level = BottomLevel; isValid && level <= topLevel; level++)
         {
             var predecessor = searchResult.GetPredecessor(level);
             predecessor.Lock();
@@ -797,6 +892,81 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     #endregion
+    #region Background Tasks
+
+    /// <summary>
+    /// Schedules the asynchronous physical removal (unlinking) of a logically deleted node from the SkipList.
+    /// </summary>
+    /// <param name="node">The node to be physically removed. Must already be marked as logically deleted (<see cref="SkipListNode.IsDeleted"/> must be true).</param>
+    /// <param name="topLevel">Optional. The highest level index from which to start unlinking the node. If null, defaults to the node's actual <see cref="SkipListNode.TopLevel"/>.</param>
+    /// <remarks>
+    /// Submits a task to physically unlink the node from the top level down. Uses locking on predecessors for thread-safe pointer updates.
+    /// </remarks>
+    internal void SchedulePhysicalNodeRemoval(SkipListNode node, int? topLevel = null)
+    {
+        // We only remove logically deleted nodes
+        if (!node.IsDeleted) return;
+
+        _taskOrchestrator.Run(() =>
+        {
+            int startingLevel = topLevel ?? node.TopLevel;
+
+            // Unlink top-to-bottom
+            for (int level = startingLevel; level >= BottomLevel; level--)
+            {
+                SkipListNode predecessor = _head;
+
+                // Loop to find the correct predecessor at this level
+                while (true)
+                {
+                    SkipListNode current = predecessor.GetNextNode(level);
+
+                    // Check if we found the potential position, overshot, or hit the end; stop searching this level
+                    if (ShouldStopSearch(current, node)) break;
+
+                    predecessor = current;
+                }
+
+                // Check if the node immediately after predecessor is our target node
+                if (predecessor.GetNextNode(level) != node)
+                {
+                    continue;
+                }
+
+                // Lock the predecessor before checking and updating its pointer
+                predecessor.Lock();
+                try
+                {
+                    // Re-verify condition *after* acquiring lock
+                    // Also check if predecessor itself was deleted concurrently
+                    if (!predecessor.IsDeleted && predecessor.GetNextNode(level) == node)
+                    {
+                        // Atomically (within lock) perform the pointer swing
+                        predecessor.SetNextNode(level, node.GetNextNode(level));
+                    }
+                }
+                finally
+                {
+                    predecessor.Unlock();
+                }
+            }
+
+            return Task.CompletedTask;
+
+            // Determine if we should stop searching based on the following criteria:
+            // 1. We found the node to remove
+            // 2. We reached the Tail node
+            // 3. We passed the node (current node's priority/sequence is greater)
+            static bool ShouldStopSearch(SkipListNode currentNode, SkipListNode nodeToRemove)
+            {
+                return currentNode == nodeToRemove ||
+                       currentNode.Type is SkipListNode.NodeType.Tail ||
+                       currentNode.CompareTo(nodeToRemove) > 0;
+            }
+        });
+    }
+
+    #endregion
     #region Internal Data Structures
 
     /// <summary>
@@ -855,6 +1025,87 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     /// <summary>
+    /// Holds the calculated parameters for a SprayList probabilistic DeleteMin operation.
+    /// These parameters guide the random walk down the SkipList structure.
+    /// </summary>
+    internal readonly struct SprayParameters
+    {
+        /// <summary>
+        /// The calculated starting height (h ≈ log n + K) for the spray walk.
+        /// Starting high allows the walk to potentially land anywhere lower down.
+        /// Value is clamped to list bounds and adjusted to be divisible by DescentLength.
+        /// </summary>
+        public readonly int StartHeight;
+
+        /// <summary>
+        /// The maximum random horizontal jump length (y ≈ M * (log n)^3) at each level of the spray.
+        /// Designed to jump past the absolute minimum but likely land near the beginning of the list.
+        /// </summary>
+        public readonly int MaxJumpLength;
+
+        /// <summary>
+        /// The number of levels to descend (d ≈ log * log n) after each horizontal jump phase.
+        /// A gradual descent helps distribute landing points near the list's start.
+        /// Value is at least 1.
+        /// </summary>
+        public readonly int DescentLength;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SprayParameters"/> struct.
+        /// </summary>
+        /// <param name="startHeight">The calculated start height.</param>
+        /// <param name="maxJumpLength">The calculated maximum jump length.</param>
+        /// <param name="descentLength">The calculated descent length.</param>
+        public SprayParameters(int startHeight, int maxJumpLength, int descentLength)
+        {
+            StartHeight = startHeight;
+            MaxJumpLength = maxJumpLength;
+            DescentLength = descentLength;
+        }
+
+        /// <summary>
+        /// Calculates the parameters needed for the SprayList probabilistic DeleteMin operation
+        /// based on the current list state and tuning constants.
+        /// </summary>
+        /// <param name="currentCount">The currently estimated count of items in the queue (must be > 1).</param>
+        /// <param name="topLevel">The maximum level index allowed in the SkipList.</param>
+        /// <param name="offsetK">A tuning constant (K) added to the height calculation.</param>
+        /// <param name="offsetM">A tuning constant (M) multiplied by the jump length calculation.</param>
+        /// <returns>A SprayParameters struct containing the calculated height, max jump length, and descent length.</returns>
+        public static SprayParameters CalculateParameters(int currentCount, int topLevel, int offsetK, int offsetM)
+        {
+            // Base calculations (assuming currentCount > 1)
+            double logN = Math.Log(currentCount);
+
+            // Ensure inner Log argument is >= 1 for LogLogN calculation
+            double logLogN = Math.Log(Math.Max(1.0, logN));
+
+            // Calculate initial parameters
+            int h = (int)logN + offsetK;
+            int y = offsetM * (int)Math.Pow(Math.Max(1.0, logN), 3);
+            int d = Math.Max(1, (int)logLogN);
+
+            // Clamp height to list bounds and ensure non-negative
+            int startHeight = Math.Min(topLevel, Math.Max(0, h));
+
+            // Ensure startHeight is divisible by descentLength for clean loop steps
+            if (startHeight >= d && startHeight % d != 0)
+            {
+                startHeight = d * (startHeight / d);
+            }
+            else if (startHeight < d)
+            {
+                 startHeight = Math.Max(0, startHeight);
+            }
+
+            // Ensure jump length is non-negative
+            int maxJumpLength = Math.Max(0, y);
+
+            return new SprayParameters(startHeight, maxJumpLength, d);
+        }
+    }
+
+    /// <summary>
     /// Represents a node in the SkipList.
     /// </summary>
     [SuppressMessage("ReSharper", "StaticMemberInGenericType", Justification = "Accessed by reference.")]
@@ -862,12 +1113,17 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     {
         private readonly Lock _nodeLock = new();
         private readonly SkipListNode[] _nextNodeArray;
-        private volatile bool _isInserted;
-        private volatile bool _isDeleted;
+        private readonly IComparer<TPriority> _priorityComparer;
         private static long s_sequenceGenerator;
 
+        // Volatile fields have 'release' and 'acquire' semantics
+        // which act as one-way memory barriers; combining these properties
+        // with locks provides sufficient memory ordering guarantees
+        private volatile bool _isInserted;
+        private volatile bool _isDeleted;
+
         /// <summary>
-        /// Initializes a new instance of the <see cref="SkipListNode"/> class.
+        /// Initializes a new instance of the <see cref="SkipListNode"/> class for Head/Tail nodes.
         /// </summary>
         /// <param name="nodeType">The type of the node.</param>
         /// <param name="height">The height (level) of the node.</param>
@@ -877,6 +1133,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             Element = default!;
             Type = nodeType;
             _nextNodeArray = new SkipListNode[height + 1];
+            _priorityComparer = Comparer<TPriority>.Default;
             SequenceNumber = nodeType switch
             {
                 NodeType.Head => long.MinValue,
@@ -886,16 +1143,18 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SkipListNode"/> class.
+        /// Initializes a new instance of the <see cref="SkipListNode"/> class for Data nodes.
         /// </summary>
         /// <param name="priority">The priority associated with the node.</param>
         /// <param name="element">The element associated with the node.</param>
         /// <param name="height">The height (level) of the node.</param>
-        public SkipListNode(TPriority priority, TElement element, int height)
+        /// <param name="comparer">The comparer to use for priorities.</param>
+        public SkipListNode(TPriority priority, TElement element, int height, IComparer<TPriority>? comparer)
         {
             Priority = priority;
             Element = element;
             Type = NodeType.Data;
+            _priorityComparer = comparer ?? Comparer<TPriority>.Default;
             _nextNodeArray = new SkipListNode[height + 1];
             SequenceNumber = Interlocked.Increment(ref s_sequenceGenerator);
         }
@@ -964,13 +1223,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         public SkipListNode GetNextNode(int height) => _nextNodeArray[height];
 
         /// <summary>
-        /// Gets the next node at the specified height (level).
-        /// </summary>
-        /// <param name="height">The height (level) at which to get the next node.</param>
-        /// <returns>The next node at the specified height.</returns>
-        public ref SkipListNode GetNextNodeRef(int height) => ref _nextNodeArray[height];
-
-        /// <summary>
         /// Sets the next node at the specified height (level).
         /// </summary>
         /// <param name="height">The height (level) at which to set the next node.</param>
@@ -1006,8 +1258,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             // Tail is always greater, anything is greater than Head
             if (this.Type is NodeType.Tail || other.Type is NodeType.Head) return 1;
 
-            // Compare priorities using the default comparer for TPriority
-            int priorityComparison = Comparer<TPriority>.Default.Compare(this.Priority, other.Priority);
+            // Compare priorities using the comparer for TPriority
+            int priorityComparison = _priorityComparer.Compare(this.Priority, other.Priority);
 
             // Priorities are equal, compare by sequence number (lower sequence number is considered "smaller")
             return priorityComparison is not 0
@@ -1036,8 +1288,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                 // Tail is always greater
                 NodeType.Tail => 1,
 
-                // Compare priorities using the default comparer for TPriority
-                _ => Comparer<TPriority>.Default.Compare(this.Priority, priority)
+                // Compare priorities using the comparer for TPriority
+                _ => _priorityComparer.Compare(this.Priority, priority)
             };
         }
     }
