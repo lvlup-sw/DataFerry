@@ -55,7 +55,7 @@ public interface IConcurrentPriorityQueue<TPriority, TElement>
     /// <param name="element">The new element.</param>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
-    void Update(TPriority priority, TElement element);
+    bool Update(TPriority priority, TElement element);
 
     /// <summary>
     /// Updates the element associated with the specified priority using the provided update function.
@@ -64,7 +64,7 @@ public interface IConcurrentPriorityQueue<TPriority, TElement>
     /// <param name="updateFunction">The function used to generate the new element.</param>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="updateFunction"/> is null.</exception>
     /// <exception cref="ArgumentException">Thrown if the priority does not exist or is being deleted.</exception>
-    void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction);
+    bool Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction);
 
     /// <summary>
     /// Determines whether the ConcurrentPriorityQueue contains the specified priority.

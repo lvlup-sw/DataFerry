@@ -245,13 +245,14 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     public bool TryAdd(TPriority priority, TElement element)
     {
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+        ArgumentNullException.ThrowIfNull(element, nameof(element));
 
         int insertLevel = GenerateLevel();
         var newNode = new SkipListNode(priority, element, insertLevel);
 
         while (true)
         {
-            var searchResult = WeakSearch(newNode);
+            var searchResult = StructuralSearch(newNode);
             int highestLevelLocked = InvalidLevel;
 
             try
@@ -293,7 +294,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         while (true)
         {
-            var searchResult = WeakSearch(priority);
+            var searchResult = StructuralSearch(priority);
             curr ??= searchResult.GetNodeFound();
 
             switch (isLogicallyDeleted)
@@ -447,61 +448,70 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     /// <inheritdoc/>
-    public void Update(TPriority priority, TElement element)
+    public bool Update(TPriority priority, TElement element)
     {
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+        ArgumentNullException.ThrowIfNull(element, nameof(element));
 
-        var searchResult = WeakSearch(priority);
+        // Locate the node to update
+        var nodeToUpdate = InlineSearch(priority);
 
-        if (NodeNotFoundOrInvalid(searchResult))
-        {
-            throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
-        }
+        // Check if a candidate was found
+        if (nodeToUpdate is null) return false;
 
-        SkipListNode curr = searchResult.GetNodeFound();
-        curr.Lock();
+        // Try to perform the update
+        nodeToUpdate.Lock();
         try
         {
-            if (curr.IsDeleted)
+            // Check to see if the node was deleted
+            // between the search and acquiring the lock
+            if (nodeToUpdate.IsDeleted)
             {
-                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
+                // Candidate node was deleted while trying to update
+                return false;
             }
 
-            curr.Element = element;
+            // Perform the update
+            nodeToUpdate.Element = element;
+            return true;
         }
         finally
         {
-            curr.Unlock();
+            nodeToUpdate.Unlock();
         }
     }
 
     /// <inheritdoc/>
-    public void Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction)
+    public bool Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction)
     {
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
         ArgumentNullException.ThrowIfNull(updateFunction, nameof(updateFunction));
 
-        var searchResult = WeakSearch(priority);
+        // Locate the node to update
+        var nodeToUpdate = InlineSearch(priority);
 
-        if (NodeNotFoundOrInvalid(searchResult))
-        {
-            throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
-        }
+        // Check if a candidate was found
+        if (nodeToUpdate is null) return false;
 
-        SkipListNode curr = searchResult.GetNodeFound();
-        curr.Lock();
+        // Try to perform the update
+        nodeToUpdate.Lock();
         try
         {
-            if (curr.IsDeleted)
+            // Check to see if the node was deleted
+            // between the search and acquiring the lock
+            if (nodeToUpdate.IsDeleted)
             {
-                throw new ArgumentException("The priority does not exist or is being deleted.", nameof(priority));
+                // Candidate node was deleted while trying to update
+                return false;
             }
 
-            curr.Element = updateFunction(priority, curr.Element);
+            // Perform the update using the function
+            nodeToUpdate.Element = updateFunction(priority, nodeToUpdate.Element);
+            return true;
         }
         finally
         {
-            curr.Unlock();
+            nodeToUpdate.Unlock();
         }
     }
 
@@ -510,12 +520,10 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     {
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
 
-        var searchResult = WeakSearch(priority);
+        // Locate the node with the desired priority
+        var foundNode = InlineSearch(priority);
 
-        // If node is not found, not logically inserted or logically removed, return false.
-        return searchResult.IsFound
-            && searchResult.GetNodeFound().IsInserted
-            && !searchResult.GetNodeFound().IsDeleted;
+        return foundNode is not null;
     }
 
     /// <inheritdoc/>
@@ -550,16 +558,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     #region Helper Methods
 
     /// <summary>
-    /// Waits (spins) until the specified node is marked as logically inserted
-    /// meaning it has been physically inserted at every level.
-    /// </summary>
-    /// <param name="node">The node to wait for.</param>
-    internal static void WaitUntilIsInserted(SkipListNode node)
-    {
-        SpinWait.SpinUntil(() => node.IsInserted);
-    }
-
-    /// <summary>
     /// Generates a random level for a new node based on the promotion probability.
     /// The probability of picking a given level is P(L) = p ^ -(L + 1) where p = PromotionChance.
     /// </summary>
@@ -584,13 +582,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         return !predecessor.IsDeleted
                && !successor.IsDeleted
                && predecessor.GetNextNode(level) == successor;
-    }
-
-    internal static bool NodeNotFoundOrInvalid(SearchResult searchResult)
-    {
-        return !searchResult.IsFound
-            || !searchResult.GetNodeFound().IsInserted
-            || searchResult.GetNodeFound().IsDeleted;
     }
 
     internal static bool ValidateInsertion(SearchResult searchResult, int insertLevel, ref int highestLevelLocked)
@@ -696,6 +687,60 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         return isValid;
     }
 
+    #endregion
+    #region Search Methods
+
+    /// <summary>
+    /// Performs a lock-free search restricted to Level 0 to find the first valid node matching the specified priority.
+    /// </summary>
+    /// <param name="priority">The priority to search for.</param>
+    /// <returns>
+    /// The first <see cref="SkipListNode"/> found at Level 0 that matches the <paramref name="priority"/>,
+    /// is marked as <see cref="SkipListNode.IsInserted"/>, and is not marked as <see cref="SkipListNode.IsDeleted"/>.
+    /// Returns a <c>null</c> object if no such node is found before reaching the tail node.
+    /// </returns>
+    /// <remarks>
+    /// This search only operates on the bottom level (Level 0) and performs lock-free reads.
+    /// It's used internally for operations like Update and ContainsPriority that need to find an existing,
+    /// valid instance of a priority *without* requiring multi-level structural information.
+    /// </remarks>
+    internal SkipListNode? InlineSearch(TPriority priority)
+    {
+        ArgumentNullException.ThrowIfNull(priority, nameof(priority));
+
+        SkipListNode? nodeToUpdate = null;
+        SkipListNode current = _head.GetNextNode(BottomLevel);
+
+        // Inline search for *first* valid node with desired priority
+        while (current.Type != SkipListNode.NodeType.Tail)
+        {
+            int comparison = current.CompareToPriority(priority);
+
+            // Current priority is less than target, move forward
+            if (comparison < 0)
+            {
+                current = current.GetNextNode(BottomLevel);
+                continue;
+            }
+
+            // Current priority is greater than target, node not found
+            if (comparison > 0) break;
+
+            // Found a node with the target priority
+            // Check if it's valid (inserted and not deleted)
+            if (current is { IsInserted: true, IsDeleted: false })
+            {
+                nodeToUpdate = current;
+                break;
+            }
+
+            // Node matches priority but is invalid/deleted, keep searching
+            current = current.GetNextNode(BottomLevel);
+        }
+
+        return nodeToUpdate;
+    }
+
     /// <summary>
     /// Performs a lock-free search for the node with the specified priority.
     /// </summary>
@@ -714,7 +759,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// specified priority if it existed.
     /// </para>
     /// </remarks>
-    internal SearchResult WeakSearch(SkipListNode nodeToPosition)
+    internal SearchResult StructuralSearch(SkipListNode nodeToPosition)
     {
         int levelFound = InvalidLevel;
         SkipListNode[] predecessorArray = new SkipListNode[_numberOfLevels];
@@ -755,7 +800,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     #region Internal Data Structures
 
     /// <summary>
-    /// Represents the result of a search operation in the SkipList.
+    /// Represents the result of a structural search operation in the SkipList.
     /// </summary>
     /// <param name="LevelFound">The level at which the priority was found (or <see cref="NotFoundLevel"/> if not found).</param>
     /// <param name="PredecessorArray">An array of predecessor nodes at each level.</param>
@@ -947,10 +992,11 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// Required for correct ordering when priorities are duplicated.
         /// Handles Head/Tail nodes.
         /// </summary>
+        /// <param name="other">The SkipListNode to compare against this instance.</param>
         /// <returns>
-        /// -1 if this node is less than <paramref name="other"/>.
-        ///  0 if this node is equal to other (should only happen if comparing node to itself).
-        ///  1 if this node is greater than <paramref name="other"/>.
+        /// <c>-1</c> if this node is less than <paramref name="other"/>.
+        /// <c>0</c> if this node is equal to other (should only happen if comparing node to itself, as SequenceNumbers are unique).
+        /// <c>1</c> if this node is greater than <paramref name="other"/>.
         /// </returns>
         public int CompareTo(SkipListNode other)
         {
@@ -971,8 +1017,15 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         /// <summary>
         /// Compares this node's priority to a given priority value.
-        /// Does NOT use the sequence number. Useful for initial phase of search.
+        /// Does NOT use the sequence number. Useful for initial phase of search or priority-only checks.
         /// </summary>
+        /// <param name="priority">The priority value to compare against this node's priority.</param>
+        /// <returns>
+        /// <c>-1</c> if this node's priority is less than <paramref name="priority"/>.
+        /// <c>0</c> if the priorities are equal.
+        /// <c>1</c> if this node's priority is greater than <paramref name="priority"/>.
+        /// Head nodes are always considered less, Tail nodes are always considered greater.
+        /// </returns>
         public int CompareToPriority(TPriority priority)
         {
             return this.Type switch
