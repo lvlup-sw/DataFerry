@@ -907,63 +907,76 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         // We only remove logically deleted nodes
         if (!node.IsDeleted) return;
 
-        _taskOrchestrator.Run(() =>
+        try
         {
-            int startingLevel = topLevel ?? node.TopLevel;
-
-            // Unlink top-to-bottom
-            for (int level = startingLevel; level >= BottomLevel; level--)
+            _taskOrchestrator.Run(() =>
             {
-                SkipListNode predecessor = _head;
+                int startingLevel = topLevel ?? node.TopLevel;
 
-                // Loop to find the correct predecessor at this level
-                while (true)
+                // Unlink top-to-bottom
+                for (int level = startingLevel; level >= BottomLevel; level--)
                 {
-                    SkipListNode current = predecessor.GetNextNode(level);
+                    SkipListNode predecessor = _head;
 
-                    // Check if we found the potential position, overshot, or hit the end; stop searching this level
-                    if (ShouldStopSearch(current, node)) break;
-
-                    predecessor = current;
-                }
-
-                // Check if the node immediately after predecessor is our target node
-                if (predecessor.GetNextNode(level) != node)
-                {
-                    continue;
-                }
-
-                // Lock the predecessor before checking and updating its pointer
-                predecessor.Lock();
-                try
-                {
-                    // Re-verify condition *after* acquiring lock
-                    // Also check if predecessor itself was deleted concurrently
-                    if (!predecessor.IsDeleted && predecessor.GetNextNode(level) == node)
+                    // Loop to find the correct predecessor at this level
+                    while (true)
                     {
-                        // Atomically (within lock) perform the pointer swing
-                        predecessor.SetNextNode(level, node.GetNextNode(level));
+                        SkipListNode current = predecessor.GetNextNode(level);
+
+                        // Check if we found the potential position, overshot, or hit the end; stop searching this level
+                        if (ShouldStopSearch(current, node)) break;
+
+                        predecessor = current;
+                    }
+
+                    // Check if the node immediately after predecessor is our target node
+                    if (predecessor.GetNextNode(level) != node)
+                    {
+                        continue;
+                    }
+
+                    // Lock the predecessor before checking and updating its pointer
+                    predecessor.Lock();
+                    try
+                    {
+                        // Re-verify condition *after* acquiring lock
+                        // Also check if predecessor itself was deleted concurrently
+                        if (!predecessor.IsDeleted && predecessor.GetNextNode(level) == node)
+                        {
+                            // Atomically (within lock) perform the pointer swing
+                            predecessor.SetNextNode(level, node.GetNextNode(level));
+                        }
+                    }
+                    finally
+                    {
+                        predecessor.Unlock();
                     }
                 }
-                finally
+
+                return Task.CompletedTask;
+
+                // Determine if we should stop searching based on the following criteria:
+                // 1. We found the node to remove
+                // 2. We reached the Tail node
+                // 3. We passed the node (current node's priority/sequence is greater)
+                static bool ShouldStopSearch(SkipListNode currentNode, SkipListNode nodeToRemove)
                 {
-                    predecessor.Unlock();
+                    return currentNode == nodeToRemove ||
+                           currentNode.Type is SkipListNode.NodeType.Tail ||
+                           currentNode.CompareTo(nodeToRemove) > 0;
                 }
-            }
-
-            return Task.CompletedTask;
-
-            // Determine if we should stop searching based on the following criteria:
-            // 1. We found the node to remove
-            // 2. We reached the Tail node
-            // 3. We passed the node (current node's priority/sequence is greater)
-            static bool ShouldStopSearch(SkipListNode currentNode, SkipListNode nodeToRemove)
-            {
-                return currentNode == nodeToRemove ||
-                       currentNode.Type is SkipListNode.NodeType.Tail ||
-                       currentNode.CompareTo(nodeToRemove) > 0;
-            }
-        });
+            });
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("queue full"))
+        {
+            /* Uncomment after Observability update
+            _logger?.LogWarning(
+                ex,
+                "Physical node removal task dropped for node (Priority: {Priority}, Sequence: {SequenceNumber}) because the background task orchestrator queue is full. This may lead to increased memory usage over time if it occurs frequently.",
+                node.Priority,
+                node.SequenceNumber);
+            */
+        }
     }
 
     #endregion
