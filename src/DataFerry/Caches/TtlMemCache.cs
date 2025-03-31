@@ -2,6 +2,8 @@
 using System.Collections;
 using System.Collections.Concurrent;
 
+using lvlup.DataFerry.Caches.Contracts;
+
 namespace lvlup.DataFerry.Caches;
 
 /// <summary>

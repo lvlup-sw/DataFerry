@@ -1,5 +1,9 @@
 ﻿using lvlup.DataFerry.Collections;
+using lvlup.DataFerry.Orchestrators;
 using lvlup.DataFerry.Orchestrators.Contracts;
+
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace lvlup.DataFerry.Tests.Collections
 {
@@ -15,7 +19,7 @@ namespace lvlup.DataFerry.Tests.Collections
         public void Setup()
         {
             // Using a synchronous orchestrator for predictable testing unless testing async removal
-            _taskOrchestrator = new SynchronousTaskOrchestrator(true, 0);
+            _taskOrchestrator = new TaskOrchestrator(LoggerFactory.Create(builder => builder.Services.AddLogging()).CreateLogger<TaskOrchestrator>());
 
             // Default comparer (min-heap behavior for ints)
             _queue = new ConcurrentPriorityQueue<int, string>(
@@ -274,16 +278,6 @@ namespace lvlup.DataFerry.Tests.Collections
              Assert.IsTrue(result);
              Assert.IsNotNull(element);
              Assert.AreEqual(1, _queue.GetCount());
-         }
-
-         // Helper needed if testing async orchestrator interactions
-         public class SynchronousTaskOrchestrator(bool isBackground, long runCount) : ITaskOrchestrator
-         {
-             public bool IsBackground { get; } = isBackground;
-             public long RunCount { get; } = runCount;
-
-             // Run synchronously for testing
-             public void Run(Func<Task> action) => action().GetAwaiter().GetResult();
          }
     }
 }

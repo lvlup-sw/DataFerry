@@ -3,6 +3,8 @@ using Microsoft.IO;
 using System.Buffers;
 using System.Text.Json;
 
+using lvlup.DataFerry.Serializers.Contracts;
+
 namespace lvlup.DataFerry.Serializers;
 
 /// <summary>
