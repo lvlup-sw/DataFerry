@@ -876,7 +876,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             // At this point, current >= nodeToPosition
             // Now we check if any node with the *same priority* was found at this level
             if (levelFound is InvalidLevel &&
-                current.Type != SkipListNode.NodeType.Tail &&
+                current.Type is not SkipListNode.NodeType.Tail &&
                 current.CompareToPriority(nodeToPosition.Priority) == 0)
             {
                 levelFound = level;

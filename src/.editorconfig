@@ -285,7 +285,6 @@ dotnet_naming_rule.non_field_members_should_be_pascalcase.symbols = non_field_me
 dotnet_naming_rule.non_field_members_should_be_pascalcase.style = pascalcase
 
 # Symbol specifications
-
 dotnet_naming_symbols.interfaces.applicable_kinds = interface
 dotnet_naming_symbols.interfaces.applicable_accessibilities = public, internal, private, protected, protected_internal, private_protected
 dotnet_naming_symbols.interfaces.required_modifiers = 
@@ -369,7 +368,6 @@ dotnet_naming_symbols.local_functions.applicable_accessibilities = *
 dotnet_naming_symbols.local_functions.required_modifiers = 
 
 # Naming styles
-
 dotnet_naming_style.pascalcase.required_prefix = 
 dotnet_naming_style.pascalcase.required_suffix = 
 dotnet_naming_style.pascalcase.word_separator = 
@@ -400,17 +398,18 @@ dotnet_naming_style.s_camelcase.required_suffix =
 dotnet_naming_style.s_camelcase.word_separator = 
 dotnet_naming_style.s_camelcase.capitalization = camel_case
 
-# Diagnostics
+# XML documentation
 dotnet_diagnostics.documentation_comments_must_be_xml_compliant = warning
 
 # Analyzer Rules
 dotnet_diagnostic.IDE0290.severity = none
 dotnet_diagnostic.IDE0130.severity = warning
 dotnet_diagnostic.IDE1006.severity = suggestion
+dotnet_diagnostic.CA2254.severity = silent
 dotnet_diagnostic.SA0001.severity = none
 dotnet_diagnostic.SA1000.severity = none
 dotnet_diagnostic.SA1010.severity = none
-dotnet_diagnostic.SA1011.severity = suggestion
+dotnet_diagnostic.SA1011.severity = silent
 dotnet_diagnostic.SA1101.severity = none
 dotnet_diagnostic.SA1118.severity = none
 dotnet_diagnostic.SA1124.severity = none
