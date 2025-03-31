@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// <copyright file="ConcurrentLinkedList.cs" company="Level Up Software">
+// <copyright file="ConcurrentUnorderedLinkedList.cs" company="Level Up Software">
 // Copyright (c) Level Up Software. All rights reserved.
 // </copyright>
 // ===========================================================================
@@ -9,7 +9,7 @@ using lvlup.DataFerry.Collections.Contracts;
 namespace lvlup.DataFerry.Collections;
 
 /// <summary>
-/// A non-blocking thread-safe doubly linked list.
+/// A non-blocking thread-safe singly linked list.
 /// </summary>
 /// <typeparam name="T">The type of elements in the list.</typeparam>
 /// <remarks>
@@ -26,7 +26,7 @@ namespace lvlup.DataFerry.Collections;
 /// <item>Lock-free count.</item>
 /// </list>
 /// </remarks>
-public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnull
+public class ConcurrentUnorderedLinkedList<T> : IConcurrentLinkedList<T> where T : notnull
 {
     /// <summary>
     /// The head of the linked list.
@@ -44,10 +44,10 @@ public class ConcurrentLinkedList<T> : IConcurrentLinkedList<T> where T : notnul
     private int _count;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ConcurrentLinkedList{T}"/> class.
+    /// Initializes a new instance of the <see cref="ConcurrentUnorderedLinkedList{T}"/> class.
     /// </summary>
     /// <param name="comparer">The comparer to use for comparing keys.</param>
-    public ConcurrentLinkedList(IComparer<T>? comparer = null)
+    public ConcurrentUnorderedLinkedList(IComparer<T>? comparer = null)
     {
         _head = new Node<T>(default!, NodeState.REM);
         _comparer = comparer ?? Comparer<T>.Default;

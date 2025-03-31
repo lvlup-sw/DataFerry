@@ -4,9 +4,9 @@ using lvlup.DataFerry.Tests.TestModels;
 namespace lvlup.DataFerry.Tests.Collections
 {
     [TestClass]
-    public class ConcurrentLinkedListTests
+    public class ConcurrentUnorderedLinkedListTests
     {
-        private ConcurrentLinkedList<Payload> _list = default!;
+        private ConcurrentUnorderedLinkedList<Payload> _list = default!;
 
         [TestInitialize]
         public void Setup()

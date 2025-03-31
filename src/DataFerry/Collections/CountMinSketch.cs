@@ -3,6 +3,7 @@
 // Copyright (c) Level Up Software. All rights reserved.
 // </copyright>
 // =======================================================================
+
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.Intrinsics;

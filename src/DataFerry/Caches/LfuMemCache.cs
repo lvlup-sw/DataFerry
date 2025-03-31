@@ -17,8 +17,8 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     private readonly ConcurrentDictionary<TKey, TtlValue> _cache;
 
     // Logical partitions of cache
-    private readonly ConcurrentLinkedList<KeyLocation> _probation;
-    private readonly ConcurrentLinkedList<KeyLocation> _protected;
+    private readonly ConcurrentUnorderedLinkedList<KeyLocation> _probation;
+    private readonly ConcurrentUnorderedLinkedList<KeyLocation> _protected;
 
     // Frequency queue tracking LFU candidates
     private readonly ConcurrentPriorityQueue<int, TKey> _evictionWindow;
@@ -407,7 +407,7 @@ public class LfuMemCache<TKey, TValue> : IMemCache<TKey, TValue> where TKey : no
     /// </summary>
     /// <param name="list">The list to remove the <see cref="KeyLocation"/> from.</param>
     /// <param name="keyLocation">The <see cref="KeyLocation"/> to remove, used to find the corresponding node in the list.</param>
-    private static void RemoveFromSegment(ConcurrentLinkedList<KeyLocation> list, KeyLocation keyLocation)
+    private static void RemoveFromSegment(ConcurrentUnorderedLinkedList<KeyLocation> list, KeyLocation keyLocation)
     {
         list.Find(keyLocation)?.Pipe(node => list.TryRemove(node.Key));
     }

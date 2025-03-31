@@ -9,13 +9,13 @@ namespace lvlup.DataFerry.Tests.Benchmarks
     [MemoryDiagnoser]
     public class LinkedListBenchmarks
     {
-        private readonly ConcurrentLinkedList<int> _concurrentList;
+        private readonly ConcurrentUnorderedLinkedList<int> _concurrentUnorderedList;
         private readonly LinkedList<int> _linkedList;
         private readonly int[] _items;
 
         public LinkedListBenchmarks()
         {
-            _concurrentList = new();
+            _concurrentUnorderedList = new();
             _linkedList = new();
             _items = Enumerable.Range(0, 100).ToArray();
         }
@@ -52,7 +52,7 @@ namespace lvlup.DataFerry.Tests.Benchmarks
         {
             for (int i = 0; i < 10; i++)
             {
-                _concurrentList.TryInsert(i);
+                _concurrentUnorderedList.TryInsert(i);
             }
         }
 
@@ -62,12 +62,12 @@ namespace lvlup.DataFerry.Tests.Benchmarks
             // Pre-populate the lists
             foreach (var item in _items)
             {
-                _concurrentList.TryInsert(item);
+                _concurrentUnorderedList.TryInsert(item);
             }
 
             for (int i = 0; i < 10; i++)
             {
-                _concurrentList.TryRemove(i);
+                _concurrentUnorderedList.TryRemove(i);
             }
         }
 
