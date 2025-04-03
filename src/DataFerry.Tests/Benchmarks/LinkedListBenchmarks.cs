@@ -1,7 +1,8 @@
 ﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
-using lvlup.DataFerry.Collections;
+
+using lvlup.DataFerry.Concurrency;
 
 namespace lvlup.DataFerry.Tests.Benchmarks
 {
@@ -34,8 +35,8 @@ namespace lvlup.DataFerry.Tests.Benchmarks
         public static void Main(string[] args)
         {
             // Uncomment to debug
-            _ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
-            //_ = BenchmarkRunner.Run<LinkedListBenchmarks>();
+            //_ = BenchmarkSwitcher.FromAssembly(typeof(MemCacheBenchmark).Assembly).Run(args, new DebugInProcessConfig());
+            _ = BenchmarkRunner.Run<LinkedListBenchmarks>();
         }
 
         [Benchmark]

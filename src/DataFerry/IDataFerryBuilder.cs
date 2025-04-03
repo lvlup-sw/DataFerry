@@ -1,9 +1,15 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿// =====================================================================
+// <copyright file="IDataFerryBuilder.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// =====================================================================
+
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lvlup.DataFerry;
 
 /// <summary>
-/// Helper API for configuring <see cref="Providers.DataFerry"/>.
+/// Helper API for configuring <see cref="DataFerry"/>.
 /// </summary>
 public interface IDataFerryBuilder
 {

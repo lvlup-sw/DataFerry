@@ -408,6 +408,7 @@ dotnet_diagnostic.IDE1006.severity = suggestion
 dotnet_diagnostic.CA2254.severity = silent
 dotnet_diagnostic.SA0001.severity = none
 dotnet_diagnostic.SA1000.severity = none
+dotnet_diagnostic.SA1009.severity = silent
 dotnet_diagnostic.SA1010.severity = none
 dotnet_diagnostic.SA1011.severity = silent
 dotnet_diagnostic.SA1101.severity = none

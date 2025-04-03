@@ -1,4 +1,10 @@
-﻿using System.Runtime.CompilerServices;
+﻿// =================================================================
+// <copyright file="HashGenerator.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// =================================================================
+
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;

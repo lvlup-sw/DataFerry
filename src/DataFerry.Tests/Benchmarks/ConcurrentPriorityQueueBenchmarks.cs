@@ -1,7 +1,8 @@
 ﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
-using lvlup.DataFerry.Collections;
+
+using lvlup.DataFerry.Concurrency;
 using lvlup.DataFerry.Orchestrators;
 using lvlup.DataFerry.Orchestrators.Contracts;
 using Microsoft.Extensions.DependencyInjection;

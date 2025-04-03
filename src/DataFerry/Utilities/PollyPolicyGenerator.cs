@@ -1,17 +1,17 @@
-﻿// ===========================================================================
+﻿// ========================================================================
 // <copyright file="PollyPolicyGenerator.cs" company="Level Up Software">
 // Copyright (c) Level Up Software. All rights reserved.
 // </copyright>
-// ===========================================================================
+// ========================================================================
 
-using lvlup.DataFerry.Orchestrators;
-
+using lvlup.DataFerry.Concurrency;
+using lvlup.DataFerry.Properties;
 using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Timeout;
 using Polly.Wrap;
 
-namespace lvlup.DataFerry.Utilities;
+namespace lvlup.DataFerry.Resilience;
 
 /// <summary>
 /// Provides static methods for generating pre-configured Polly <see cref="PolicyWrap"/>
