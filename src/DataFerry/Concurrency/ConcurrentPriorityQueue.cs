@@ -26,7 +26,7 @@ namespace lvlup.DataFerry.Concurrency;
 /// This implementation offers:
 /// </para>
 /// <list type="bullet">
-/// <item>Expected O(log n) time complexity for <c>TryAdd</c>, <c>Update</c>, <c>TryDelete</c>, <c>TryDeleteMin</c>, and <c>TryDeleteMinProbabilistically</c> operations.</item>
+/// <item>Expected O(log n) time complexity for <c>TryAdd</c>, <c>Update</c>, <c>TryDelete</c>, <c>TryDeleteMin</c>, and <c>TryDeleteMin</c> operations.</item>
 /// <item>Lock-free reads for <c>ContainsPriority</c> and <c>GetCount</c>.</item>
 /// <item>Lock-free priority enumeration via <c>GetEnumerator</c>.</item>
 /// <item>Support for custom priority comparison via injected <see cref="IComparer{TPriority}"/>.</item>
@@ -41,7 +41,7 @@ namespace lvlup.DataFerry.Concurrency;
 /// they are inserted level by level to maintain structural consistency. Physical node removal is scheduled to run asynchronously via the
 /// provided <see cref="ITaskOrchestrator"/>. Internal sequence numbers ensure unique node identity even
 /// with duplicate priorities. This implementation is based on the Lotan-Shavit algorithm,
-/// with an alternative <see cref="TryDeleteMinProbabilistically"/> method utilizing the SprayList
+/// with an alternative <see cref="TryDeleteMin"/> method utilizing the SprayList
 /// algorithm (with tunable parameters <c>OffsetK</c> and <c>OffsetM</c>) for potentially
 /// lower-contention removal of near-minimum elements, which is especially useful when the queue is at capacity or being utilized in high-throughput scenarios.
 /// </para>
@@ -76,7 +76,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     public const double DefaultPromotionProbability = 0.5;
 
     /// <summary>
-    /// The default tuning constant (K) added to the height used in the calculation during the Spray operation within <see cref="TryDeleteMinProbabilistically"/>.
+    /// The default tuning constant (K) added to the height used in the calculation during the Spray operation within <see cref="TryDeleteMin"/>.
     /// </summary>
     /// <remarks>
     /// Increasing this value starts the spray slightly higher, potentially giving it more room to spread. This does not typically need to be adjusted.
@@ -84,7 +84,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     public const int DefaultSprayOffsetK = 1;
 
     /// <summary>
-    /// The default tuning constant (M) multiplied by the jump length used in the calculation during the Spray operation within <see cref="TryDeleteMinProbabilistically"/>.
+    /// The default tuning constant (M) multiplied by the jump length used in the calculation during the Spray operation within <see cref="TryDeleteMin"/>.
     /// </summary>
     /// <remarks>
     /// This value directly scales the maximum jump length. This should be adjusted in the case where reducing contention is more desirable than deleting a node with a strictly higher priority.
@@ -159,7 +159,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <summary>
     /// Random number generator.
     /// </summary>
-    private readonly Random _randomGenerator = new();
+    private readonly Random _randomGenerator = Random.Shared;
 
     #endregion
     #region Constructors
@@ -170,8 +170,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <param name="taskOrchestrator">The scheduler used to orchestrate background tasks processing the physical deletion of nodes.</param>
     /// <param name="comparer">The comparer used to compare priorities. This will be used for all priority comparisons within the queue.</param>
     /// <param name="maxSize">Optional. The maximum number of elements allowed in the queue. Defaults to <see cref="DefaultMaxSize"/>. Pass <c>int.MaxValue</c> to functionally avoid a size bound.</param>
-    /// <param name="offsetK">Optional. The tuning constant K (affecting spray height) for the SprayList probabilistic delete-min operation (<see cref="TryDeleteMinProbabilistically"/>). Defaults to <see cref="DefaultSprayOffsetK"/>.</param>
-    /// <param name="offsetM">Optional. The tuning constant M (scaling spray jump length) for the SprayList probabilistic delete-min operation (<see cref="TryDeleteMinProbabilistically"/>). Defaults to <see cref="DefaultSprayOffsetM"/>.</param>
+    /// <param name="offsetK">Optional. The tuning constant K (affecting spray height) for the SprayList probabilistic delete-min operation (<see cref="TryDeleteMin"/>). Defaults to <see cref="DefaultSprayOffsetK"/>.</param>
+    /// <param name="offsetM">Optional. The tuning constant M (scaling spray jump length) for the SprayList probabilistic delete-min operation (<see cref="TryDeleteMin"/>). Defaults to <see cref="DefaultSprayOffsetM"/>.</param>
     /// <param name="promotionProbability">Optional. The probability (0 to 1, exclusive) of promoting a new node to the next higher level during insertion. Defaults to <see cref="DefaultPromotionProbability"/>.</param>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="taskOrchestrator"/> or <paramref name="comparer"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="maxSize"/> is less than 1.</exception>
@@ -286,7 +286,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                 if (Interlocked.Increment(ref _count) > _maxSize && _maxSize is not int.MaxValue)
                 {
                     // We use our SprayList algorithm to avoid contention
-                    TryDeleteMinProbabilistically(out _);
+                    TryDeleteMin(out _);
                 }
 
                 return true;
@@ -345,12 +345,12 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     /// <inheritdoc/>
-    public bool TryDeleteMin(out TElement element)
+    public bool TryDeleteAbsoluteMin(out TElement element)
     {
         SkipListNode curr = _head.GetNextNode(BottomLevel);
         element = default!;
 
-        while (curr.Type != SkipListNode.NodeType.Tail)
+        while (curr.Type is not SkipListNode.NodeType.Tail)
         {
             // Check if the node is valid before attempting to lock
             if (NodeIsInvalidOrDeleted(curr))
@@ -384,50 +384,23 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     /// <inheritdoc/>
-    public bool TryDeleteMinProbabilistically(out TElement element, double retryProbability = 1.0)
+    public bool TryDeleteMin(out TElement element, double retryProbability = 1.0)
     {
-        // If count is too small, perform normal TryDeleteMin
+        // If count is too small, perform TryDeleteAbsoluteMin
         int currCount = GetCount();
-        if (currCount <= 1) return TryDeleteMin(out element);
+        if (currCount <= 1) return TryDeleteAbsoluteMin(out element);
 
         element = default!;
 
-        // Init our parameters
-        var sprayParams = SprayParameters.CalculateParameters(currCount, _topLevel, _offsetK, _offsetM);
-
-        // Prepare spray operation
-        int currHeight = sprayParams.StartHeight;
-        var curr = _head;
-
-        // Spray operation
-        while (currHeight >= 0)
-        {
-            int currJumpLength = (sprayParams.MaxJumpLength > 0)
-                ? _randomGenerator.Next(0, sprayParams.MaxJumpLength + 1)
-                : 0;
-
-            // Move forward horizontally
-            for (int i = 0; i < currJumpLength; i++)
-            {
-                if (currHeight > curr.TopLevel) break;
-
-                var next = curr.GetNextNode(currHeight);
-                if (next.Type is SkipListNode.NodeType.Tail) break;
-
-                curr = next;
-            }
-
-            // Descend D levels
-            if (currHeight < sprayParams.DescentLength) break;
-            currHeight -= sprayParams.DescentLength;
-        }
+        // Perform the spray operation
+        var curr = SpraySearch(currCount);
 
         // Spray complete; attempt to logically delete candidate
         if (!LogicallyDeleteNode(curr))
         {
             // Failure path; retry probabilistically
             return _randomGenerator.NextDouble() < retryProbability &&
-                TryDeleteMinProbabilistically(out element, retryProbability * 0.5);
+                TryDeleteMin(out element, retryProbability * 0.5);
         }
 
         try
@@ -442,6 +415,27 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         {
             curr.Unlock();
         }
+    }
+
+    /// <inheritdoc/>
+    public IEnumerable<(TPriority priority, TElement element)> SampleNearMin(int sampleSize, int maxAttemptsMultiplier = 3)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleSize, nameof(sampleSize));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxAttemptsMultiplier, nameof(maxAttemptsMultiplier));
+
+        // If count is too small, return empty list
+        int currCount = GetCount();
+        if (currCount <= sampleSize) return [];
+
+        // Use PLINQ to perform the sprays in parallel
+        return Enumerable.Range(0, sampleSize * maxAttemptsMultiplier)
+            .AsParallel()
+            .Select(_ => SpraySearch(currCount))
+            .Where(node => !NodeIsInvalidOrDeleted(node))
+            .Distinct()
+            .Take(sampleSize)
+            .Select(node => (node.Priority, node.Element))
+            .ToList();
     }
 
     /// <inheritdoc/>
@@ -562,8 +556,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// </remarks>
     internal static bool NodeIsInvalidOrDeleted(SkipListNode? curr)
     {
-        return curr is null
-               || curr.Type is SkipListNode.NodeType.Tail
+        return curr?.Type is not SkipListNode.NodeType.Data
                || !curr.IsInserted
                || curr.IsDeleted;
     }
@@ -834,6 +827,41 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         }
 
         return nodeToUpdate;
+    }
+
+    internal SkipListNode SpraySearch(int currCount)
+    {
+        // Init our parameters
+        var sprayParams = SprayParameters.CalculateParameters(currCount, _topLevel, _offsetK, _offsetM);
+
+        // Prepare spray operation
+        int currHeight = sprayParams.StartHeight;
+        var curr = _head;
+
+        // Spray operation
+        while (currHeight >= 0)
+        {
+            int currJumpLength = (sprayParams.MaxJumpLength > 0)
+                ? _randomGenerator.Next(0, sprayParams.MaxJumpLength + 1)
+                : 0;
+
+            // Move forward horizontally
+            for (int i = 0; i < currJumpLength; i++)
+            {
+                if (currHeight > curr.TopLevel) break;
+
+                var next = curr.GetNextNode(currHeight);
+                if (next.Type is SkipListNode.NodeType.Tail) break;
+
+                curr = next;
+            }
+
+            // Descend D levels
+            if (currHeight < sprayParams.DescentLength) break;
+            currHeight -= sprayParams.DescentLength;
+        }
+
+        return curr;
     }
 
     /// <summary>
