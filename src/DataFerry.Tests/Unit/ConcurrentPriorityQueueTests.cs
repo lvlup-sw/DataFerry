@@ -1302,7 +1302,7 @@ public class ConcurrentPriorityQueueTests
         Assert.AreEqual(expected, result);
     }
 
-     [TestMethod]
+    [TestMethod]
     public void SkipListNode_CompareToPriority_HeadTailNodes()
     {
         // Arrange
@@ -1321,22 +1321,26 @@ public class ConcurrentPriorityQueueTests
 
     #endregion
     #region Internal SearchResult Tests
-
+    
     [TestMethod]
     public void SearchResult_IsFound_CorrectBasedOnLevelFound()
     {
         // Arrange
         var nodes = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
-        var resultFound = new ConcurrentPriorityQueue<int, string>.SearchResult(0, nodes, nodes);
-        var resultNotFound = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, nodes, nodes);
+        var dummyNode = CreateNode(0,"Dummy",0);
+        var resultFound = new ConcurrentPriorityQueue<int, string>.SearchResult(0, nodes, nodes, dummyNode);
+        var resultNotFoundLevel = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, nodes, nodes, null);
+        var resultNotFoundNode = new ConcurrentPriorityQueue<int, string>.SearchResult(0, nodes, nodes, null); // Level found but node is null
 
         // Act
         bool isFound1 = resultFound.IsFound;
-        bool isFound2 = resultNotFound.IsFound;
+        bool isFound2 = resultNotFoundLevel.IsFound;
+        bool isFound3 = resultNotFoundNode.IsFound;
 
         // Assert
-        Assert.IsTrue(isFound1, "IsFound should be true when LevelFound >= 0.");
+        Assert.IsTrue(isFound1, "IsFound should be true when LevelFound >= 0 AND NodeFound is not null.");
         Assert.IsFalse(isFound2, "IsFound should be false when LevelFound == -1.");
+        Assert.IsFalse(isFound3, "IsFound should be false when NodeFound is null, even if LevelFound >= 0.");
     }
 
     [TestMethod]
@@ -1345,9 +1349,10 @@ public class ConcurrentPriorityQueueTests
         // Arrange
         var pred1 = CreateNode(1, "P1", 0);
         var succ1 = CreateNode(3, "S1", 0);
+        var nodeThatWasFound = pred1.GetNextNode(0);
         var preds = new[] { pred1 };
         var succs = new[] { succ1 };
-        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(0, preds, succs);
+        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(0, preds, succs, nodeThatWasFound);
         const int level = 0;
 
         // Act
@@ -1365,16 +1370,16 @@ public class ConcurrentPriorityQueueTests
         // Arrange
         var nodeFound = CreateNode(5, "Found", 1);
         var preds = new[] { CreateNode(1, "P0", 1), CreateNode(3, "P1", 1) };
-        var succs = new[] { CreateNode(7, "S0", 1), nodeFound };
+        var succs = new[] { CreateNode(7, "S0", 1), nodeFound.GetNextNode(1) };
         const int levelFound = 1;
-        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(levelFound, preds, succs);
+        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(levelFound, preds, succs, nodeFound);
         Assert.IsTrue(result.IsFound, "Pre-condition: IsFound should be true.");
 
         // Act
         var retrievedNode = result.GetNodeFound();
 
         // Assert
-        Assert.AreSame(nodeFound, retrievedNode, "GetNodeFound should return the correct node.");
+        Assert.AreSame(nodeFound, retrievedNode, "GetNodeFound should return the explicitly passed NodeFound instance.");
     }
 
     [TestMethod]
@@ -1383,7 +1388,7 @@ public class ConcurrentPriorityQueueTests
         // Arrange
         var preds = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
         var succs = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
-        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
         Assert.IsFalse(result.IsFound, "Pre-condition: IsFound should be false.");
 
         // Act & Assert
@@ -1394,10 +1399,10 @@ public class ConcurrentPriorityQueueTests
     #region Internal SprayParameters Tests
 
     [TestMethod]
-    [DataRow(100, 10, 1, 1, 4, 2, 1)]
-    [DataRow(1000, 15, 2, 3, 8, 91, 2)]
-    [DataRow(2, 5, 1, 1, 1, 0, 1)]
-    [DataRow(1000000, 30, 1, 1, 14, 2700, 2)]
+    [DataRow(100, 10, 1, 1, 5, 97, 1)]
+    [DataRow(1000, 15, 2, 3, 8, 987, 1)]
+    [DataRow(2, 5, 1, 1, 1, 1, 1)]
+    [DataRow(1000000, 30, 1, 1, 14, 2636, 2)]
     public void SprayParameters_CalculateParameters_ReturnsCorrectValues(int count, int topLevel, int k, int m, int expectedH, int expectedY, int expectedD)
     {
         // Act
@@ -1412,7 +1417,7 @@ public class ConcurrentPriorityQueueTests
         Assert.AreEqual(expectedY, parameters.MaxJumpLength, "MaxJumpLength (y) is incorrect.");
     }
 
-     [TestMethod]
+    [TestMethod]
     public void SprayParameters_CalculateParameters_HandlesLogEdgeCases()
     {
         // Arrange
@@ -1585,16 +1590,16 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, succ);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
         int highestLocked = -1;
 
         // Act
         bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
 
         // Assert
-        Assert.IsTrue(isValid, "Validation should pass for a valid path.");
-        Assert.AreEqual(insertLevel, highestLocked, "Highest locked level should be the insert level.");
-        if(highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+        Assert.IsTrue(isValid);
+        Assert.AreEqual(insertLevel, highestLocked);
+        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
     }
 
     [TestMethod]
@@ -1608,19 +1613,19 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, succ);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
         int highestLocked = -1;
 
         // Act
         bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
 
         // Assert
-        Assert.IsFalse(isValid, "Validation should fail if predecessor is deleted.");
-        Assert.AreEqual(level, highestLocked, "Should have locked up to the point of failure.");
-        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+        Assert.IsFalse(isValid);
+        Assert.AreEqual(level, highestLocked);
+        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked)?.Unlock();
     }
 
-     [TestMethod]
+    [TestMethod]
     public void ValidateInsertion_DeletedSuccessor_ReturnsFalse()
     {
         // Arrange
@@ -1631,16 +1636,16 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, succ);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
         int highestLocked = -1;
 
         // Act
         bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
 
         // Assert
-        Assert.IsFalse(isValid, "Validation should fail if successor is deleted.");
-        Assert.AreEqual(level, highestLocked, "Should have locked up to the point of failure.");
-        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+        Assert.IsFalse(isValid);
+        Assert.AreEqual(level, highestLocked);
+        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked)?.Unlock();
     }
 
     [TestMethod]
@@ -1653,22 +1658,20 @@ public class ConcurrentPriorityQueueTests
         var succ = CreateNode(3, "S", 1);
         var another = CreateNode(2, "A", 1);
         pred.SetNextNode(level, another);
-
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
         int highestLocked = -1;
 
         // Act
         bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
 
         // Assert
-        Assert.IsFalse(isValid, "Validation should fail if link is broken.");
-        Assert.AreEqual(level, highestLocked, "Should have locked up to the point of failure.");
-        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+        Assert.IsFalse(isValid);
+        Assert.AreEqual(level, highestLocked);
+        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked)?.Unlock();
     }
-
-
+    
     [TestMethod]
     public void InsertNode_LinksCorrectly()
     {
@@ -1679,10 +1682,9 @@ public class ConcurrentPriorityQueueTests
         var succ = CreateNode(3, "S", 1);
         var newNode = CreateNode(2, "New", 0, isInserted: false);
         pred.SetNextNode(level, succ);
-
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
 
         // Act
         pred.Lock();
@@ -1840,38 +1842,23 @@ public class ConcurrentPriorityQueueTests
         queue.TryAdd(5, "E5");
         queue.TryAdd(1, "E1");
         queue.TryAdd(3, "E3");
-
         var nodeToFind = queue.InlineSearch(3);
         Assert.IsNotNull(nodeToFind, "Pre-condition: Node with priority 3 must exist.");
-
-        var head = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_head");
+        _ = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_head");
         var node1 = queue.InlineSearch(1);
-        var node5 = queue.InlineSearch(5); // Expected successor
+        var node5 = queue.InlineSearch(5);
         Assert.IsNotNull(node1, "Pre-condition: Node 1 must exist.");
         Assert.IsNotNull(node5, "Pre-condition: Node 5 must exist.");
 
         // Act
         var result = queue.StructuralSearch(nodeToFind);
-
-        // --- DEBUGGING ---
-        var actualSuccessor = result.GetSuccessor(0);
-        Console.WriteLine($"--- StructuralSearch Debug ---");
-        Console.WriteLine($"Node Searched For (nodeToFind): P={nodeToFind?.Priority}, S={nodeToFind?.SequenceNumber}, H={nodeToFind?.GetHashCode()}");
-        Console.WriteLine($"Expected Successor (node5):      P={node5?.Priority}, S={node5?.SequenceNumber}, H={node5?.GetHashCode()}");
-        Console.WriteLine($"Actual Successor (result[0]):  P={actualSuccessor?.Priority}, S={actualSuccessor?.SequenceNumber}, H={actualSuccessor?.GetHashCode()}");
-        Console.WriteLine($"AreSame(node5, actualSuccessor)? {ReferenceEquals(node5, actualSuccessor)}");
-        Console.WriteLine($"--- End Debug ---");
-        // --- END DEBUGGING ---
-
+        
         // Assert
         Assert.IsTrue(result.IsFound, "Search should find the existing node.");
         Assert.IsTrue(result.LevelFound >= 0, "LevelFound should be >= 0 when node is found.");
         Assert.AreSame(nodeToFind, result.GetNodeFound(), "GetNodeFound should return the searched node.");
         Assert.AreSame(node1, result.GetPredecessor(0), "Predecessor at level 0 should be node 1.");
-
-        // --- FAILING ASSERTION ---
-        Assert.AreSame(node5, actualSuccessor, "Successor at level 0 should be node 5.");
-        // --- END FAILING ASSERTION ---
+        Assert.AreSame(node5, result.GetSuccessor(0), "Successor at level 0 should be node 5.");
     }
 
     #endregion

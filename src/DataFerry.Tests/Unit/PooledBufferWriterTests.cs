@@ -202,7 +202,7 @@ public class PooledBufferWriterTests
     #endregion
     #region Write / Grow Tests
 
-     [TestMethod]
+    [TestMethod]
     public void Write_ShouldWriteToBuffer()
     {
         // Arrange
@@ -221,7 +221,7 @@ public class PooledBufferWriterTests
         CollectionAssert.AreEqual(new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }, array);
     }
 
-     [TestMethod]
+    [TestMethod]
     public void Grow_ShouldResizeBuffer()
     {
         // Arrange

@@ -906,6 +906,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         SkipListNode[] predecessorArray = new SkipListNode[_numberOfLevels];
         SkipListNode[] successorArray = new SkipListNode[_numberOfLevels];
         SkipListNode predecessor = _head;
+        SkipListNode? nodeFound = null;
 
         for (int level = _topLevel; level >= 0; level--)
         {
@@ -928,6 +929,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             {
                 // The actual successor is the node *after* current
                 successorArray[level] = current.GetNextNode(level);
+                nodeFound ??= current;
 
                 // Update levelFound only if we found the exact node and haven't found it before
                 if (levelFound == InvalidLevel) levelFound = level;
@@ -943,7 +945,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         // The SearchResult contains predecessors/successors relative to the
         // exact position of nodeToPosition based on (Priority, SequenceNumber)
-        return new SearchResult(levelFound, predecessorArray, successorArray);
+        return new SearchResult(levelFound, predecessorArray, successorArray, nodeFound);
     }
 
     #endregion
@@ -1040,10 +1042,11 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <summary>
     /// Represents the result of a structural search operation in the SkipList.
     /// </summary>
-    /// <param name="LevelFound">The level at which the priority was found (or <see cref="NotFoundLevel"/> if not found).</param>
+    /// <param name="LevelFound">The highest level index at which the exact node was found (or <see cref="InvalidLevel"/> if not found).</param>
     /// <param name="PredecessorArray">An array of predecessor nodes at each level.</param>
     /// <param name="SuccessorArray">An array of successor nodes at each level.</param>
-    internal sealed record SearchResult(int LevelFound, SkipListNode[] PredecessorArray, SkipListNode[] SuccessorArray)
+    /// <param name="NodeFound">A reference to the exact node instance found, or null if not found.</param>
+    internal sealed record SearchResult(int LevelFound, SkipListNode[] PredecessorArray, SkipListNode[] SuccessorArray, SkipListNode? NodeFound)
     {
         /// <summary>
         /// Represents the level element when a priority is not found in the SkipList.
@@ -1053,7 +1056,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// <summary>
         /// Gets an element indicating whether the priority was found in the SkipList.
         /// </summary>
-        public bool IsFound => LevelFound != NotFoundLevel;
+        public bool IsFound => LevelFound != NotFoundLevel && NodeFound is not null;
 
         /// <summary>
         /// Gets the predecessor node at the specified level.
@@ -1061,6 +1064,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// <param name="level">The level at which to get the predecessor node.</param>
         /// <returns>The predecessor node at the specified level.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <see cref="PredecessorArray"/> is null.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown if level is invalid.</exception>
         public SkipListNode GetPredecessor(int level)
         {
             ArgumentNullException.ThrowIfNull(PredecessorArray, nameof(PredecessorArray));
@@ -1073,6 +1077,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// <param name="level">The level at which to get the successor node.</param>
         /// <returns>The successor node at the specified level.</returns>
         /// <exception cref="ArgumentNullException">Thrown if <see cref="SuccessorArray"/> is null.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown if level is invalid.</exception>
         public SkipListNode GetSuccessor(int level)
         {
             ArgumentNullException.ThrowIfNull(SuccessorArray, nameof(SuccessorArray));
@@ -1080,15 +1085,18 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         }
 
         /// <summary>
-        /// Gets the node that was found during the search.
+        /// Gets the exact node instance that was found during the search.
         /// </summary>
         /// <returns>The node that was found.</returns>
-        /// <exception cref="InvalidOperationException">Thrown if the priority was not found (<see cref="IsFound"/> is false).</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the node was not found (<see cref="IsFound"/> is false).</exception>
         public SkipListNode GetNodeFound()
         {
-            if (!IsFound) throw new InvalidOperationException("Cannot get node found when the priority was not found.");
+            if (!IsFound || NodeFound is null)
+            {
+                throw new InvalidOperationException("Cannot get node found because the exact node instance was not found during the search.");
+            }
 
-            return SuccessorArray[LevelFound];
+            return NodeFound;
         }
     }
 
