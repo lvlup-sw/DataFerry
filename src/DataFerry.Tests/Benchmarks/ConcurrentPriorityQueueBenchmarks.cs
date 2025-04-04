@@ -75,7 +75,7 @@ namespace lvlup.DataFerry.Tests.Benchmarks
             var count = _frequencyQueue.GetCount();
             for (int i = 0; i < count; i++)
             {
-                _frequencyQueue.TryDeleteMinProbabilistically(out _);
+                _frequencyQueue.TryDeleteMin(out _);
             }
         }
 
@@ -95,7 +95,7 @@ namespace lvlup.DataFerry.Tests.Benchmarks
             var count = _frequencyQueue.GetCount();
             Parallel.For(0, count, j =>
             {
-                _frequencyQueue.TryDeleteMinProbabilistically(out _);
+                _frequencyQueue.TryDeleteMin(out _);
             });
         }
 

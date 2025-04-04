@@ -4,6 +4,8 @@
 // </copyright>
 // ===========================================================================
 
+using lvlup.DataFerry.Utilities;
+
 namespace lvlup.DataFerry.Properties;
 
 /// <summary>

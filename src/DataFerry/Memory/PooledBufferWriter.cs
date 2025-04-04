@@ -62,6 +62,8 @@ public class PooledBufferWriterOptions
 /// <typeparam name="T">The type of elements in the buffer.</typeparam>
 public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
 {
+    #region Global Variables
+
     private const int DefaultInitialBufferSize = 256;
     private const int PowerOfTwoThreshold = 1024 * 1024;
 
@@ -71,6 +73,9 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
 
     private T[] _buffer;
     private int _index;
+
+    #endregion
+    #region Constructors
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PooledBufferWriter{T}"/> class using the shared <see cref="ArrayPool{T}"/>.
@@ -105,6 +110,9 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
             : Array.Empty<T>();
         _index = 0;
     }
+
+    #endregion
+    #region Core Operations
 
     /// <summary>
     /// Gets the amount of data written to the underlying buffer so far.
@@ -180,7 +188,6 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
     /// </summary>
     /// <param name="value">The span of data to write.</param>
     /// <returns>A tuple containing the zero-based starting index and the length of the data written.</returns>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public (int Index, int Length) WriteAndGetPosition(ReadOnlySpan<T> value)
     {
         ObjectDisposedException.ThrowIf(_index == -1, this);
@@ -219,6 +226,9 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
         _index = -1;
     }
 
+    #endregion
+    #region Buffer Resizing
+
     /// <summary>
     /// Ensures that the buffer has enough capacity to accommodate the specified size hint.
     /// If necessary, the buffer is resized by renting a new array from the pool and copying the existing data.
@@ -242,7 +252,6 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
     /// Selects the appropriate growth strategy and resizes the buffer.
     /// </summary>
     /// <param name="sizeHint">The minimum additional capacity required beyond the current index.</param>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void GrowBuffer(int sizeHint)
     {
         int minimumRequired = WrittenCount + sizeHint;
@@ -271,7 +280,7 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
     /// and returns the old buffer to the pool.
     /// </summary>
     /// <param name="newSize">The size of the new buffer to rent.</param>
-    [MethodImpl(MethodImplOptions.NoInlining)] // Avoid inlining resizing logic
+    [MethodImpl(MethodImplOptions.NoInlining)]
     internal void ResizeAndCopy(int newSize)
     {
         T[] oldBuffer = _buffer;
@@ -289,6 +298,9 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
             ReturnBuffer(oldBuffer);
         }
     }
+
+    #endregion
+    #region Growth Strategy
 
     /// <summary>
     /// Calculates the new buffer size using a linear growth strategy.
@@ -339,12 +351,11 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
         // If the required size exceeds the threshold, round up to the nearest power of two
         if (minimumRequired > PowerOfTwoThreshold)
         {
-            // Ensure uint conversion is safe before calling BitOperations
+            // Ensure uint conversion is safe
             uint requiredUnsigned = (uint)minimumRequired;
             {
                 uint powerOfTwoSize = BitOperations.RoundUpToPowerOf2(requiredUnsigned);
 
-                // Check if powerOfTwoSize exceeds int.MaxValue before casting back
                 if(powerOfTwoSize <= int.MaxValue)
                 {
                     newSize = (int)powerOfTwoSize;
@@ -366,6 +377,8 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
 
         return newSize;
     }
+
+    #endregion
 
     /// <summary>
     /// Returns the buffer to the pool, applying the configured clear setting.

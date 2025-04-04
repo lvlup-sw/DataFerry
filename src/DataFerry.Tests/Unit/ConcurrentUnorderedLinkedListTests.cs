@@ -1,310 +1,309 @@
 ﻿using lvlup.DataFerry.Concurrency;
 using lvlup.DataFerry.Tests.TestModels;
 
-namespace lvlup.DataFerry.Tests.Collections
+namespace lvlup.DataFerry.Tests.Unit;
+
+[TestClass]
+public class ConcurrentUnorderedLinkedListTests
 {
-    [TestClass]
-    public class ConcurrentUnorderedLinkedListTests
+    private ConcurrentUnorderedLinkedList<Payload> _list = default!;
+
+    [TestInitialize]
+    public void Setup()
     {
-        private ConcurrentUnorderedLinkedList<Payload> _list = default!;
+        _list = new(Comparer<Payload>.Create((x, y) => y.CompareTo(x)));
+    }
 
-        [TestInitialize]
-        public void Setup()
+    [TestCleanup]
+    public void Cleanup()
+    {
+        _list = default!;
+    }
+
+    [TestMethod]
+    public void TryInsert_ShouldInsertNewNode()
+    {
+        // Arrange
+        var payload = TestUtils.CreatePayloadRandom();
+
+        // Act
+        bool result = _list.TryInsert(payload);
+
+        // Assert
+        Assert.IsTrue(result);
+        Assert.IsTrue(_list.Contains(payload));
+    }
+
+    [TestMethod]
+    public void TryInsert_ShouldNotInsertDuplicateKey_WhenKeyExists()
+    {
+        // Arrange
+        var payload = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(payload);
+
+        // Act
+        bool result = _list.TryInsert(payload);
+
+        // Assert
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void TryInsert_ShouldInsertManyNodes()
+    {
+        // Arrange
+        List<Payload> payloads = [];
+        for (int i = 0; i < 50; i++)
         {
-            _list = new(Comparer<Payload>.Create((x, y) => y.CompareTo(x)));
+            payloads.Add(TestUtils.CreatePayloadRandom());
+            bool res = _list.TryInsert(payloads[i]);
+            Assert.IsTrue(res);
         }
 
-        [TestCleanup]
-        public void Cleanup()
+        // Act
+        bool result = _list.Count == 50;
+
+        // Assert
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void TryInsert_ShouldHandleConcurrentInserts_WithSameKey()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
+        var tasks = new List<Task<bool>>();
+
+        // Act
+        for (int i = 0; i < 10; i++)
         {
-            _list = default!;
+            tasks.Add(Task.Run(() => _list.TryInsert(key)));
         }
+        Task.WaitAll([.. tasks]);
 
-        [TestMethod]
-        public void TryInsert_ShouldInsertNewNode()
+        // Assert
+        // Only one insertion should be successful
+        Assert.AreEqual(1, tasks.Count(t => t.Result));
+        Assert.IsTrue(_list.Contains(key));
+    }
+
+    [TestMethod]
+    public void TryRemove_ShouldRemoveExistingNode_WhenKeyExists()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(key);
+
+        // Act
+        bool result = _list.TryRemove(key);
+
+        // Assert
+        Assert.IsTrue(result);
+        Assert.IsFalse(_list.Contains(key));
+    }
+
+    [TestMethod]
+    public void TryRemove_ShouldNotRemoveNode_WhenKeyDoesNotExist()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadRandom();
+
+        // Act
+        bool result = _list.TryRemove(key);
+
+        // Assert
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void TryRemove_ShouldHandleConcurrentRemoves_WithSameKey()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(key);
+        var tasks = new List<Task<bool>>();
+        var initialCount = _list.Count;
+
+        // Act
+        for (int i = 0; i < 10; i++)
         {
-            // Arrange
-            var payload = TestUtils.CreatePayloadRandom();
-
-            // Act
-            bool result = _list.TryInsert(payload);
-
-            // Assert
-            Assert.IsTrue(result);
-            Assert.IsTrue(_list.Contains(payload));
+            tasks.Add(Task.Run(() => _list.TryRemove(key)));
         }
+        Task.WaitAll([.. tasks]);
 
-        [TestMethod]
-        public void TryInsert_ShouldNotInsertDuplicateKey_WhenKeyExists()
-        {
-            // Arrange
-            var payload = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(payload);
+        // Assert
+        Assert.AreEqual(initialCount - 1, _list.Count);
+        Assert.IsFalse(_list.Contains(key));
+    }
 
-            // Act
-            bool result = _list.TryInsert(payload);
+    [TestMethod]
+    public void Contains_ShouldReturnTrue_WhenKeyExistsAndStateIsValid()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(key);
 
-            // Assert
-            Assert.IsFalse(result);
-        }
+        // Act
+        bool result = _list.Contains(key);
 
-        [TestMethod]
-        public void TryInsert_ShouldInsertManyNodes()
-        {
-            // Arrange
-            List<Payload> payloads = [];
-            for (int i = 0; i < 50; i++)
-            {
-                payloads.Add(TestUtils.CreatePayloadRandom());
-                bool res = _list.TryInsert(payloads[i]);
-                Assert.IsTrue(res);
-            }
+        // Assert
+        Assert.IsTrue(result);
+    }
 
-            // Act
-            bool result = _list.Count == 50;
+    [TestMethod]
+    public void Contains_ShouldReturnFalse_WhenKeyDoesNotExist()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
 
-            // Assert
-            Assert.IsTrue(result);
-        }
+        // Act
+        bool result = _list.Contains(key);
 
-        [TestMethod]
-        public void TryInsert_ShouldHandleConcurrentInserts_WithSameKey()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
-            var tasks = new List<Task<bool>>();
+        // Assert
+        Assert.IsFalse(result);
+    }
 
-            // Act
-            for (int i = 0; i < 10; i++)
-            {
-                tasks.Add(Task.Run(() => _list.TryInsert(key)));
-            }
-            Task.WaitAll([.. tasks]);
+    [TestMethod]
+    public void Contains_ShouldReturnFalse_WhenKeyExistsButStateIsInvalid()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(key);
+        _list.TryRemove(key); // This should set the state to INV
 
-            // Assert
-            // Only one insertion should be successful
-            Assert.AreEqual(1, tasks.Count(t => t.Result));
-            Assert.IsTrue(_list.Contains(key));
-        }
+        // Act
+        bool result = _list.Contains(key);
 
-        [TestMethod]
-        public void TryRemove_ShouldRemoveExistingNode_WhenKeyExists()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(key);
+        // Assert
+        Assert.IsFalse(result);
+    }
 
-            // Act
-            bool result = _list.TryRemove(key);
+    [TestMethod]
+    public void Find_ShouldReturnNode_WhenValueExistsAndStateIsValid()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(key);
 
-            // Assert
-            Assert.IsTrue(result);
-            Assert.IsFalse(_list.Contains(key));
-        }
+        // Act
+        Node<Payload>? node = _list.Find(key);
 
-        [TestMethod]
-        public void TryRemove_ShouldNotRemoveNode_WhenKeyDoesNotExist()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadRandom();
+        // Assert
+        Assert.IsNotNull(node);
+        Assert.AreEqual(key, node.Key);
+    }
 
-            // Act
-            bool result = _list.TryRemove(key);
+    [TestMethod]
+    public void Find_ShouldReturnNull_WhenValueDoesNotExist()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
 
-            // Assert
-            Assert.IsFalse(result);
-        }
+        // Act
+        Node<Payload>? node = _list.Find(key);
 
-        [TestMethod]
-        public void TryRemove_ShouldHandleConcurrentRemoves_WithSameKey()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(key);
-            var tasks = new List<Task<bool>>();
-            var initialCount = _list.Count;
+        // Assert
+        Assert.IsNull(node);
+    }
 
-            // Act
-            for (int i = 0; i < 10; i++)
-            {
-                tasks.Add(Task.Run(() => _list.TryRemove(key)));
-            }
-            Task.WaitAll([.. tasks]);
+    [TestMethod]
+    public void Find_ShouldReturnNull_WhenValueExistsButStateIsInvalid()
+    {
+        // Arrange
+        var key = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(key);
+        _list.TryRemove(key);
 
-            // Assert
-            Assert.AreEqual(initialCount - 1, _list.Count);
-            Assert.IsFalse(_list.Contains(key));
-        }
+        // Act
+        Node<Payload>? node = _list.Find(key);
 
-        [TestMethod]
-        public void Contains_ShouldReturnTrue_WhenKeyExistsAndStateIsValid()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(key);
+        // Assert
+        Assert.IsNull(node);
+    }
 
-            // Act
-            bool result = _list.Contains(key);
+    [TestMethod]
+    public void CopyTo_ShouldCopyElementsToArray_WhenListIsNotEmpty()
+    {
+        // Arrange
+        var key1 = TestUtils.CreatePayloadRandom();
+        var key2 = TestUtils.CreatePayloadRandom();
+        _list.TryInsert(key1);
+        _list.TryInsert(key2);
+        var array = new Payload[_list.Count];
 
-            // Assert
-            Assert.IsTrue(result);
-        }
+        // Act
+        _list.CopyTo(array, 0);
 
-        [TestMethod]
-        public void Contains_ShouldReturnFalse_WhenKeyDoesNotExist()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
+        // Assert
+        Assert.AreEqual(key2, array[0]);
+        Assert.AreEqual(key1, array[1]);
+    }
 
-            // Act
-            bool result = _list.Contains(key);
+    [TestMethod]
+    [ExpectedException(typeof(ArgumentOutOfRangeException))]
+    public void CopyTo_ShouldNotCopyElements_WhenListIsEmpty()
+    {
+        // Arrange
+        var array = new Payload[_list.Count];
 
-            // Assert
-            Assert.IsFalse(result);
-        }
+        // Act
+        _list.CopyTo(array, 0);
+    }
 
-        [TestMethod]
-        public void Contains_ShouldReturnFalse_WhenKeyExistsButStateIsInvalid()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(key);
-            _list.TryRemove(key); // This should set the state to INV
+    [TestMethod]
+    public void CopyTo_ShouldCopyElementsToArray_FromGivenIndex()
+    {
+        // Arrange
+        var key1 = TestUtils.CreatePayloadIdentical();
+        var key2 = TestUtils.CreatePayloadRandom();
+        _list.TryInsert(key1);
+        _list.TryInsert(key2);
+        var array = new Payload[_list.Count + 1];
+        array[0] = TestUtils.CreatePayloadIdentical();
 
-            // Act
-            bool result = _list.Contains(key);
+        // Act
+        _list.CopyTo(array, 1);
 
-            // Assert
-            Assert.IsFalse(result);
-        }
+        // Assert
+        Assert.AreEqual(key1, array[2]);
+        Assert.AreEqual(key2, array[1]);
+    }
 
-        [TestMethod]
-        public void Find_ShouldReturnNode_WhenValueExistsAndStateIsValid()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(key);
+    [TestMethod]
+    [ExpectedException(typeof(ArgumentNullException))]
+    public void CopyTo_ShouldThrowArgumentNullException_WhenArrayIsNull()
+    {
+        // Act
+        _list.CopyTo(null!, 0);
+    }
 
-            // Act
-            Node<Payload>? node = _list.Find(key);
+    [TestMethod]
+    [ExpectedException(typeof(ArgumentOutOfRangeException))]
+    public void CopyTo_ShouldThrowArgumentOutOfRangeException_WhenIndexIsNegative()
+    {
+        // Act
+        _list.CopyTo(new Payload[_list.Count], -1);
+    }
 
-            // Assert
-            Assert.IsNotNull(node);
-            Assert.AreEqual(key, node.Key);
-        }
+    [TestMethod]
+    [ExpectedException(typeof(ArgumentOutOfRangeException))]
+    public void CopyTo_ShouldThrowArgumentOutOfRangeException_WhenIndexIsGreaterThanOrEqualToArrayLength()
+    {
+        // Act
+        _list.CopyTo(new Payload[_list.Count], 2);
+    }
 
-        [TestMethod]
-        public void Find_ShouldReturnNull_WhenValueDoesNotExist()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
+    [TestMethod]
+    [ExpectedException(typeof(ArgumentOutOfRangeException))]
+    public void CopyTo_ShouldThrowArgumentOutOfRangeException_WhenNotEnoughSpaceInArray()
+    {
+        // Arrange
+        var key1 = TestUtils.CreatePayloadIdentical();
+        var key2 = TestUtils.CreatePayloadIdentical();
+        _list.TryInsert(key1);
+        _list.TryInsert(key2);
 
-            // Act
-            Node<Payload>? node = _list.Find(key);
-
-            // Assert
-            Assert.IsNull(node);
-        }
-
-        [TestMethod]
-        public void Find_ShouldReturnNull_WhenValueExistsButStateIsInvalid()
-        {
-            // Arrange
-            var key = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(key);
-            _list.TryRemove(key);
-
-            // Act
-            Node<Payload>? node = _list.Find(key);
-
-            // Assert
-            Assert.IsNull(node);
-        }
-
-        [TestMethod]
-        public void CopyTo_ShouldCopyElementsToArray_WhenListIsNotEmpty()
-        {
-            // Arrange
-            var key1 = TestUtils.CreatePayloadRandom();
-            var key2 = TestUtils.CreatePayloadRandom();
-            _list.TryInsert(key1);
-            _list.TryInsert(key2);
-            var array = new Payload[_list.Count];
-
-            // Act
-            _list.CopyTo(array, 0);
-
-            // Assert
-            Assert.AreEqual(key2, array[0]);
-            Assert.AreEqual(key1, array[1]);
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(ArgumentOutOfRangeException))]
-        public void CopyTo_ShouldNotCopyElements_WhenListIsEmpty()
-        {
-            // Arrange
-            var array = new Payload[_list.Count];
-
-            // Act
-            _list.CopyTo(array, 0);
-        }
-
-        [TestMethod]
-        public void CopyTo_ShouldCopyElementsToArray_FromGivenIndex()
-        {
-            // Arrange
-            var key1 = TestUtils.CreatePayloadIdentical();
-            var key2 = TestUtils.CreatePayloadRandom();
-            _list.TryInsert(key1);
-            _list.TryInsert(key2);
-            var array = new Payload[_list.Count + 1];
-            array[0] = TestUtils.CreatePayloadIdentical();
-
-            // Act
-            _list.CopyTo(array, 1);
-
-            // Assert
-            Assert.AreEqual(key1, array[2]);
-            Assert.AreEqual(key2, array[1]);
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(ArgumentNullException))]
-        public void CopyTo_ShouldThrowArgumentNullException_WhenArrayIsNull()
-        {
-            // Act
-            _list.CopyTo(null!, 0);
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(ArgumentOutOfRangeException))]
-        public void CopyTo_ShouldThrowArgumentOutOfRangeException_WhenIndexIsNegative()
-        {
-            // Act
-            _list.CopyTo(new Payload[_list.Count], -1);
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(ArgumentOutOfRangeException))]
-        public void CopyTo_ShouldThrowArgumentOutOfRangeException_WhenIndexIsGreaterThanOrEqualToArrayLength()
-        {
-            // Act
-            _list.CopyTo(new Payload[_list.Count], 2);
-        }
-
-        [TestMethod]
-        [ExpectedException(typeof(ArgumentOutOfRangeException))]
-        public void CopyTo_ShouldThrowArgumentOutOfRangeException_WhenNotEnoughSpaceInArray()
-        {
-            // Arrange
-            var key1 = TestUtils.CreatePayloadIdentical();
-            var key2 = TestUtils.CreatePayloadIdentical();
-            _list.TryInsert(key1);
-            _list.TryInsert(key2);
-
-            // Act
-            _list.CopyTo(new Payload[_list.Count], 1);
-        }
+        // Act
+        _list.CopyTo(new Payload[_list.Count], 1);
     }
 }

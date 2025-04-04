@@ -800,7 +800,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         SkipListNode current = _head.GetNextNode(BottomLevel);
 
         // Inline search for *first* valid node with desired priority
-        while (current.Type != SkipListNode.NodeType.Tail)
+        while (current.Type is not SkipListNode.NodeType.Tail)
         {
             int comparison = current.CompareToPriority(priority);
 
