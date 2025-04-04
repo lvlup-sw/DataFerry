@@ -829,6 +829,22 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         return nodeToUpdate;
     }
 
+    /// <summary>
+    /// Performs a single probabilistic SprayList walk down the SkipList structure
+    /// to find a candidate node near the minimum priority.
+    /// </summary>
+    /// <param name="currCount">The estimated current count of items in the queue (must be > 1), used to calculate spray parameters.</param>
+    /// <returns>
+    /// The <see cref="SkipListNode"/> where the spray walk landed. This node is typically near the minimum priority
+    /// but is chosen probabilistically. It might be the <see cref="SkipListNode.NodeType.Head"/> node if the spray did not move significantly horizontally.
+    /// Returns the actual head node reference if the walk does not move, does not return null in this version.
+    /// </returns>
+    /// <remarks>
+    /// This method implements the core random walk logic of the SprayList algorithm, including parameter calculation,
+    /// random horizontal jumps, and vertical descent. It performs lock-free reads during traversal.
+    /// The returned node requires validation by the caller (e.g., check if it's a Data node, inserted, and not deleted)
+    /// before being used in operations like deletion or sampling.
+    /// </remarks>
     internal SkipListNode SpraySearch(int currCount)
     {
         // Init our parameters
@@ -894,7 +910,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             SkipListNode current = predecessor.GetNextNode(level);
 
             // Loop while current node is strictly less than the node we're positioning
-            while (current.Type != SkipListNode.NodeType.Tail &&
+            while (current.Type is not SkipListNode.NodeType.Tail &&
                    current.CompareTo(nodeToPosition) < 0)
             {
                 predecessor = current;

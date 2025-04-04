@@ -27,7 +27,7 @@ public static class DataFerryServiceExtensions
             services.Configure(setupAction);
 
         // Add pooled resource managers
-        services.TryAddSingleton(StackArrayPool<byte>.Shared);
+        services.TryAddSingleton(ThreadLocalArrayPool<byte>.Shared);
 
         // Add and return services
 

@@ -4,7 +4,9 @@
 // </copyright>
 // =====================================================================
 
-namespace lvlup.DataFerry.Utilities;
+using lvlup.DataFerry.Utilities;
+
+namespace lvlup.DataFerry.Extensions;
 
 /// <summary>
 /// Provides extension methods for sorting lists using the BubbleSort, BucketSort, MergeSort, and QuickSort algorithms.
@@ -16,7 +18,7 @@ public static class SortingExtensions
     /// </summary>
     /// <typeparam name="T">The type of elements in the list.</typeparam>
     /// <param name="collection">The list to sort.</param>
-    /// <param name="comparer">The comparer used to determine the order of elements. 
+    /// <param name="comparer">The comparer used to determine the order of elements.
     /// If not provided, the default comparer for the element type is used.</param>
     /// <param name="ascending">Specifies whether to sort in ascending (true) or descending (false) order. Defaults to true.</param>
     public static void BubbleSort<T>(this IList<T> collection, Comparer<T>? comparer = null, bool ascending = true)
@@ -41,11 +43,13 @@ public static class SortingExtensions
 
             for (int j = 0; j < collection.Count - i - 1; j++)
             {
-                if (shouldSwap(collection[j], collection[j + 1]))
+                if (!shouldSwap(collection[j], collection[j + 1]))
                 {
-                    collection.Swap(j, j + 1);
-                    swapped = true;
+                    continue;
                 }
+
+                collection.Swap(j, j + 1);
+                swapped = true;
             }
 
             if (!swapped) break;
@@ -101,9 +105,9 @@ public static class SortingExtensions
     /// </summary>
     /// <typeparam name="T">The type of elements in the list.</typeparam>
     /// <param name="collection">The list to sort.</param>
-    /// <param name="comparer">The comparer used to determine the order of elements. 
+    /// <param name="comparer">The comparer used to determine the order of elements.
     /// If not provided, the default comparer for the element type is used.</param>
-    public static void MergeSort<T>(this IList<T> collection, Comparer<T> comparer = default!)
+    public static void MergeSort<T>(this IList<T> collection, Comparer<T>? comparer = null)
     {
         comparer ??= Comparer<T>.Default;
         InternalMergeSort(collection, 0, collection.Count - 1, comparer);
@@ -119,15 +123,17 @@ public static class SortingExtensions
     /// <param name="comparer">The comparer used to determine the order of elements.</param>
     private static void InternalMergeSort<T>(IList<T> collection, int left, int right, Comparer<T> comparer)
     {
-        if (left < right)
-        {
-            int mid = left + (right - left) / 2;
+        if (left >= right) return;
 
-            InternalMergeSort(collection, left, mid, comparer);
-            InternalMergeSort(collection, mid + 1, right, comparer);
+        // Find midpoint
+        int mid = left + ((right - left) / 2);
 
-            InternalMerge(collection, left, mid, right, comparer);
-        }
+        // Perform the sorting
+        InternalMergeSort(collection, left, mid, comparer);
+        InternalMergeSort(collection, mid + 1, right, comparer);
+
+        // Merge
+        InternalMerge(collection, left, mid, right, comparer);
     }
 
     /// <summary>
@@ -174,16 +180,16 @@ public static class SortingExtensions
     }
 
     /// <summary>
-    /// Sorts the entire list using the QuickSort algorithm 
+    /// Sorts the entire list using the QuickSort algorithm
     /// with a cutoff to Insertion Sort for small subarrays.
     /// </summary>
     /// <typeparam name="T">The type of elements in the list.</typeparam>
     /// <param name="collection">The list to sort.</param>
-    /// <param name="comparer">The comparer used to determine the order of elements. 
+    /// <param name="comparer">The comparer used to determine the order of elements.
     /// If not provided, the default comparer for the element type is used.</param>
-    public static void QuickSort<T>(this IList<T> collection, Comparer<T> comparer = default!)
+    public static void QuickSort<T>(this IList<T> collection, Comparer<T>? comparer = null)
     {
-        int startIndex = 0;
+        const int startIndex = 0;
         int endIndex = collection.Count - 1;
 
         comparer ??= Comparer<T>.Default;
@@ -191,7 +197,7 @@ public static class SortingExtensions
     }
 
     /// <summary>
-    /// Sorts the specified portion of a list using the QuickSort algorithm 
+    /// Sorts the specified portion of a list using the QuickSort algorithm
     /// with a cutoff to Insertion Sort for small subarrays.
     /// </summary>
     /// <typeparam name="T">The type of elements in the list.</typeparam>
@@ -240,7 +246,7 @@ public static class SortingExtensions
     private static int Partition<T>(this IList<T> collection, int left, int right, Comparer<T> comparer)
     {
         // Median-of-Three pivot selection
-        int mid = left + (right - left) / 2;
+        int mid = left + ((right - left) / 2);
         if (comparer.Compare(collection[mid], collection[left]) < 0)
             collection.Swap(left, mid);
         if (comparer.Compare(collection[right], collection[left]) < 0)
@@ -263,7 +269,7 @@ public static class SortingExtensions
                 collection.Swap(i, j);
         }
 
-        // Place the pivot in its final position. 
+        // Place the pivot in its final position.
         // Since we used median-of-three, the pivot might be at 'left'
         collection.Swap(mid, j);
         return j;
@@ -292,24 +298,5 @@ public static class SortingExtensions
 
             collection[j + 1] = key;
         }
-    }
-
-    public static T ArgMin<T, TResult>(this IEnumerable<T> sequence, Func<T, TResult> selector)
-        where TResult : IComparable<TResult>
-    {
-        var minElement = sequence.First();
-        var minValue = selector(minElement);
-
-        foreach (var element in sequence.Skip(1))
-        {
-            var value = selector(element);
-            if (value.CompareTo(minValue) < 0)
-            {
-                minElement = element;
-                minValue = value;
-            }
-        }
-
-        return minElement;
     }
 }

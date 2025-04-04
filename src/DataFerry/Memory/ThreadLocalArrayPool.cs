@@ -97,13 +97,13 @@ public class ThreadLocalArrayPool<T> : ArrayPool<T>
         const int maxArrayLength = 1 << MaxPowOf2;
         if (minimumLength > maxArrayLength)
         {
-            // As per ArrayPool<T> documentation, rent requests for arrays larger than max should allocate directly
-             return GC.AllocateUninitializedArray<T>(minimumLength);
+            // Rent requests for arrays larger than max should allocate directly
+            return GC.AllocateUninitializedArray<T>(minimumLength);
         }
 
         // Determine the bucket size (next power of 2 >= minimumLength)
         int actualBucketSize = GetBucketSize(minimumLength);
-        int bucketIndex = GetBucketIndexFromSize(actualBucketSize);
+        int bucketIndex = GetBucketIndex(actualBucketSize);
 
         // Initialize thread-local cache if it's not already initialized for this thread
         s_threadLocalCache ??= new T[_bucketSizes.Length][];
@@ -124,8 +124,7 @@ public class ThreadLocalArrayPool<T> : ArrayPool<T>
             return array;
         }
 
-        // If no suitable array is found in cache or pool, allocate a new one of the appropriate bucket size
-        // This ensures returned arrays match bucket sizes.
+        // If no suitable array is found in cache or pool, allocate a new one
         return GC.AllocateUninitializedArray<T>(actualBucketSize);
     }
 
@@ -139,8 +138,7 @@ public class ThreadLocalArrayPool<T> : ArrayPool<T>
     {
         ArgumentNullException.ThrowIfNull(array);
 
-        // Determine the bucket index based on the array's actual length
-        int bucketIndex = GetBucketIndexFromLength(array.Length);
+        int bucketIndex = GetBucketIndex(array.Length);
 
         // Discard if the array doesn't match a bucket size or is too large/small
         if (bucketIndex < 0) return;
@@ -151,80 +149,60 @@ public class ThreadLocalArrayPool<T> : ArrayPool<T>
         // Initialize thread-local cache if needed (e.g., Return called before Rent on a thread)
         s_threadLocalCache ??= new T[_bucketSizes.Length][];
 
-        // Try to store in the thread-local cache *first*, replacing any existing array for that bucket.
-        // This provides fast reuse for the same thread but only caches one array per size.
-        if (s_threadLocalCache[bucketIndex] == null)
+        // Try to store in the thread-local cache *first*
+        // This provides fast reuse for the same thread
+        if (s_threadLocalCache[bucketIndex] is null)
         {
              s_threadLocalCache[bucketIndex] = array;
-             return; // Stored in local cache
+             return;
         }
 
-        // If local cache for this bucket is full (already has an array), return to the central pool.
-         if (_buckets.TryGetValue(_bucketSizes[bucketIndex], out var queue))
+        // If local cache for this bucket is full, return to the central pool
+        if (_buckets.TryGetValue(_bucketSizes[bucketIndex], out var queue))
         {
             queue.Enqueue(array);
         }
-        // else: This case (queue not found) should theoretically not happen if the constructor initializes all queues.
-        //       If it could, you might want to handle it, perhaps by recreating the queue, though that indicates a potential issue elsewhere.
     }
 
     /// <summary>
     /// Calculates the appropriate bucket size (power of 2) for a given minimum length.
     /// </summary>
     /// <param name="minimumLength">The minimum desired length.</param>
-    /// <returns>The smallest power-of-2 bucket size that is >= <paramref name="minimumLength"/>.</returns>
+    /// <returns>The smallest power-of-2 bucket size that is >= <paramref name="minimumLength"/> and >= the minimum pool size.</returns>
     internal static int GetBucketSize(int minimumLength)
     {
-        // Clamp minimum length to the smallest bucket size if it's smaller
-        int BITS_IN_BYTE = 8;
+        // Clamp minimum length to the smallest bucket size (e.g., 1 << MinPowOf2) if it's smaller
+        // Also handles potential negative input gracefully by ensuring a positive result before rounding
         int size = Math.Max(1 << MinPowOf2, minimumLength);
-        // Round up to the next power of 2
-        // See: https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
-        size--;
-        size |= size >> 1;
-        size |= size >> 2;
-        size |= size >> 4;
-        size |= size >> 8;
-        size |= size >> 16;
-        size++;
+
+        // Round up to the next power of 2 using BitOperations
+        // Handles the case where size is already a power of 2 correctly
+        size = (int)BitOperations.RoundUpToPowerOf2((uint)size);
+
         return size;
-
-        // Alternative using BitOperations (available in .NET Core 3.0+ / .NET 5+)
-        // return Math.Max(1 << MinPowOf2, (int)BitOperations.RoundUpToPowerOf2((uint)minimumLength));
     }
-
-     /// <summary>
-    /// Gets the index within the <see cref="_bucketSizes"/> and <see cref="s_threadLocalCache"/> arrays
-    /// corresponding to a given *exact* bucket size (which must be a power of 2).
-    /// </summary>
-    /// <param name="bucketSize">The exact size of the bucket (must be a power of 2 within the valid range).</param>
-    /// <returns>The bucket index, or -1 if the size is not a valid power-of-2 bucket size handled by this pool.</returns>
-    internal static int GetBucketIndexFromSize(int bucketSize)
-    {
-        // Check if it's a power of 2 and within range
-        bool isPowerOfTwo = BitOperations.IsPow2(bucketSize); // Use BitOperations helper
-        bool isInRange = bucketSize >= (1 << MinPowOf2) && bucketSize <= (1 << MaxPowOf2);
-
-        if (!isPowerOfTwo || !isInRange) return -1;
-
-        // Calculate the index: Log2(size) - MinPowOf2
-        return BitOperations.Log2((uint)bucketSize) - MinPowOf2;
-    }
-
 
     /// <summary>
-    /// Gets the bucket index for a given array length, ONLY if the length exactly matches a configured bucket size.
+    /// Gets the bucket index for a given size, ONLY if the size exactly matches a configured power-of-2 bucket size within the pool's range.
     /// </summary>
-    /// <param name="length">The length of the array being returned.</param>
-    /// <returns>The bucket index if the length matches a bucket size, otherwise -1.</returns>
-    internal static int GetBucketIndexFromLength(int length)
+    /// <remarks>
+    /// This method is used both to find the index for a calculated target bucket size (e.g., in Rent)
+    /// and to validate the length of an array being returned to the pool (e.g., in Return).
+    /// </remarks>
+    /// <param name="size">The size (e.g., a calculated bucket size or an array length) to check.</param>
+    /// <returns>The bucket index if the size represents a valid, configured bucket size for this pool; otherwise, -1.</returns>
+    internal static int GetBucketIndex(int size)
     {
-         // We only accept arrays back into the pool if their length *exactly* matches one of our bucket sizes.
-        bool isPowerOfTwo = BitOperations.IsPow2(length);
-        bool isInRange = length >= (1 << MinPowOf2) && length <= (1 << MaxPowOf2);
+        // Check if the size is an exact power of 2
+        bool isPowerOfTwo = BitOperations.IsPow2(size);
 
+        // Check if the size is within the configured range of bucket sizes for this pool
+        bool isInRange = size is >= 1 << MinPowOf2 and <= 1 << MaxPowOf2;
+
+        // The size is valid only if it's a power of two AND within the pool's range
         if (!isPowerOfTwo || !isInRange) return -1;
 
-        return BitOperations.Log2((uint)length) - MinPowOf2;
+        // Calculate the index based on the power of 2
+        return BitOperations.Log2((uint)size) - MinPowOf2;
     }
 }

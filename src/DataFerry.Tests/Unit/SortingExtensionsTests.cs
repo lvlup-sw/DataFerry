@@ -1,4 +1,5 @@
-﻿using lvlup.DataFerry.Utilities;
+﻿using lvlup.DataFerry.Extensions;
+using lvlup.DataFerry.Utilities;
 
 namespace lvlup.DataFerry.Tests.Algorithms
 {

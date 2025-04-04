@@ -12,16 +12,22 @@ using static System.Numerics.BitOperations;
 
 namespace lvlup.DataFerry.Utilities;
 
+/// <summary>
+/// Provides utility methods for generating MurmurHash3 hashes for various object types.
+/// This class is static and cannot be instantiated.
+/// </summary>
 public static class HashGenerator
 {
     /// <summary>
-    /// Creates a cache key by hashing <paramref name="obj"/> into a MurmurHash3 <see cref="uint"/> serialized into a base64 string.
-    /// <paramref name="prefix"/> is prepended onto the hash.
+    /// Creates a cache key by hashing the provided object into a 32-bit MurmurHash3 value,
+    /// serializing it into a base64 string, and prepending a specified prefix.
     /// </summary>
-    /// <param name="obj">The object to be hashed.</param>
-    /// <param name="prefix">The prefix to be prepended.</param>
-    /// <param name="seed">The seed for this algorithm.</param>
-    /// <returns><see cref="string"/></returns>
+    /// <typeparam name="T">The type of the object to hash.</typeparam>
+    /// <param name="obj">The object to be hashed. Cannot be null.</param>
+    /// <param name="prefix">A string prefix to prepend to the generated hash string (e.g., a version identifier). Defaults to "1.0.0.0".</param>
+    /// <param name="seed">The seed value for the MurmurHash3 algorithm. Defaults to 0.</param>
+    /// <returns>A string representing the cache key in the format "prefix:base64hash".</returns>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="obj"/> is null.</exception>
     public static string GenerateCacheKey<T>(T obj, string prefix = "1.0.0.0", uint seed = 0)
     {
         ArgumentNullException.ThrowIfNull(obj, nameof(obj));
@@ -34,12 +40,14 @@ public static class HashGenerator
     }
 
     /// <summary>
-    /// Creates a MurmurHash3 of <paramref name="obj"/> represented as <see cref="uint"/>.
+    /// Generates a 32-bit MurmurHash3 hash of the provided object, returned as an <see cref="int"/>.
+    /// Note: The hash is generated as an uint and then cast to int using unchecked conversion.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="obj"></param>
-    /// <param name="seed"></param>
-    /// <returns><see cref="uint"/></returns>
+    /// <typeparam name="T">The type of the object to hash.</typeparam>
+    /// <param name="obj">The object to be hashed. Cannot be null.</param>
+    /// <param name="seed">The seed value for the MurmurHash3 algorithm. Defaults to 0.</param>
+    /// <returns>An <see cref="int"/> representing the 32-bit MurmurHash3 hash of the object.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="obj"/> is null.</exception>
     public static int GenerateHash<T>(T obj, uint seed = 0)
     {
         ArgumentNullException.ThrowIfNull(obj, nameof(obj));
@@ -52,11 +60,12 @@ public static class HashGenerator
     }
 
     /// <summary>
-    /// Converts input to parsable bytes.
+    /// Converts the input object into a read-only span of bytes for hashing.
+    /// Handles common primitive types, strings, byte arrays, and uses JSON serialization as a fallback.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="obj"></param>
-    /// <returns>A <see cref="ReadOnlySpan{T}"/> of bytes.</returns>
+    /// <typeparam name="T">The type of the object to convert.</typeparam>
+    /// <param name="obj">The object to convert to bytes.</param>
+    /// <returns>A <see cref="ReadOnlySpan{T}"/> containing the byte representation of the object.</returns>
     private static ReadOnlySpan<byte> ConvertToBytes<T>(T obj)
     {
         return obj switch
@@ -73,16 +82,18 @@ public static class HashGenerator
     }
 
     /// <summary>
-    /// Hashes the <paramref name="bytes"/> into a MurmurHash3 as a <see cref="uint"/>.
+    /// Computes the 32-bit MurmurHash3 hash for the given sequence of bytes.
+    /// This is an internal implementation detail based on the MurmurHash3 algorithm.
+    /// It uses unsafe code and direct memory manipulation for performance.
     /// </summary>
-    /// <param name="bytes">The span.</param>
-    /// <param name="seed">The seed for this algorithm.</param>
-    /// <returns><see cref="uint"/></returns>
+    /// <param name="bytes">The read-only span of bytes to hash.</param>
+    /// <param name="seed">The seed value for the hash algorithm.</param>
+    /// <returns>A <see cref="uint"/> representing the 32-bit MurmurHash3 hash.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static uint Hash32(ref ReadOnlySpan<byte> bytes, uint seed)
     {
         // Return invalid bytes
-        if (bytes.Length == 0) return seed ^= 0;
+        if (bytes.Length == 0) return seed ^ 0;
 
         // Constants for hash calc
         // referencing MurmurHash3
@@ -103,7 +114,7 @@ public static class HashGenerator
             var data = Unsafe.ReadUnaligned<uint>(ref bp);
 
             // Apply mm3 mixing function
-            seed = RotateLeft(seed ^ RotateLeft(data * C1, 15) * C2, 13) * 5 - A1;
+            seed = (RotateLeft(seed ^ RotateLeft(data * C1, 15) * C2, 13) * 5) - A1;
 
             // Move pointer to next 4 bytes
             bp = ref Unsafe.Add(ref bp, 4);
