@@ -95,13 +95,12 @@ public static class HashGenerator
         // Return invalid bytes
         if (bytes.Length == 0) return seed ^ 0;
 
-        // Constants for hash calc
-        // referencing MurmurHash3
-        const uint A1 = 430675100;
-        const uint A2 = 2048144789;
-        const uint A3 = 1028477387;
-        const uint C1 = 3432918353;
-        const uint C2 = 461845907;
+        // Constants for hash calc referencing MurmurHash3
+        const uint a1 = 430675100;
+        const uint a2 = 2048144789;
+        const uint a3 = 1028477387;
+        const uint c1 = 3432918353;
+        const uint c2 = 461845907;
 
         // Setup references to first byte in span and end point
         ref byte bp = ref MemoryMarshal.GetReference(bytes);
@@ -114,7 +113,7 @@ public static class HashGenerator
             var data = Unsafe.ReadUnaligned<uint>(ref bp);
 
             // Apply mm3 mixing function
-            seed = (RotateLeft(seed ^ RotateLeft(data * C1, 15) * C2, 13) * 5) - A1;
+            seed = (RotateLeft(seed ^ RotateLeft(data * c1, 15) * c2, 13) * 5) - a1;
 
             // Move pointer to next 4 bytes
             bp = ref Unsafe.Add(ref bp, 4);
@@ -126,12 +125,12 @@ public static class HashGenerator
             num ^= Unsafe.Add(ref endPoint, 1) << 8;
         if ((bytes.Length & 1) != 0)
             num ^= Unsafe.Add(ref endPoint, 2) << 16;
-        seed ^= RotateLeft(num * C1, 15) * C2;
+        seed ^= RotateLeft(num * c1, 15) * c2;
 
         // Final mixing and return
         seed ^= (uint)bytes.Length;
-        seed = (uint)((seed ^ seed >> 16) * -A2);
-        seed = (uint)((seed ^ seed >> 13) * -A3);
+        seed = (uint)((seed ^ seed >> 16) * -a2);
+        seed = (uint)((seed ^ seed >> 13) * -a3);
         return seed ^ seed >> 16;
     }
 }

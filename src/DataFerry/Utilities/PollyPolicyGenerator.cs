@@ -11,7 +11,7 @@ using Polly;
 using Polly.Timeout;
 using Polly.Wrap;
 
-namespace lvlup.DataFerry.Resilience;
+namespace lvlup.DataFerry.Utilities;
 
 /// <summary>
 /// Provides static methods for generating pre-configured Polly <see cref="PolicyWrap"/>
