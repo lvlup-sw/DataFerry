@@ -153,6 +153,7 @@ public sealed class PooledBufferWriter<T> : IBufferWriter<T>, IDisposable
     /// <exception cref="ArgumentException">Advancing by <paramref name="count"/> would exceed the buffer's capacity.</exception>
     public void Advance(int count)
     {
+        ObjectDisposedException.ThrowIf(_index == -1, this);
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 0, nameof(count));
         ArgumentOutOfRangeException.ThrowIfGreaterThan(_index, _buffer.Length - count, nameof(_index));
 

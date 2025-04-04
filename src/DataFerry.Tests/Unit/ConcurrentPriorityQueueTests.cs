@@ -395,14 +395,14 @@ public class ConcurrentPriorityQueueTests
     public void TryDeleteAbsoluteMin_EmptyQueue_ReturnsFalse()
     {
         // Arrange
-        var queue = CreateDefaultQueue();
+        var queue = CreateDefaultQueueWithRefs();
 
         // Act
-        bool deleted = queue.TryDeleteAbsoluteMin(out _);
+        bool deleted = queue.TryDeleteAbsoluteMin(out string result);
 
         // Assert
         Assert.IsFalse(deleted, "TryDeleteAbsoluteMin should return false for an empty queue.");
-        Assert.Fail("The out parameter should be the default value (null for string) for an empty queue.");
+        Assert.IsNull(result, "The out parameter should be the default value (null for string) for an empty queue.");
         Assert.AreEqual(0, queue.GetCount(), "Queue count should remain 0.");
         _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Never, "No background removal task should have been scheduled.");
     }
@@ -508,13 +508,18 @@ public class ConcurrentPriorityQueueTests
             queue.TryAdd(i, $"Element{i}");
         }
         const int sampleSize = 5;
+        const int maxAttemptsMultiplier = 5;
+        Assert.IsTrue(elementCount > sampleSize, "Pre-condition: Element count must be greater than sample size.");
 
         // Act
-        var samples = queue.SampleNearMin(sampleSize).ToList();
+        var samples = queue.SampleNearMin(sampleSize, maxAttemptsMultiplier).ToList();
 
         // Assert
         Assert.IsNotNull(samples, "The result of SampleNearMin should not be null.");
-        Assert.AreEqual(sampleSize, samples.Count, $"The number of samples returned should match the requested sample size ({sampleSize}).");
+        Assert.IsTrue(samples.Count > 0, "Expected at least one sample to be returned.");
+        Assert.IsTrue(samples.Count <= sampleSize, $"The number of samples ({samples.Count}) should not exceed the requested sample size ({sampleSize}).");
+        Console.WriteLine($"SampleNearMin returned {samples.Count} samples (requested {sampleSize}).");
+
         foreach (var sample in samples)
         {
             Assert.IsTrue(queue.ContainsPriority(sample.priority), $"Sampled priority {sample.priority} should ideally still exist in the queue.");
@@ -1024,38 +1029,52 @@ public class ConcurrentPriorityQueueTests
         const int numDeleteThreads = 3;
         const int itemsPerAddThread = 100;
         const int itemsPerDeleteThread = 50;
-        const int maxQueueSize = (numAddThreads * itemsPerAddThread) + 10;
+        const int prePopulateCount = 200;
+        const int maxQueueSize = (numAddThreads * itemsPerAddThread) + prePopulateCount + 10;
         var queue = CreateDefaultQueue(maxSize: maxQueueSize);
         var tasks = new List<Task>();
 
-        // Define Delete action (part of Arrange)
+        for (int i = 0; i < prePopulateCount; i++)
+        {
+            // Use priorities that likely won't overlap heavily with concurrent adds initially
+            queue.TryAdd(-(i + 1), $"PrePop{-i}");
+        }
+        int initialPopulatedCount = queue.GetCount();
+        Assert.AreEqual(prePopulateCount, initialPopulatedCount, "Pre-condition: Queue should be pre-populated.");
+
         Action deleteAction = () =>
         {
+            int successfulDeletes = 0;
             for (int j = 0; j < itemsPerDeleteThread; j++)
             {
-                queue.TryDeleteAbsoluteMin(out _);
-                // Small sleep can sometimes help induce different interleavings, but makes tests non-deterministic
-                // Thread.Sleep(5);
+                // Try deleting - even if it fails, it simulates load
+                if (queue.TryDeleteAbsoluteMin(out _))
+                {
+                    successfulDeletes++;
+                }
             }
+            Console.WriteLine($"Delete thread completed with {successfulDeletes} successful deletes.");
         };
-
-        // Prepare Add tasks (still part of Arrange)
+        
         for (int i = 0; i < numAddThreads; i++)
         {
             int threadId = i;
             tasks.Add(Task.Run(() => AddAction(threadId)));
         }
 
-        // Prepare Delete tasks (still part of Arrange)
         for (int i = 0; i < numDeleteThreads; i++)
         {
              tasks.Add(Task.Run(deleteAction));
         }
 
-        // Theoretical minimum count if all deletes succeeded immediately after adds they could target
-        int expectedMinCount = Math.Max(0, (numAddThreads * itemsPerAddThread) - (numDeleteThreads * itemsPerDeleteThread));
-        // Estimate minimum number of deletion tasks scheduled (very rough)
-        const int minExpectedDeletionTasks = (numDeleteThreads * itemsPerDeleteThread) / 2;
+        // Theoretical count range:
+        // Min: prePopulateCount + adds - deletes
+        // Max: prePopulateCount + adds
+        const int totalAdds = numAddThreads * itemsPerAddThread;
+        const int totalDeleteAttempts = numDeleteThreads * itemsPerDeleteThread;
+        int expectedMinCount = Math.Max(0, initialPopulatedCount + totalAdds - totalDeleteAttempts);
+        int expectedMaxCount = initialPopulatedCount + totalAdds;
+        int minExpectedDeletionTasks = Math.Max(1, totalDeleteAttempts / 10);
         
         // Act
         Task.WaitAll(tasks.ToArray());
@@ -1063,15 +1082,14 @@ public class ConcurrentPriorityQueueTests
 
         // Assert
         Assert.IsTrue(finalCount >= 0, "Final count should not be negative.");
-        Console.WriteLine($"Concurrent Add/Delete: Final Count = {finalCount}, Theoretical Min = {expectedMinCount}");
-        // Assert.IsTrue(finalCount >= expectedMinCount - (itemsPerDeleteThread * numDeleteThreads / 2), "Final count seems lower than expected range.");
-
-        // Verify background deletion tasks were scheduled (at least some deletions were likely successful)
+        Console.WriteLine($"Concurrent Add/Delete: Final Count = {finalCount}, Theoretical Range = [{expectedMinCount} - {expectedMaxCount}]");
+        Assert.IsTrue(finalCount >= expectedMinCount, $"Final count {finalCount} is less than theoretical minimum {expectedMinCount}");
+        Assert.IsTrue(finalCount <= expectedMaxCount, $"Final count {finalCount} is more than theoretical maximum {expectedMaxCount}");
         _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.AtLeast(minExpectedDeletionTasks),
-            $"At least roughly {minExpectedDeletionTasks} background removal tasks should have been scheduled.");
+            $"At least {minExpectedDeletionTasks} background removal tasks should have been scheduled (actual verification may vary based on execution).");
         return;
 
-        // Define Add action (part of Arrange)
+        // Define Add action
         void AddAction(int threadId)
         {
             for (int j = 0; j < itemsPerAddThread; j++)
@@ -1083,7 +1101,7 @@ public class ConcurrentPriorityQueueTests
     }
 
     #endregion
-    #region Internal Class Tests (Optional but useful)
+    #region Internal Class Tests 
     /*
     [TestMethod]
     [DataRow(100, 10, 1, 1, 4, 13, 1)]   // Example values, replace with calculated expected

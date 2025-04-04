@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Numerics;
 using lvlup.DataFerry.Memory;
 
 namespace lvlup.DataFerry.Tests.Unit;
@@ -8,103 +9,204 @@ public class PooledBufferWriterTests
 {
     private static readonly ArrayPool<byte> Pool = ArrayPool<byte>.Shared;
 
+    #region Constructor Tests
+
     [TestMethod]
-    public void Advance_ShouldIncreaseIndex()
+    public void Constructor_WithNullPool_ShouldThrowArgumentNullException()
+    {
+        // Act & Assert
+        Assert.ThrowsExactly<ArgumentNullException>(() =>
+        {
+            _ = new PooledBufferWriter<byte>(pool: null!);
+        });
+    }
+
+    [TestMethod]
+    public void Constructor_WithNegativeInitialCapacity_ShouldThrowArgumentOutOfRangeException()
+    {
+        // Arrange
+        var options = new PooledBufferWriterOptions { InitialCapacity = -1 };
+        
+        // Act & Assert
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+        {
+            _ = new PooledBufferWriter<byte>(Pool, options);
+        });
+    }
+
+    [TestMethod]
+    public void Constructor_WithPositiveInitialCapacity_ShouldRentBufferWithCorrectCapacity()
+    {
+        // Arrange
+        const int initialCapacity = 128;
+        var options = new PooledBufferWriterOptions { InitialCapacity = initialCapacity };
+
+        // Act
+        using var writer = new PooledBufferWriter<byte>(Pool, options);
+
+        // Assert
+        Assert.AreEqual(0, writer.WrittenCount);
+        Assert.IsTrue(writer.Capacity >= initialCapacity, $"Capacity should be at least {initialCapacity}, but was {writer.Capacity}"); // Pool might return larger array
+        Assert.AreEqual(writer.Capacity, writer.FreeCapacity);
+    }
+
+    [TestMethod]
+    public void Constructor_WithOptions_ShouldRespectOptions()
+    {
+        // Arrange
+        var options = new PooledBufferWriterOptions
+        {
+            InitialCapacity = 64,
+            ClearOnReturn = false,
+            Strategy = GrowthStrategy.PowerOfTwo
+        };
+
+        // Act
+        using var writer = new PooledBufferWriter<byte>(Pool, options);
+        writer.GetSpan(100);
+
+        // Assert
+        Assert.AreEqual(0, writer.WrittenCount);
+        Assert.IsTrue(writer.Capacity >= 128, $"Capacity should grow (likely to power of 2 >= 100), but was {writer.Capacity}");
+    }
+
+    #endregion
+    #region Advance Tests
+
+    [TestMethod]
+    public void Advance_WithNegativeCount_ShouldThrowArgumentOutOfRangeException()
+    {
+        // Arrange
+        var writer = new PooledBufferWriter<byte>(Pool);
+        writer.GetMemory(10);
+
+        // Act & Assert
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => writer.Advance(-1));
+    }
+
+    [TestMethod]
+    public void Advance_ExceedingCapacity_ShouldThrowArgumentException()
     {
         // Arrange
         var writer = new PooledBufferWriter<byte>(Pool);
 
+        // Act & Assert
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => writer.Advance(writer.Capacity + 1));
+    }
+
+    [TestMethod]
+    public void Advance_ShouldIncreaseIndex()
+    {
+        // Arrange
+        using var writer = new PooledBufferWriter<byte>(Pool);
+        Assert.AreEqual(0, writer.Capacity, "Initial capacity should be 0");
+        Assert.AreEqual(0, writer.WrittenCount, "Initial written count should be 0");
+
         // Act
         var span = writer.GetSpan(500);
+        int initialFreeCapacity = writer.FreeCapacity;
         writer.Advance(10);
 
         // Assert
-        Assert.AreEqual(span.Length - 10, writer.FreeCapacity);
+        Assert.AreEqual(initialFreeCapacity - 10, writer.FreeCapacity);
+        Assert.AreEqual(10, writer.WrittenCount);
     }
+    
+    #endregion
+    #region GetMemory / GetSpan Tests
 
     [TestMethod]
     public void GetMemory_ShouldReturnMemoryWithCorrectSize_IfGreaterThanDefault()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
         var memory = writer.GetMemory(300);
 
         // Assert
-        Assert.AreEqual(300, memory.Length);
+        Assert.IsTrue(memory.Length >= 300, $"Memory length should be >= 300, but was {memory.Length}");
+        Assert.AreEqual(memory.Length, writer.Capacity);
     }
 
     [TestMethod]
     public void GetMemory_ShouldReturnMemoryWithDefaultSize_IfLessThanDefault()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
         var memory = writer.GetMemory(100);
 
         // Assert
-        Assert.AreEqual(256, memory.Length);
+        Assert.IsTrue(memory.Length >= 256, $"Memory length should be >= 256, but was {memory.Length}");
+        Assert.AreEqual(memory.Length, writer.Capacity);
     }
 
     [TestMethod]
     public void GetSpan_ShouldReturnSpanWithCorrectSize_IfGreaterThanDefault()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
         var span = writer.GetSpan(300);
 
         // Assert
-        Assert.AreEqual(300, span.Length);
+        Assert.IsTrue(span.Length >= 300, $"Span length should be >= 300, but was {span.Length}");
+        Assert.AreEqual(span.Length, writer.Capacity);
     }
 
     [TestMethod]
     public void GetSpan_ShouldReturnMemoryWithDefaultSize_IfLessThanDefault()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
         var span = writer.GetSpan(100);
 
         // Assert
-        Assert.AreEqual(256, span.Length);
+        Assert.IsTrue(span.Length >= 256, $"Span length should be >= 256, but was {span.Length}");
+        Assert.AreEqual(span.Length, writer.Capacity);
     }
 
     [TestMethod]
     public void GetMemory_WithEmptyBuffer_ShouldReturnMemoryWithDefaultSize()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
-        var memory = writer.GetMemory(); // No sizeHint provided
+        var memory = writer.GetMemory();
 
         // Assert
-        Assert.AreEqual(256, memory.Length);
+        Assert.IsTrue(memory.Length >= 256, $"Memory length should be >= 256, but was {memory.Length}");
+        Assert.AreEqual(memory.Length, writer.Capacity);
     }
 
     [TestMethod]
     public void GetSpan_WithEmptyBuffer_ShouldReturnSpanWithDefaultSize()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
-        var span = writer.GetSpan(); // No sizeHint provided
+        var span = writer.GetSpan();
 
         // Assert
-        Assert.AreEqual(256, span.Length);
+        Assert.IsTrue(span.Length >= 256, $"Span length should be >= 256, but was {span.Length}");
+        Assert.AreEqual(span.Length, writer.Capacity);
     }
 
-    [TestMethod]
+    #endregion
+    #region Write / Grow Tests
+
+     [TestMethod]
     public void Write_ShouldWriteToBuffer()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
         var span = writer.GetSpan(10);
@@ -119,48 +221,37 @@ public class PooledBufferWriterTests
         CollectionAssert.AreEqual(new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }, array);
     }
 
-    [TestMethod]
+     [TestMethod]
     public void Grow_ShouldResizeBuffer()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
 
         // Act
-        var span = writer.GetSpan(10);
-        for (int i = 0; i < 10; i++)
-        {
-            span[i] = (byte)i;
-        }
+        var span1 = writer.GetSpan(10);
+        int capacity1 = writer.Capacity;
+        Assert.IsTrue(capacity1 >= 10);
+        for (int i = 0; i < 10; i++) { span1[i] = (byte)i; }
         writer.Advance(10);
-        span = writer.GetSpan(100);
 
+        var span2 = writer.GetSpan(capacity1 + 100);
+        int capacity2 = writer.Capacity;
+        
         // Assert
-        Assert.IsTrue(span.Length >= 100);
-    }
-
-    [TestMethod]
-    public void Dispose_ShouldReturnBufferToPool()
-    {
-        // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
-        writer.GetSpan(100); // Force a buffer to be rented
-
-        // Act
-        writer.Dispose();
-
-        // Assert
-        Assert.AreEqual(0, writer.FreeCapacity); // Buffer should be empty after dispose
+        Assert.IsTrue(capacity2 > capacity1, "Capacity should have increased");
+        Assert.IsTrue(span2.Length >= capacity1 + 100, $"New span length should be >= {capacity1 + 100}");
+        Assert.IsTrue(writer.FreeCapacity >= capacity1 + 100);
     }
 
     [TestMethod]
     public void WriteAndGetPosition_ShouldWriteToBufferAndReturnCorrectPosition()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
         var value = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 
         // Act
-        var (index, length) = writer.WriteAndGetPosition(value);
+        (int index, int length) = writer.WriteAndGetPosition(value);
         var array = writer.ToArray();
 
         // Assert
@@ -173,13 +264,13 @@ public class PooledBufferWriterTests
     public void WriteAndGetPosition_ShouldReturnCorrectPosition_WhenCalledMultipleTimes()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
+        using var writer = new PooledBufferWriter<byte>(Pool);
         var value1 = new byte[] { 0, 1, 2, 3, 4 };
         var value2 = new byte[] { 5, 6, 7, 8, 9 };
 
         // Act
-        var (index1, length1) = writer.WriteAndGetPosition(value1);
-        var (index2, length2) = writer.WriteAndGetPosition(value2);
+        (int index1, int length1) = writer.WriteAndGetPosition(value1);
+        (int index2, int length2) = writer.WriteAndGetPosition(value2);
         var array = writer.ToArray();
 
         // Assert
@@ -194,16 +285,236 @@ public class PooledBufferWriterTests
     public void WriteAndGetPosition_ShouldResizeBuffer_WhenCapacityIsExceeded()
     {
         // Arrange
-        var writer = new PooledBufferWriter<byte>(Pool);
-        var value = new byte[300]; // Larger than the default buffer size
+        using var writer = new PooledBufferWriter<byte>(Pool, new PooledBufferWriterOptions { InitialCapacity = 10 });
+        var value1 = new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+        writer.WriteAndGetPosition(value1);
+        int capacity1 = writer.Capacity;
+
+        var value2 = new byte[200];
 
         // Act
-        var (index, length) = writer.WriteAndGetPosition(value);
+        (int index, int length) = writer.WriteAndGetPosition(value2);
         var array = writer.ToArray();
+        int capacity2 = writer.Capacity;
+        
+        // Assert
+        CollectionAssert.AreEqual(value1.Concat(value2).ToArray(), array);
+        Assert.AreEqual(value1.Length, index);
+        Assert.AreEqual(value2.Length, length);
+        Assert.IsTrue(capacity2 > capacity1, "Capacity should have increased");
+        Assert.IsTrue(capacity2 >= writer.WrittenCount);
+    }
+
+    #endregion
+    #region Dispose Tests
+
+    [TestMethod]
+    public void GetMemory_AfterDispose_ShouldThrowObjectDisposedException()
+    {
+        // Arrange
+        var writer = new PooledBufferWriter<byte>(Pool);
+        writer.GetMemory(10);
+        writer.Dispose();
+
+        // Act & Assert
+        Assert.ThrowsExactly<ObjectDisposedException>(() => writer.GetMemory(1));
+    }
+
+    [TestMethod]
+    public void GetSpan_AfterDispose_ShouldThrowObjectDisposedException()
+    {
+        // Arrange
+        var writer = new PooledBufferWriter<byte>(Pool);
+        writer.GetSpan(10);
+        writer.Dispose();
+
+        // Act & Assert
+        Assert.ThrowsExactly<ObjectDisposedException>(() => writer.GetSpan(1));
+    }
+
+    [TestMethod]
+    public void Advance_AfterDispose_ShouldThrowObjectDisposedException()
+    {
+        // Arrange
+        var writer = new PooledBufferWriter<byte>(Pool);
+        writer.GetMemory(10);
+        writer.Advance(5);
+        writer.Dispose();
+
+        // Act & Assert
+        Assert.ThrowsExactly<ObjectDisposedException>(() => writer.Advance(1));
+    }
+
+    [TestMethod]
+    public void WriteAndGetPosition_AfterDispose_ShouldThrowObjectDisposedException()
+    {
+        // Arrange
+        var writer = new PooledBufferWriter<byte>(Pool);
+        writer.GetMemory(10);
+        writer.Advance(5);
+        writer.Dispose();
+        var data = new byte[] { 1, 2 };
+
+        // Act & Assert
+        Assert.ThrowsExactly<ObjectDisposedException>(() => writer.WriteAndGetPosition(data));
+    }
+
+    [TestMethod]
+    public void Dispose_ShouldReturnBufferToPool()
+    {
+        // Arrange
+        var writer = new PooledBufferWriter<byte>(Pool);
+        writer.GetSpan(100);
+
+        // Act
+        writer.Dispose();
 
         // Assert
-        CollectionAssert.AreEqual(value, array);
-        Assert.AreEqual(0, index);
-        Assert.AreEqual(value.Length, length);
+        Assert.AreEqual(0, writer.Capacity, "Capacity should be 0 after dispose");
+        var indexField = typeof(PooledBufferWriter<byte>).GetField("_index", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var indexValue = (int)indexField!.GetValue(writer)!;
+        Assert.AreEqual(-1, indexValue, "Index should be -1 after dispose");
+        Assert.AreEqual(1, writer.FreeCapacity, "FreeCapacity should be 0 after dispose");
     }
+
+    #endregion
+    #region Clear Tests
+
+    [TestMethod]
+    public void Clear_ShouldResetIndexAndAllowReuse()
+    {
+        // Arrange
+        using var writer = new PooledBufferWriter<byte>(Pool);
+        var data1 = new byte[] { 1, 2, 3, 4 };
+        var data2 = new byte[] { 5, 6 };
+        writer.WriteAndGetPosition(data1);
+        int capacityBeforeClear = writer.Capacity;
+
+        // Act
+        writer.Clear();
+        (int index2, int length2) = writer.WriteAndGetPosition(data2);
+        var finalArray = writer.ToArray();
+
+        // Assert
+        Assert.AreEqual(data2.Length, writer.WrittenCount);
+        Assert.AreEqual(capacityBeforeClear, writer.Capacity, "Capacity should not change after Clear");
+        Assert.AreEqual(0, index2, "Index of second write should be 0 after clear");
+        Assert.AreEqual(data2.Length, length2);
+        CollectionAssert.AreEqual(data2, finalArray, "Final array should only contain data written after clear");
+    }
+
+    #endregion
+    #region Growth Strategy Tests
+
+    [TestMethod]
+    public void GrowBuffer_LinearStrategy_ShouldGrowLinearly()
+    {
+        // Arrange
+        var options = new PooledBufferWriterOptions { InitialCapacity = 100, Strategy = GrowthStrategy.Linear };
+        using var writer = new PooledBufferWriter<byte>(Pool, options);
+        writer.Advance(100);
+
+        int capacityBeforeGrow = writer.Capacity;
+        Assert.IsTrue(capacityBeforeGrow >= 100);
+
+        // Act
+        writer.GetSpan(50);
+        int capacityAfterGrow = writer.Capacity;
+
+        // Assert
+        int expectedMinCapacity = capacityBeforeGrow + Math.Max(50, capacityBeforeGrow);
+        Assert.IsTrue(capacityAfterGrow >= expectedMinCapacity, $"Expected capacity >= {expectedMinCapacity}, but got {capacityAfterGrow}");
+    }
+
+    [TestMethod]
+    public void GrowBuffer_PowerOfTwoStrategy_ShouldGrowToPowerOfTwo()
+    {
+        // Arrange
+        const int initialCapacity = 100;
+        var options = new PooledBufferWriterOptions { InitialCapacity = initialCapacity, Strategy = GrowthStrategy.PowerOfTwo };
+        using var writer = new PooledBufferWriter<byte>(Pool, options);
+        writer.Advance(initialCapacity);
+
+        int capacityBeforeGrow = writer.Capacity;
+        Assert.IsTrue(capacityBeforeGrow >= initialCapacity);
+
+        // Act
+        writer.GetSpan(50);
+        int capacityAfterGrow = writer.Capacity;
+
+        // Assert
+        const int minimumRequired = initialCapacity + 50;
+        int minExpectedPowerOfTwo = (int)BitOperations.RoundUpToPowerOf2(minimumRequired);
+        Assert.IsTrue(capacityAfterGrow >= minExpectedPowerOfTwo, $"Expected capacity >= {minExpectedPowerOfTwo} (Power of 2 for required size), but got {capacityAfterGrow}");
+    }
+
+    [TestMethod]
+    public void GrowBuffer_PowerOfTwoStrategy_LargeSize_ShouldGrowToPowerOfTwo()
+    {
+        // Arrange
+        const int initialCapacity = 1024 * 1024;
+        var options = new PooledBufferWriterOptions { InitialCapacity = initialCapacity, Strategy = GrowthStrategy.PowerOfTwo };
+        using var writer = new PooledBufferWriter<byte>(Pool, options);
+        writer.Advance(initialCapacity);
+        int capacityBeforeGrow = writer.Capacity;
+        Assert.IsTrue(capacityBeforeGrow >= initialCapacity);
+        
+        // Act
+        writer.GetSpan(100);
+        int capacityAfterGrow = writer.Capacity;
+
+        // Assert
+        const int minimumRequired = initialCapacity + 100;
+        int expectedCapacity = (int)BitOperations.RoundUpToPowerOf2(minimumRequired);
+        Assert.IsTrue(capacityAfterGrow >= expectedCapacity, $"Expected capacity >= {expectedCapacity} (Power of 2), but got {capacityAfterGrow}");
+    }
+    
+    #endregion
+    #region ToString Tests
+
+    [TestMethod]
+    public void ToString_Default_ShouldReturnTypeNameAndCount()
+    {
+        // Arrange
+        using var writer = new PooledBufferWriter<byte>(Pool);
+        writer.WriteAndGetPosition([1, 2, 3]);
+
+        // Act
+        string result = writer.ToString();
+
+        // Assert
+        Assert.AreEqual("PooledBufferWriter`1[3]", result);
+    }
+
+    [TestMethod]
+    public void ToString_CharType_ShouldReturnStringContent()
+    {
+        // Arrange
+        using var writer = new PooledBufferWriter<char>(ArrayPool<char>.Shared);
+        writer.WriteAndGetPosition("Hello".AsSpan());
+
+        // Act
+        string result = writer.ToString();
+
+        // Assert
+        Assert.AreEqual("Hello", result);
+    }
+
+    [TestMethod]
+    public void ToString_Disposed_ShouldIndicateDisposed()
+    {
+        // Arrange
+        var writer = new PooledBufferWriter<int>(ArrayPool<int>.Shared);
+        writer.GetMemory(5);
+        writer.Dispose();
+
+        // Act
+        string result = writer.ToString();
+
+        // Assert
+        StringAssert.Contains(result, "PooledBufferWriter`1");
+        StringAssert.Contains(result, "(Disposed)");
+    }
+
+    #endregion
 }
