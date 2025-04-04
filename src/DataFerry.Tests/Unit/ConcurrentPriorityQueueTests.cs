@@ -1,4 +1,5 @@
-﻿using lvlup.DataFerry.Concurrency;
+﻿using System.Reflection;
+using lvlup.DataFerry.Concurrency;
 using lvlup.DataFerry.Orchestrators.Contracts;
 using Moq;
 
@@ -16,13 +17,12 @@ public class ConcurrentPriorityQueueTests
     public void TestInitialize()
     {
         _mockTaskOrchestrator = new Mock<ITaskOrchestrator>();
-        // Setup the mock to simply execute the task immediately for testing purposes
         _mockTaskOrchestrator.Setup(o => o.Run(It.IsAny<Func<Task>>()))
                              .Callback<Func<Task>>(action => action());
         _intComparer = Comparer<int>.Default;
     }
 
-    #region Test Inits
+    #region Test Helpers
     
     private ConcurrentPriorityQueue<int, string> CreateDefaultQueue(int maxSize = ConcurrentPriorityQueue<int, string>.DefaultMaxSize)
     {
@@ -32,6 +32,43 @@ public class ConcurrentPriorityQueueTests
     private ConcurrentPriorityQueue<string, string> CreateDefaultQueueWithRefs(int maxSize = ConcurrentPriorityQueue<int, string>.DefaultMaxSize)
     {
         return new ConcurrentPriorityQueue<string, string>(_mockTaskOrchestrator.Object, Comparer<string>.Default, maxSize);
+    }
+    
+    private ConcurrentPriorityQueue<int, string>.SkipListNode CreateNode(int priority, string element, int height, bool isInserted = true, bool isDeleted = false)
+    {
+        var node = new ConcurrentPriorityQueue<int, string>.SkipListNode(priority, element, height, _intComparer)
+        {
+            IsInserted = isInserted,
+            IsDeleted = isDeleted
+        };
+        return node;
+    }
+
+    private static ConcurrentPriorityQueue<int, string>.SkipListNode CreateHeadNode(int height)
+    {
+        return new ConcurrentPriorityQueue<int, string>.SkipListNode(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Head, height);
+    }
+
+    private static ConcurrentPriorityQueue<int, string>.SkipListNode CreateTailNode(int height)
+    {
+        return new ConcurrentPriorityQueue<int, string>.SkipListNode(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Tail, height);
+    }
+    
+    private static T GetInstanceField<T>(object instance, string fieldName)
+    {
+        FieldInfo? field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(field, $"Could not find instance field {fieldName}");
+        object? value = field.GetValue(instance);
+        Assert.IsNotNull(value, $"Field {fieldName} value is null");
+        return (T)value;
+    }
+    
+    private static long GetCurrentSequenceGeneratorValue()
+    {
+        FieldInfo? field = typeof(ConcurrentPriorityQueue<int, string>.SkipListNode)
+            .GetField("s_sequenceGenerator", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(field, "Could not find static field s_sequenceGenerator");
+        return (long)(field.GetValue(null) ?? -1L);
     }
     
     #endregion
@@ -1101,86 +1138,741 @@ public class ConcurrentPriorityQueueTests
     }
 
     #endregion
-    #region Internal Class Tests 
-    /*
+    #region Internal SkipListNode Tests
+
     [TestMethod]
-    [DataRow(100, 10, 1, 1, 4, 13, 1)]   // Example values, replace with calculated expected
-    [DataRow(1000, 20, 2, 3, 8, 918, 1)] // Example values, replace with calculated expected
-    [DataRow(2, 5, 1, 1, 1, 1, 1)]       // Edge case: very small count
-    [DataRow(100000, 31, 1, 1, 11, 1520, 2)] // Large count
+    public void SkipListNode_Constructor_HeadNode_InitializesCorrectly()
+    {
+        // Arrange
+        const int height = 5;
+
+        // Act
+        var head = CreateHeadNode(height);
+
+        // Assert
+        Assert.AreEqual(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Head, head.Type, "Type should be Head.");
+        Assert.AreEqual(long.MinValue, head.SequenceNumber, "SequenceNumber should be MinValue for Head.");
+        Assert.AreEqual(height, head.TopLevel, "TopLevel should match constructor height.");
+        Assert.AreEqual(0, head.Priority, "Priority should be default for Head.");
+        Assert.IsNull(head.Element, "Element should be default for Head.");
+    }
+
+    [TestMethod]
+    public void SkipListNode_Constructor_TailNode_InitializesCorrectly()
+    {
+        // Arrange
+        const int height = 5;
+
+        // Act
+        var tail = CreateTailNode(height);
+
+        // Assert
+        Assert.AreEqual(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Tail, tail.Type, "Type should be Tail.");
+        Assert.AreEqual(long.MaxValue, tail.SequenceNumber, "SequenceNumber should be MaxValue for Tail.");
+        Assert.AreEqual(height, tail.TopLevel, "TopLevel should match constructor height.");
+    }
+
+    [TestMethod]
+    public void SkipListNode_Constructor_DataNode_InitializesCorrectly()
+    {
+        // Arrange
+        const int priority = 10;
+        const string element = "Data";
+        const int height = 3;
+        long seqBefore = GetCurrentSequenceGeneratorValue();
+
+        // Act
+        var dataNode = CreateNode(priority, element, height);
+        long seqAfter = GetCurrentSequenceGeneratorValue();
+
+        // Assert
+        Assert.AreEqual(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Data, dataNode.Type, "Type should be Data.");
+        Assert.AreEqual(priority, dataNode.Priority, "Priority should match constructor.");
+        Assert.AreEqual(element, dataNode.Element, "Element should match constructor.");
+        Assert.AreEqual(height, dataNode.TopLevel, "TopLevel should match constructor.");
+        Assert.AreEqual(seqBefore + 1, dataNode.SequenceNumber, "Sequence number should increment by 1.");
+        Assert.AreEqual(seqAfter, dataNode.SequenceNumber, "Sequence number should match static generator after increment.");
+        Assert.IsTrue(dataNode.IsInserted, "IsInserted should be true by default from helper.");
+        Assert.IsFalse(dataNode.IsDeleted, "IsDeleted should be false by default from helper.");
+    }
+
+    [TestMethod]
+    public void SkipListNode_Properties_SetAndGet()
+    {
+        // Arrange
+        var node = CreateNode(1, "Test", 2, isInserted: false, isDeleted: false);
+
+        // Act & Assert - IsInserted
+        node.IsInserted = true;
+        Assert.IsTrue(node.IsInserted, "IsInserted getter should return true after setting to true.");
+        node.IsInserted = false;
+        Assert.IsFalse(node.IsInserted, "IsInserted getter should return false after setting to false.");
+
+        // Act & Assert - IsDeleted
+        node.IsDeleted = true;
+        Assert.IsTrue(node.IsDeleted, "IsDeleted getter should return true after setting to true.");
+        node.IsDeleted = false;
+        Assert.IsFalse(node.IsDeleted, "IsDeleted getter should return false after setting to false.");
+    }
+
+    [TestMethod]
+    public void SkipListNode_GetSetNextNode_WorksCorrectly()
+    {
+        // Arrange
+        var node1 = CreateNode(1, "N1", 2);
+        var node2 = CreateNode(2, "N2", 2);
+        const int level = 1;
+
+        // Act
+        node1.SetNextNode(level, node2);
+        var next = node1.GetNextNode(level);
+
+        // Assert
+        Assert.AreSame(node2, next, "GetNextNode should return the node set by SetNextNode.");
+    }
+
+    [TestMethod]
+    [DataRow(1, "N1", 0, 2, "N2", 0, -1)]
+    [DataRow(2, "N1", 0, 1, "N2", 0, 1)]
+    public void SkipListNode_CompareTo_PriorityComparison(int p1, string e1, int h1, int p2, string e2, int h2, int expected)
+    {
+        // Arrange
+        var node1 = CreateNode(p1, e1, h1);
+        var node2 = CreateNode(p2, e2, h2);
+
+        // Act
+        int result1 = node1.CompareTo(node2);
+        int result2 = node2.CompareTo(node1);
+
+        // Assert
+        Assert.AreEqual(expected, result1, "Comparison Node1 vs Node2 failed.");
+        Assert.AreEqual(-expected, result2, "Reverse comparison Node2 vs Node1 failed.");
+    }
+
+    [TestMethod]
+    public void SkipListNode_CompareTo_SequenceComparison()
+    {
+        // Arrange
+        var node1 = CreateNode(5, "N1", 2);
+        var node2 = CreateNode(5, "N2", 2);
+        Assert.IsTrue(node1.SequenceNumber < node2.SequenceNumber, "Pre-condition: Node1 sequence < Node2 sequence.");
+
+        // Act
+        int result1 = node1.CompareTo(node2);
+        int result2 = node2.CompareTo(node1);
+
+        // Assert
+        Assert.AreEqual(-1, result1, "Node1 should be less than Node2 (same priority, lower sequence).");
+        Assert.AreEqual(1, result2, "Node2 should be greater than Node1 (same priority, higher sequence).");
+    }
+
+    [TestMethod]
+    public void SkipListNode_CompareTo_HeadTailComparison()
+    {
+        // Arrange
+        var head = CreateHeadNode(5);
+        var tail = CreateTailNode(5);
+        var data = CreateNode(10, "Data", 5);
+
+        // Act & Assert
+        Assert.AreEqual(-1, head.CompareTo(data), "Head vs Data");
+        Assert.AreEqual(1, data.CompareTo(head), "Data vs Head");
+        Assert.AreEqual(-1, head.CompareTo(tail), "Head vs Tail");
+        Assert.AreEqual(1, tail.CompareTo(head), "Tail vs Head");
+        Assert.AreEqual(-1, data.CompareTo(tail), "Data vs Tail");
+        Assert.AreEqual(1, tail.CompareTo(data), "Tail vs Data");
+        Assert.AreEqual(0, head.CompareTo(head), "Head vs Head");
+        Assert.AreEqual(0, tail.CompareTo(tail), "Tail vs Tail");
+        Assert.AreEqual(0, data.CompareTo(data), "Data vs Data");
+    }
+
+    [TestMethod]
+    [DataRow(1, 5, -1)]
+    [DataRow(5, 5, 0)]
+    [DataRow(9, 5, 1)]
+    public void SkipListNode_CompareToPriority_DataNode(int nodePriority, int comparePriority, int expected)
+    {
+        // Arrange
+        var node = CreateNode(nodePriority, "Data", 2);
+
+        // Act
+        int result = node.CompareToPriority(comparePriority);
+
+        // Assert
+        Assert.AreEqual(expected, result);
+    }
+
+     [TestMethod]
+    public void SkipListNode_CompareToPriority_HeadTailNodes()
+    {
+        // Arrange
+        var head = CreateHeadNode(5);
+        var tail = CreateTailNode(5);
+        const int comparePriority = 10;
+
+        // Act
+        int headResult = head.CompareToPriority(comparePriority);
+        int tailResult = tail.CompareToPriority(comparePriority);
+
+        // Assert
+        Assert.AreEqual(-1, headResult, "Head should always compare as less.");
+        Assert.AreEqual(1, tailResult, "Tail should always compare as greater.");
+    }
+
+    #endregion
+    #region Internal SearchResult Tests
+
+    [TestMethod]
+    public void SearchResult_IsFound_CorrectBasedOnLevelFound()
+    {
+        // Arrange
+        var nodes = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
+        var resultFound = new ConcurrentPriorityQueue<int, string>.SearchResult(0, nodes, nodes);
+        var resultNotFound = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, nodes, nodes);
+
+        // Act
+        bool isFound1 = resultFound.IsFound;
+        bool isFound2 = resultNotFound.IsFound;
+
+        // Assert
+        Assert.IsTrue(isFound1, "IsFound should be true when LevelFound >= 0.");
+        Assert.IsFalse(isFound2, "IsFound should be false when LevelFound == -1.");
+    }
+
+    [TestMethod]
+    public void SearchResult_GetPredecessorSuccessor_ReturnsCorrectNode()
+    {
+        // Arrange
+        var pred1 = CreateNode(1, "P1", 0);
+        var succ1 = CreateNode(3, "S1", 0);
+        var preds = new[] { pred1 };
+        var succs = new[] { succ1 };
+        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(0, preds, succs);
+        const int level = 0;
+
+        // Act
+        var retrievedPred = result.GetPredecessor(level);
+        var retrievedSucc = result.GetSuccessor(level);
+
+        // Assert
+        Assert.AreSame(pred1, retrievedPred, "GetPredecessor should return the correct node.");
+        Assert.AreSame(succ1, retrievedSucc, "GetSuccessor should return the correct node.");
+    }
+
+    [TestMethod]
+    public void SearchResult_GetNodeFound_Success()
+    {
+        // Arrange
+        var nodeFound = CreateNode(5, "Found", 1);
+        var preds = new[] { CreateNode(1, "P0", 1), CreateNode(3, "P1", 1) };
+        var succs = new[] { CreateNode(7, "S0", 1), nodeFound };
+        const int levelFound = 1;
+        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(levelFound, preds, succs);
+        Assert.IsTrue(result.IsFound, "Pre-condition: IsFound should be true.");
+
+        // Act
+        var retrievedNode = result.GetNodeFound();
+
+        // Assert
+        Assert.AreSame(nodeFound, retrievedNode, "GetNodeFound should return the correct node.");
+    }
+
+    [TestMethod]
+    public void SearchResult_GetNodeFound_ThrowsWhenNotFound()
+    {
+        // Arrange
+        var preds = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
+        var succs = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
+        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        Assert.IsFalse(result.IsFound, "Pre-condition: IsFound should be false.");
+
+        // Act & Assert
+        Assert.ThrowsExactly<InvalidOperationException>(() => result.GetNodeFound(), "Should throw when IsFound is false.");
+    }
+
+    #endregion
+    #region Internal SprayParameters Tests
+
+    [TestMethod]
+    [DataRow(100, 10, 1, 1, 4, 2, 1)]
+    [DataRow(1000, 15, 2, 3, 8, 91, 2)]
+    [DataRow(2, 5, 1, 1, 1, 0, 1)]
+    [DataRow(1000000, 30, 1, 1, 14, 2700, 2)]
     public void SprayParameters_CalculateParameters_ReturnsCorrectValues(int count, int topLevel, int k, int m, int expectedH, int expectedY, int expectedD)
     {
-        // Note: Due to potential floating point and rounding differences,
-        // these expected values might need slight adjustment based on actual execution.
-        // Also, StartHeight clamping and divisibility adjustment affects the final value.
-
+        // Act
         var parameters = ConcurrentPriorityQueue<int, string>.SprayParameters.CalculateParameters(count, topLevel, k, m);
 
-        // Calculate expected StartHeight considering clamping and divisibility
-         double logN = Math.Log(count);
-         int h_raw = (int)logN + k;
-         int expectedStartHeightRaw = Math.Min(topLevel, Math.Max(0, h_raw));
-         int descentLength = Math.Max(1, (int)Math.Log(Math.Max(1.0, logN)));
-         int finalExpectedStartHeight = expectedStartHeightRaw;
-          if (finalExpectedStartHeight >= descentLength && finalExpectedStartHeight % descentLength != 0)
-         {
-             finalExpectedStartHeight = descentLength * (finalExpectedStartHeight / descentLength);
-         }
-         else if (finalExpectedStartHeight < descentLength)
-         {
-             finalExpectedStartHeight = Math.Max(0, finalExpectedStartHeight);
-         }
-
-
+        // Assert
+        Console.WriteLine($"Input: N={count}, L={topLevel}, K={k}, M={m}");
         Console.WriteLine($"Calculated: H={parameters.StartHeight}, Y={parameters.MaxJumpLength}, D={parameters.DescentLength}");
-        Console.WriteLine($"Expected:   H={finalExpectedStartHeight}, Y={expectedY}, D={expectedD}");
-
-        Assert.AreEqual(finalExpectedStartHeight, parameters.StartHeight, "StartHeight differs.");
-        Assert.AreEqual(expectedY, parameters.MaxJumpLength, "MaxJumpLength differs.");
-        Assert.AreEqual(expectedD, parameters.DescentLength, "DescentLength differs.");
-
+        Console.WriteLine($"Expected:   H={expectedH}, Y={expectedY}, D={expectedD}");
+        Assert.AreEqual(expectedD, parameters.DescentLength, "DescentLength (d) is incorrect.");
+        Assert.AreEqual(expectedH, parameters.StartHeight, "StartHeight (h) is incorrect.");
+        Assert.AreEqual(expectedY, parameters.MaxJumpLength, "MaxJumpLength (y) is incorrect.");
     }
 
-    // --- SkipListNode Tests ---
-    // Mostly tested implicitly via the main queue operations.
-    // Could add specific tests for CompareTo, CompareToPriority if complex logic existed.
-    [TestMethod]
-    public void SkipListNode_CompareTo_HandlesHeadTailDataAndSequence()
+     [TestMethod]
+    public void SprayParameters_CalculateParameters_HandlesLogEdgeCases()
     {
-        var comparer = Comparer<int>.Default;
-        // Need access to SkipListNode constructor or a way to create nodes
-        // This might require making SkipListNode constructor public or internal visible
+        // Arrange
+        const int topLevelForN2 = 5;
+        const int k = 1;
+        const int m=1;
 
-        // Assuming we can create nodes (adjust based on actual accessibility)
-        var head = new ConcurrentPriorityQueue<int, string>.SkipListNode(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Head, 5);
-        var tail = new ConcurrentPriorityQueue<int, string>.SkipListNode(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Tail, 5);
-        var node5a = new ConcurrentPriorityQueue<int, string>.SkipListNode(5, "A", 3, comparer); // Lower sequence number assumed
-        var node5b = new ConcurrentPriorityQueue<int, string>.SkipListNode(5, "B", 4, comparer); // Higher sequence number assumed
-        var node10 = new ConcurrentPriorityQueue<int, string>.SkipListNode(10, "C", 2, comparer);
+        // Act
+        var paramsFor1 = ConcurrentPriorityQueue<int, string>.SprayParameters.CalculateParameters(1, topLevelForN2, k, m);
+        var paramsFor2 = ConcurrentPriorityQueue<int, string>.SprayParameters.CalculateParameters(2, topLevelForN2, k, m);
 
-        Assert.IsTrue(head.CompareTo(tail) < 0);
-        Assert.IsTrue(head.CompareTo(node5a) < 0);
-        Assert.IsTrue(node5a.CompareTo(head) > 0);
-
-        Assert.IsTrue(tail.CompareTo(head) > 0);
-        Assert.IsTrue(tail.CompareTo(node10) > 0);
-        Assert.IsTrue(node10.CompareTo(tail) < 0);
-
-        Assert.IsTrue(node5a.CompareTo(node10) < 0);
-        Assert.IsTrue(node10.CompareTo(node5a) > 0);
-
-        // Compare nodes with same priority but different sequence numbers
-        Assert.IsTrue(node5a.CompareTo(node5b) < 0, "Node 5a should be less than 5b due to sequence number");
-        Assert.IsTrue(node5b.CompareTo(node5a) > 0, "Node 5b should be greater than 5a due to sequence number");
-        Assert.IsTrue(node5a.CompareTo(node5a) == 0, "Node 5a should be equal to itself");
-
-        // CompareToPriority
-        Assert.IsTrue(node5a.CompareToPriority(5) == 0);
-        Assert.IsTrue(node5a.CompareToPriority(4) > 0);
-        Assert.IsTrue(node5a.CompareToPriority(6) < 0);
-        Assert.IsTrue(head.CompareToPriority(100) < 0); // Head always less
-        Assert.IsTrue(tail.CompareToPriority(0) > 0);   // Tail always greater
+        // Assert
+        Assert.AreEqual(paramsFor2.DescentLength, paramsFor1.DescentLength, "Descent length should be same for count 1 and 2");
+        Assert.AreEqual(paramsFor2.StartHeight, paramsFor1.StartHeight, "Start height should be same for count 1 and 2");
+        Assert.AreEqual(paramsFor2.MaxJumpLength, paramsFor1.MaxJumpLength, "Max jump length should be same for count 1 and 2");
     }
-    */
+
+    #endregion
+    #region Internal Helper Method Tests
+
+    [TestMethod]
+    public void NodeIsInvalidOrDeleted_NullNode_ReturnsTrue()
+    {
+        // Arrange
+        ConcurrentPriorityQueue<int, string>.SkipListNode? node = null;
+
+        // Act
+        bool result = ConcurrentPriorityQueue<int, string>.NodeIsInvalidOrDeleted(node);
+
+        // Assert
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void NodeIsInvalidOrDeleted_HeadTailNodes_ReturnsTrue()
+    {
+        // Arrange
+        var head = CreateHeadNode(5);
+        var tail = CreateTailNode(5);
+
+        // Act
+        bool headResult = ConcurrentPriorityQueue<int, string>.NodeIsInvalidOrDeleted(head);
+        bool tailResult = ConcurrentPriorityQueue<int, string>.NodeIsInvalidOrDeleted(tail);
+
+        // Assert
+        Assert.IsTrue(headResult, "Head node should be considered invalid.");
+        Assert.IsTrue(tailResult, "Tail node should be considered invalid.");
+    }
+
+    [TestMethod]
+    public void NodeIsInvalidOrDeleted_NotInsertedNode_ReturnsTrue()
+    {
+        // Arrange
+        var node = CreateNode(1, "Test", 2, isInserted: false);
+
+        // Act
+        bool result = ConcurrentPriorityQueue<int, string>.NodeIsInvalidOrDeleted(node);
+
+        // Assert
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void NodeIsInvalidOrDeleted_DeletedNode_ReturnsTrue()
+    {
+        // Arrange
+        var node = CreateNode(1, "Test", 2, isDeleted: true);
+
+        // Act
+        bool result = ConcurrentPriorityQueue<int, string>.NodeIsInvalidOrDeleted(node);
+
+        // Assert
+        Assert.IsTrue(result);
+    }
+
+    [TestMethod]
+    public void NodeIsInvalidOrDeleted_ValidDataNode_ReturnsFalse()
+    {
+        // Arrange
+        var node = CreateNode(1, "Test", 2, isInserted: true, isDeleted: false);
+
+        // Act
+        bool result = ConcurrentPriorityQueue<int, string>.NodeIsInvalidOrDeleted(node);
+
+        // Assert
+        Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void LogicallyDeleteNode_HeadTailNodes_ReturnsFalse()
+    {
+        // Arrange
+        var head = CreateHeadNode(5);
+        var tail = CreateTailNode(5);
+
+        // Act
+        bool headResult = ConcurrentPriorityQueue<int, string>.LogicallyDeleteNode(head);
+        bool tailResult = ConcurrentPriorityQueue<int, string>.LogicallyDeleteNode(tail);
+
+        // Assert
+        Assert.IsFalse(headResult, "Should return false for Head node.");
+        Assert.IsFalse(tailResult, "Should return false for Tail node.");
+        Assert.IsFalse(head.IsDeleted, "Head node IsDeleted state should not change.");
+        Assert.IsFalse(tail.IsDeleted, "Tail node IsDeleted state should not change.");
+    }
+
+    [TestMethod]
+    public void LogicallyDeleteNode_AlreadyDeletedNode_ReturnsFalse()
+    {
+        // Arrange
+        var node = CreateNode(1, "Test", 2, isDeleted: true);
+
+        // Act
+        bool result = ConcurrentPriorityQueue<int, string>.LogicallyDeleteNode(node);
+
+        // Assert
+        Assert.IsFalse(result, "Should return false if already deleted.");
+        Assert.IsTrue(node.IsDeleted, "IsDeleted state should remain true.");
+    }
+
+    [TestMethod]
+    public void LogicallyDeleteNode_ValidDataNode_ReturnsTrueAndSetsFlag()
+    {
+        // Arrange
+        var node = CreateNode(1, "Test", 2, isInserted: true, isDeleted: false);
+
+        // Act
+        bool result = ConcurrentPriorityQueue<int, string>.LogicallyDeleteNode(node);
+
+        // Assert
+        Assert.IsTrue(result, "Should return true for successful logical delete.");
+        Assert.IsTrue(node.IsDeleted, "IsDeleted flag should be set to true.");
+        node.Unlock();
+    }
+
+    [TestMethod]
+    public void GenerateLevel_StaysWithinBounds()
+    {
+        // Arrange
+        const int maxSize = 1000;
+        const double probability = 0.5;
+        var queue = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, maxSize, promotionProbability: probability);
+        int expectedTopLevel = GetInstanceField<int>(queue, "_topLevel");
+        const int iterations = 5000;
+        bool levelOutOfLowerBound = false;
+        bool levelOutOfUpperBound = false;
+
+        // Act
+        for (int i = 0; i < iterations; i++)
+        {
+            int level = queue.GenerateLevel();
+            if (level < 0) levelOutOfLowerBound = true;
+            if (level > expectedTopLevel) levelOutOfUpperBound = true;
+            if (levelOutOfLowerBound || levelOutOfUpperBound) break;
+        }
+
+        // Assert
+        Assert.IsFalse(levelOutOfLowerBound, "Generated level should never be less than 0.");
+        Assert.IsFalse(levelOutOfUpperBound, $"Generated level should never be greater than calculated topLevel {expectedTopLevel}.");
+    }
+
+    [TestMethod]
+    public void ValidateInsertion_ValidPath_ReturnsTrue()
+    {
+        // Arrange
+        const int level = 0;
+        const int insertLevel = 0;
+        var pred = CreateNode(1, "P", 1);
+        var succ = CreateNode(3, "S", 1);
+        pred.SetNextNode(level, succ);
+        var preds = new[] { pred };
+        var succs = new[] { succ };
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        int highestLocked = -1;
+
+        // Act
+        bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
+
+        // Assert
+        Assert.IsTrue(isValid, "Validation should pass for a valid path.");
+        Assert.AreEqual(insertLevel, highestLocked, "Highest locked level should be the insert level.");
+        if(highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+    }
+
+    [TestMethod]
+    public void ValidateInsertion_DeletedPredecessor_ReturnsFalse()
+    {
+        // Arrange
+        const int level = 0;
+        const int insertLevel = 0;
+        var pred = CreateNode(1, "P", 1, isDeleted: true);
+        var succ = CreateNode(3, "S", 1);
+        pred.SetNextNode(level, succ);
+        var preds = new[] { pred };
+        var succs = new[] { succ };
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        int highestLocked = -1;
+
+        // Act
+        bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
+
+        // Assert
+        Assert.IsFalse(isValid, "Validation should fail if predecessor is deleted.");
+        Assert.AreEqual(level, highestLocked, "Should have locked up to the point of failure.");
+        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+    }
+
+     [TestMethod]
+    public void ValidateInsertion_DeletedSuccessor_ReturnsFalse()
+    {
+        // Arrange
+        const int level = 0;
+        const int insertLevel = 0;
+        var pred = CreateNode(1, "P", 1);
+        var succ = CreateNode(3, "S", 1, isDeleted: true);
+        pred.SetNextNode(level, succ);
+        var preds = new[] { pred };
+        var succs = new[] { succ };
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        int highestLocked = -1;
+
+        // Act
+        bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
+
+        // Assert
+        Assert.IsFalse(isValid, "Validation should fail if successor is deleted.");
+        Assert.AreEqual(level, highestLocked, "Should have locked up to the point of failure.");
+        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+    }
+
+    [TestMethod]
+    public void ValidateInsertion_BrokenLink_ReturnsFalse()
+    {
+        // Arrange
+        const int level = 0;
+        const int insertLevel = 0;
+        var pred = CreateNode(1, "P", 1);
+        var succ = CreateNode(3, "S", 1);
+        var another = CreateNode(2, "A", 1);
+        pred.SetNextNode(level, another);
+
+        var preds = new[] { pred };
+        var succs = new[] { succ };
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+        int highestLocked = -1;
+
+        // Act
+        bool isValid = ConcurrentPriorityQueue<int, string>.ValidateInsertion(searchResult, insertLevel, ref highestLocked);
+
+        // Assert
+        Assert.IsFalse(isValid, "Validation should fail if link is broken.");
+        Assert.AreEqual(level, highestLocked, "Should have locked up to the point of failure.");
+        if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked).Unlock();
+    }
+
+
+    [TestMethod]
+    public void InsertNode_LinksCorrectly()
+    {
+        // Arrange
+        const int level = 0;
+        const int insertLevel = 0;
+        var pred = CreateNode(1, "P", 1);
+        var succ = CreateNode(3, "S", 1);
+        var newNode = CreateNode(2, "New", 0, isInserted: false);
+        pred.SetNextNode(level, succ);
+
+        var preds = new[] { pred };
+        var succs = new[] { succ };
+        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs);
+
+        // Act
+        pred.Lock();
+        try
+        {
+             ConcurrentPriorityQueue<int, string>.InsertNode(newNode, searchResult, insertLevel);
+        }
+        finally
+        {
+            pred.Unlock();
+        }
+
+        // Assert
+        Assert.AreSame(succ, newNode.GetNextNode(level), "New node's next pointer should point to successor.");
+        Assert.AreSame(newNode, pred.GetNextNode(level), "Predecessor's next pointer should point to new node.");
+    }
+
+    [TestMethod]
+    public void SchedulePhysicalNodeRemoval_NodeNotDeleted_DoesNothing()
+    {
+         // Arrange
+         var queue = CreateDefaultQueue();
+         var node = CreateNode(1, "Test", 0, isDeleted: false);
+
+         // Act
+         queue.SchedulePhysicalNodeRemoval(node);
+
+         // Assert
+         _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Never);
+    }
+
+    [TestMethod]
+    public void SchedulePhysicalNodeRemoval_NodeDeleted_RunsTask()
+    {
+         // Arrange
+         var queue = CreateDefaultQueue();
+         var node = CreateNode(1, "Test", 0, isDeleted: true);
+
+         // Act
+         queue.SchedulePhysicalNodeRemoval(node);
+
+         // Assert
+         _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Once);
+    }
+
+    [TestMethod]
+    public void SchedulePhysicalNodeRemoval_TaskLogic_UnlinksNode()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        var head = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_head");
+        var tail = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_tail");
+        var nodeToRemove = CreateNode(5, "RemoveMe", 0, isDeleted: true);
+
+        head.SetNextNode(0, nodeToRemove);
+        nodeToRemove.SetNextNode(0, tail);
+        Assert.AreSame(nodeToRemove, head.GetNextNode(0), "Pre-condition: Head should point to nodeToRemove");
+
+        // Act
+        queue.SchedulePhysicalNodeRemoval(nodeToRemove, 0);
+
+        // Assert
+        Assert.AreSame(tail, head.GetNextNode(0), "Head should now point to Tail after removal task execution.");
+    }
+
+    [TestMethod]
+    public void SchedulePhysicalNodeRemoval_HandlesOrchestratorQueueFull()
+    {
+         // Arrange
+         var queue = CreateDefaultQueue();
+         var node = CreateNode(1, "Test", 0, isDeleted: true);
+         _mockTaskOrchestrator.Setup(o => o.Run(It.IsAny<Func<Task>>()))
+                              .Throws(new InvalidOperationException("Simulated queue full"));
+
+        // Act
+        Exception? caughtException = null;
+        try
+        {
+             queue.SchedulePhysicalNodeRemoval(node);
+        }
+        catch (Exception ex)
+        {
+            caughtException = ex;
+        }
+
+        // Assert
+        Assert.IsNull(caughtException, "SchedulePhysicalNodeRemoval should have caught the InvalidOperationException, but it propagated.");
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Once); // Verify Run was still called
+    }
+
+    [TestMethod]
+    public void InlineSearch_FindsExistingValidNode()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(5, "E5");
+        queue.TryAdd(1, "E1");
+        queue.TryAdd(3, "E3");
+
+        // Act
+        var node1 = queue.InlineSearch(1);
+        var node3 = queue.InlineSearch(3);
+        var node5 = queue.InlineSearch(5);
+
+        // Assert
+        Assert.IsNotNull(node1, "Node 1 should be found.");
+        Assert.AreEqual(1, node1.Priority, "Node 1 priority mismatch.");
+        Assert.IsNotNull(node3, "Node 3 should be found.");
+        Assert.AreEqual(3, node3.Priority, "Node 3 priority mismatch.");
+        Assert.IsNotNull(node5, "Node 5 should be found.");
+        Assert.AreEqual(5, node5.Priority, "Node 5 priority mismatch.");
+    }
+
+    [TestMethod]
+    public void InlineSearch_ReturnsNullForNonExistingNode()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(5, "E5");
+        queue.TryAdd(1, "E1");
+
+        // Act
+        var node0 = queue.InlineSearch(0);
+        var node4 = queue.InlineSearch(4);
+        var node9 = queue.InlineSearch(9);
+
+        // Assert
+        Assert.IsNull(node0, "Should not find node with priority 0.");
+        Assert.IsNull(node4, "Should not find node with priority 4.");
+        Assert.IsNull(node9, "Should not find node with priority 9.");
+    }
+
+    [TestMethod]
+    public void InlineSearch_ReturnsNullForDeletedNode()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(1, "E1");
+        bool deleted = queue.TryDelete(1);
+        Assert.IsTrue(deleted, "Pre-condition: Delete should succeed.");
+        Assert.AreEqual(0, queue.GetCount(), "Pre-condition: Queue should be empty after delete.");
+
+        // Act
+        var node1 = queue.InlineSearch(1);
+
+        // Assert
+        Assert.IsNull(node1, "InlineSearch should return null for a deleted node.");
+    }
+
+    [TestMethod]
+    public void StructuralSearch_FindsNodeAndReturnsCorrectStructure()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue(maxSize: 10);
+        queue.TryAdd(5, "E5");
+        queue.TryAdd(1, "E1");
+        queue.TryAdd(3, "E3");
+
+        var nodeToFind = queue.InlineSearch(3);
+        Assert.IsNotNull(nodeToFind, "Pre-condition: Node with priority 3 must exist.");
+
+        var head = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_head");
+        var node1 = queue.InlineSearch(1);
+        var node5 = queue.InlineSearch(5); // Expected successor
+        Assert.IsNotNull(node1, "Pre-condition: Node 1 must exist.");
+        Assert.IsNotNull(node5, "Pre-condition: Node 5 must exist.");
+
+        // Act
+        var result = queue.StructuralSearch(nodeToFind);
+
+        // --- DEBUGGING ---
+        var actualSuccessor = result.GetSuccessor(0);
+        Console.WriteLine($"--- StructuralSearch Debug ---");
+        Console.WriteLine($"Node Searched For (nodeToFind): P={nodeToFind?.Priority}, S={nodeToFind?.SequenceNumber}, H={nodeToFind?.GetHashCode()}");
+        Console.WriteLine($"Expected Successor (node5):      P={node5?.Priority}, S={node5?.SequenceNumber}, H={node5?.GetHashCode()}");
+        Console.WriteLine($"Actual Successor (result[0]):  P={actualSuccessor?.Priority}, S={actualSuccessor?.SequenceNumber}, H={actualSuccessor?.GetHashCode()}");
+        Console.WriteLine($"AreSame(node5, actualSuccessor)? {ReferenceEquals(node5, actualSuccessor)}");
+        Console.WriteLine($"--- End Debug ---");
+        // --- END DEBUGGING ---
+
+        // Assert
+        Assert.IsTrue(result.IsFound, "Search should find the existing node.");
+        Assert.IsTrue(result.LevelFound >= 0, "LevelFound should be >= 0 when node is found.");
+        Assert.AreSame(nodeToFind, result.GetNodeFound(), "GetNodeFound should return the searched node.");
+        Assert.AreSame(node1, result.GetPredecessor(0), "Predecessor at level 0 should be node 1.");
+
+        // --- FAILING ASSERTION ---
+        Assert.AreSame(node5, actualSuccessor, "Successor at level 0 should be node 5.");
+        // --- END FAILING ASSERTION ---
+    }
+
     #endregion
 }

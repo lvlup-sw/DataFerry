@@ -881,30 +881,32 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     }
 
     /// <summary>
-    /// Performs a lock-free search for the node with the specified priority.
+    /// Performs a lock-free search for the node with the specified priority and sequence number.
     /// </summary>
-    /// <param name="nodeToPosition">The node to search for.</param>
+    /// <param name="nodeToPosition">The node instance (with specific priority and sequence number) to search for.</param>
     /// <returns>A <see cref="SearchResult"/> instance containing the results of the search.</returns>
     /// <remarks>
     /// <para>
-    /// If the priority is found, the <see cref="SearchResult.IsFound"/> property will be true
-    /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/>
-    /// will contain the predecessor and successor nodes at each level.
+    /// If the exact node instance (based on priority and sequence number) is found,
+    /// the <see cref="SearchResult.IsFound"/> property will be true, <see cref="SearchResult.LevelFound"/>
+    /// will indicate the highest level it was found at, and the <see cref="SearchResult.PredecessorArray"/>
+    /// and <see cref="SearchResult.SuccessorArray"/> will contain the nodes immediately before and after it
+    /// at each level.
     /// </para>
     /// <para>
-    /// If the priority is not found, the <see cref="SearchResult.IsFound"/> property will be false
-    /// and the <see cref="SearchResult.PredecessorArray"/> and <see cref="SearchResult.SuccessorArray"/>
-    /// will contain the nodes that would have been the predecessor and successor of the node with the
-    /// specified priority if it existed.
+    /// If the exact node instance is not found, the <see cref="SearchResult.IsFound"/> property will be false
+    /// (<see cref="SearchResult.LevelFound"/> will be -1) and the arrays will contain the nodes that
+    /// bracket the position where the node *would* be inserted based on its priority and sequence number.
     /// </para>
     /// </remarks>
     internal SearchResult StructuralSearch(SkipListNode nodeToPosition)
     {
+        // Set up the values used for the search
         int levelFound = InvalidLevel;
         SkipListNode[] predecessorArray = new SkipListNode[_numberOfLevels];
         SkipListNode[] successorArray = new SkipListNode[_numberOfLevels];
-
         SkipListNode predecessor = _head;
+
         for (int level = _topLevel; level >= 0; level--)
         {
             SkipListNode current = predecessor.GetNextNode(level);
@@ -918,16 +920,25 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             }
 
             // At this point, current >= nodeToPosition
-            // Now we check if any node with the *same priority* was found at this level
-            if (levelFound is InvalidLevel &&
-                current.Type is not SkipListNode.NodeType.Tail &&
-                current.CompareToPriority(nodeToPosition.Priority) == 0)
-            {
-                levelFound = level;
-            }
-
             predecessorArray[level] = predecessor;
-            successorArray[level] = current;
+
+            // Determine the correct successor for this level
+            if (current.Type is not SkipListNode.NodeType.Tail &&
+                current.CompareTo(nodeToPosition) == 0)
+            {
+                // The actual successor is the node *after* current
+                successorArray[level] = current.GetNextNode(level);
+
+                // Update levelFound only if we found the exact node and haven't found it before
+                if (levelFound == InvalidLevel) levelFound = level;
+            }
+            else
+            {
+                // We did not land exactly on the nodeToPosition.
+                // This means 'current' is the first node *greater* than nodeToPosition,
+                // so 'current' IS the correct successor.
+                successorArray[level] = current;
+            }
         }
 
         // The SearchResult contains predecessors/successors relative to the
@@ -1309,16 +1320,25 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// </returns>
         public int CompareTo(SkipListNode other)
         {
-            // Head is always less, anything is less than Tail
-            if (this.Type is NodeType.Head || other.Type is NodeType.Tail) return -1;
+            // Handle identity comparison
+            if (ReferenceEquals(this, other)) return 0;
 
-            // Tail is always greater, anything is greater than Head
-            if (this.Type is NodeType.Tail || other.Type is NodeType.Head) return 1;
+            // Handle Head/Tail comparisons explicitly
+            switch (this.Type)
+            {
+                case NodeType.Head: return -1;
+                case NodeType.Tail: return 1;
+                case NodeType.Data:
+                    if (other.Type is NodeType.Head) return 1;
+                    if (other.Type is NodeType.Tail) return -1;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(other), "Unknown node type.");
+            }
 
-            // Compare priorities using the comparer for TPriority
+            // Both are Data nodes: Compare priorities, then sequence number
             int priorityComparison = _priorityComparer.Compare(this.Priority, other.Priority);
 
-            // Priorities are equal, compare by sequence number (lower sequence number is considered "smaller")
             return priorityComparison is not 0
                 ? priorityComparison
                 : this.SequenceNumber.CompareTo(other.SequenceNumber);
