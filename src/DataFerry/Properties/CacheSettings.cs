@@ -1,4 +1,10 @@
-﻿namespace lvlup.DataFerry.Properties;
+﻿// =================================================================
+// <copyright file="CacheSettings.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// =================================================================
+
+namespace lvlup.DataFerry.Properties;
 
 /// <summary>
 /// Cache settings for <see cref="DataFerry"/>.

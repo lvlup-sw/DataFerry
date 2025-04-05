@@ -1,4 +1,10 @@
-﻿using System.Buffers;
+﻿// =======================================================================
+// <copyright file="DataFerrySerializer.cs" company="Level Up Software">
+// Copyright (c) Level Up Software. All rights reserved.
+// </copyright>
+// =======================================================================
+
+using System.Buffers;
 using System.Text.Json;
 using lvlup.DataFerry.Serialization.Contracts;
 using Microsoft.Extensions.Logging;

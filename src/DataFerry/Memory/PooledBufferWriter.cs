@@ -38,19 +38,19 @@ public class PooledBufferWriterOptions
     /// Gets or sets the initial capacity with which to initialize the underlying buffer.
     /// Defaults to 0, causing the buffer to be rented on the first write.
     /// </summary>
-    public int InitialCapacity { get; set; } = 0;
+    public int InitialCapacity { get; init; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the buffer should be cleared when returned to the pool.
     /// Defaults to true (safer). Setting to false may improve performance but requires caution with reference types.
     /// </summary>
-    public bool ClearOnReturn { get; set; } = true;
+    public bool ClearOnReturn { get; init; } = true;
 
     /// <summary>
     /// Gets or sets the strategy used for growing the internal buffer when more space is needed.
     /// Defaults to <see cref="GrowthStrategy.Linear"/>.
     /// </summary>
-    public GrowthStrategy Strategy { get; set; } = GrowthStrategy.Linear;
+    public GrowthStrategy Strategy { get; init; } = GrowthStrategy.Linear;
 }
 
 #endregion

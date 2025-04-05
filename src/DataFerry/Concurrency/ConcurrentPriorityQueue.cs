@@ -4,9 +4,12 @@
 // </copyright>
 // ===========================================================================
 
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 using lvlup.DataFerry.Concurrency.Contracts;
 using lvlup.DataFerry.Orchestrators.Contracts;
+using Microsoft.Extensions.Logging;
 
 namespace lvlup.DataFerry.Concurrency;
 
@@ -147,6 +150,11 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     private readonly SkipListNode _tail;
 
     /// <summary>
+    /// Random number generator.
+    /// </summary>
+    private readonly Random _randomGenerator = Random.Shared;
+
+    /// <summary>
     /// Priority comparer used to order the priorities.
     /// </summary>
     private readonly IComparer<TPriority> _comparer;
@@ -157,9 +165,9 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     private readonly ITaskOrchestrator _taskOrchestrator;
 
     /// <summary>
-    /// Random number generator.
+    /// Observability helper class which handles instrumentation.
     /// </summary>
-    private readonly Random _randomGenerator = Random.Shared;
+    private readonly ConcurrentPriorityQueueObservabilityHelper _observability;
 
     #endregion
     #region Constructors
@@ -186,6 +194,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     public ConcurrentPriorityQueue(
         ITaskOrchestrator taskOrchestrator,
         IComparer<TPriority> comparer,
+        //ILoggerFactory loggerFactory,
+        //IMeterFactory meterFactory,
         int maxSize = DefaultMaxSize,
         int offsetK = DefaultSprayOffsetK,
         int offsetM = DefaultSprayOffsetM,
@@ -209,6 +219,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         _topLevel = _numberOfLevels - 1;
         _count = 0;
 
+        //_observability = new ConcurrentPriorityQueueObservabilityHelper(loggerFactory, meterFactory, _maxSize);
+
         _head = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
         _tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
 
@@ -220,6 +232,8 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         _head.IsInserted = true;
         _tail.IsInserted = true;
+
+        //_observability.LogQueueInitialized(_maxSize, _numberOfLevels, _promotionProbability, _offsetK, _offsetM);
         return;
 
         // Calculate optimal number of levels for the SkipList
@@ -257,6 +271,19 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     {
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
         ArgumentNullException.ThrowIfNull(element, nameof(element));
+
+        /*  Example Observability usage
+        var (activity, stopwatch) = _observability.StartOperation(nameof(TryAdd), priority: priority);
+        using (activity)
+        {
+            // _observability.LogMaxSizeExceeded(_count);
+
+            // activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+
+            // finally
+            // { stopwatch.Stop(); }
+        }
+        */
 
         // Generate a new level and node
         int insertLevel = GenerateLevel();
@@ -1404,6 +1431,153 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                 // Compare priorities using the comparer for TPriority
                 _ => _priorityComparer.Compare(this.Priority, priority)
             };
+        }
+    }
+
+    #endregion
+    #region Observability
+
+    /// <summary>
+    /// Helper class to encapsulate observability concerns (logging, metrics, tracing)
+    /// for the ConcurrentPriorityQueue.
+    /// </summary>
+    internal class ConcurrentPriorityQueueObservabilityHelper
+    {
+        private readonly ILogger _logger;
+        private readonly Meter _meter;
+        private static readonly ActivitySource _activitySource = new("lvlup.DataFerry.Concurrency.ConcurrentPriorityQueue");
+
+        // Metrics Instruments (examples)
+        private readonly Counter<long> _addsCounter;
+        private readonly Counter<long> _deletesCounter;
+        private readonly Counter<long> _updatesCounter;
+        private readonly Counter<long> _failuresCounter;
+        private readonly Histogram<double> _addDurationHistogram;
+        private readonly Histogram<double> _deleteDurationHistogram;
+        private readonly Counter<long> _physicalDeleteTasksScheduled;
+        private readonly Counter<long> _physicalDeleteTasksDropped;
+
+        public ConcurrentPriorityQueueObservabilityHelper(ILoggerFactory loggerFactory, IMeterFactory meterFactory, int configuredMaxSize)
+        {
+            ArgumentNullException.ThrowIfNull(loggerFactory);
+            ArgumentNullException.ThrowIfNull(meterFactory);
+
+            _logger = loggerFactory.CreateLogger<ConcurrentPriorityQueue<TPriority, TElement>>();
+            _meter = meterFactory.Create("lvlup.DataFerry.Concurrency.ConcurrentPriorityQueue");
+
+            // Initialize Instruments (examples)
+            _addsCounter = _meter.CreateCounter<long>("priorityqueue.adds.count", description: "Number of successful add operations.");
+            _deletesCounter = _meter.CreateCounter<long>("priorityqueue.deletes.count", description: "Number of successful delete operations.");
+            _updatesCounter = _meter.CreateCounter<long>("priorityqueue.updates.count", description: "Number of successful update operations.");
+            _failuresCounter = _meter.CreateCounter<long>("priorityqueue.operations.failed.count", unit: "{operation}", description: "Number of failed operations (add, delete, update)."); // Use tag for type
+            _addDurationHistogram = _meter.CreateHistogram<double>("priorityqueue.add.duration", unit: "ms", description: "Duration of TryAdd operations.");
+            _deleteDurationHistogram = _meter.CreateHistogram<double>("priorityqueue.delete.duration", unit: "ms", description: "Duration of TryDelete* operations."); // Tag for type
+            _physicalDeleteTasksScheduled = _meter.CreateCounter<long>("priorityqueue.physical_delete.scheduled.count");
+            _physicalDeleteTasksDropped = _meter.CreateCounter<long>("priorityqueue.physical_delete.dropped.count");
+
+            // Example: Observable Gauge for queue count relative to max size
+            _meter.CreateObservableGauge<double>("priorityqueue.fullness.ratio", ObserveQueueFullness(configuredMaxSize), description: "Ratio of current count to max size.");
+        }
+
+        // Required for ObservableGauge - needs reference to the actual GetCount method
+        private Func<Measurement<double>> ObserveQueueFullness(int maxSize)
+        {
+            // This is tricky - the helper needs access to the queue's count.
+            // This might require passing the ConcurrentPriorityQueue instance itself
+            // or a Func<int> to get the count. For simplicity, this example
+            // won't fully implement the gauge connection.
+            // A better approach might be an UpDownCounter modified by Add/Delete.
+            return () => new Measurement<double>(0.0);
+        }
+
+        public void LogQueueInitialized(int maxSize, int levels, double probability, int offsetK, int offsetM)
+        {
+            _logger.LogInformation("ConcurrentPriorityQueue initialized. MaxSize: {MaxSize}, Levels: {Levels}, Probability: {Probability}, OffsetK: {OffsetK}, OffsetM: {OffsetM}", maxSize, levels, probability, offsetK, offsetM);
+        }
+
+        public Activity? StartActivity(string name) => _activitySource.StartActivity(name);
+
+        public void LogAddAttempt(TPriority priority) => _logger.LogDebug("TryAdd called for Priority: {Priority}", priority);
+
+        public void RecordAddSuccess(TPriority priority, int currentCount, double durationMs)
+        {
+            _addsCounter.Add(1);
+            _addDurationHistogram.Record(durationMs);
+            _logger.LogInformation("Node added successfully for Priority: {Priority}. New Count: {Count}. Duration: {DurationMs}ms", priority, currentCount, durationMs);
+        }
+
+        public void RecordAddFailure(TPriority priority, double durationMs)
+        {
+            _failuresCounter.Add(1, new KeyValuePair<string, object?>("operation", "add"));
+            _addDurationHistogram.Record(durationMs);
+            _logger.LogWarning("TryAdd failed for Priority: {Priority}. Duration: {DurationMs}ms", priority, durationMs);
+        }
+
+        public void LogMaxSizeExceeded(int currentCount) => _logger.LogInformation("MaxSize exceeded during Add. Attempting TryDeleteMin. Current Count: {Count}", currentCount);
+
+        public void RecordDeleteSuccess(string deleteType, int newCount, double durationMs) // deleteType: "min", "absolute_min", "specific"
+        {
+             _deletesCounter.Add(1, new KeyValuePair<string, object?>("delete_type", deleteType));
+             _deleteDurationHistogram.Record(durationMs, new KeyValuePair<string, object?>("delete_type", deleteType));
+             _logger.LogInformation("Node deleted successfully via {DeleteType}. New Count: {Count}. Duration: {DurationMs}ms", deleteType, newCount, durationMs);
+        }
+
+        public void RecordDeleteFailure(string deleteType, double durationMs)
+        {
+             _failuresCounter.Add(1, new KeyValuePair<string, object?>("operation", "delete"), new KeyValuePair<string, object?>("delete_type", deleteType));
+             _deleteDurationHistogram.Record(durationMs, new KeyValuePair<string, object?>("delete_type", deleteType)); // Record duration even on failure
+             _logger.LogWarning("TryDelete ({DeleteType}) failed. Duration: {DurationMs}ms", deleteType, durationMs);
+        }
+
+        public void LogPhysicalRemovalScheduled(TPriority priority, long sequenceNumber) => _logger.LogDebug("Scheduling physical node removal for Priority: {Priority}, Sequence: {SequenceNumber}", priority, sequenceNumber);
+
+        public void RecordPhysicalRemovalScheduled() => _physicalDeleteTasksScheduled.Add(1);
+
+        public void RecordPhysicalRemovalDropped(TPriority priority, long sequenceNumber)
+        {
+            _physicalDeleteTasksDropped.Add(1);
+            _logger.LogWarning("Physical node removal task dropped for node (Priority: {Priority}, Sequence: {SequenceNumber}) because the background task orchestrator queue is full.", priority, sequenceNumber);
+        }
+
+        /// <summary>
+        /// Starts observability tracking for a queue operation.
+        /// Begins an Activity, logs the attempt, starts a Stopwatch, and sets initial tags.
+        /// </summary>
+        /// <param name="operationName">The simple name of the operation (e.g., "TryAdd").</param>
+        /// <param name="priority">Optional priority to tag the activity.</param>
+        /// <param name="tags">Optional additional tags for the activity.</param>
+        /// <returns>A tuple containing the started Activity (nullable) and Stopwatch.</returns>
+        public (Activity? Activity, Stopwatch Stopwatch) StartOperation(
+            string operationName,
+            TPriority? priority = default,
+            IEnumerable<KeyValuePair<string, object?>>? tags = null)
+        {
+            string fullActivityName = $"{_meter.Name}.{operationName}";
+            var activity = _activitySource.StartActivity(fullActivityName);
+            var stopwatch = Stopwatch.StartNew();
+
+            _logger.LogDebug("{OperationName} called.", operationName);
+
+            if (activity is not null)
+            {
+                // Add priority tag if available and non-null
+                // Be cautious about TPriority.ToString() performance or complexity
+                if (priority is not null)
+                {
+                    activity.SetTag("priority", priority.ToString());
+                }
+
+                // Add any other provided tags
+                if (tags is not null)
+                {
+                    foreach (var tag in tags)
+                    {
+                        activity.SetTag(tag.Key, tag.Value);
+                    }
+                }
+            }
+
+            return (activity, stopwatch);
         }
     }
 
