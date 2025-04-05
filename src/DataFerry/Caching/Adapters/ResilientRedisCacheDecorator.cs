@@ -1,25 +1,41 @@
 ﻿using System.Buffers;
-using lvlup.DataFerry.Caching.Abstractions;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
+using Polly.Wrap;
 
 namespace lvlup.DataFerry.Caching.Adapters;
 
 /// <summary>
-/// Adapts a concrete DistributedReplacementPolicyCache implementation (which uses IRedisClient internally)
-/// to the standard IBufferDistributedCache interface. Handles byte marshalling.
+/// Decorator for IBufferDistributedCache (typically wrapping RedisCache)
+/// that adds resilience using Polly policies and provides hooks for
+/// custom events and metrics.
 /// </summary>
-/// <remarks>
-/// Assumes the underlying cache works with object keys/values and handles its own serialization
-/// if needed before interacting with IRedisClient (which works with bytes).
-/// This adapter primarily passes byte representations through.
-/// </remarks>
-public class BufferDistributedCacheAdapter : IBufferDistributedCache
+public sealed class ResilientRedisCacheDecorator : IBufferDistributedCache, IDisposable
 {
-    private readonly DistributedReplacementPolicyCache<object, object> _cache;
+    private readonly IBufferDistributedCache _innerCache;
+    private readonly AsyncPolicyWrap _asyncPolicy;
+    private readonly PolicyWrap? _syncPolicy;
+    private readonly ILogger<ResilientRedisCacheDecorator> _logger;
+    // private readonly DistributedCacheMetricsInstruments _metrics;
+    // TODO: Define and inject custom events if desired
 
-    public BufferDistributedCacheAdapter(DistributedReplacementPolicyCache<object, object> cache)
+    public ResilientRedisCacheDecorator(
+        IBufferDistributedCache innerCache, // Inject the cache registered by AddStackExchangeRedisCache
+        AsyncPolicyWrap asyncPolicy,
+        ILogger<ResilientRedisCacheDecorator> logger,
+        PolicyWrap? syncPolicy = null
+        /* DistributedCacheMetricsInstruments metrics = null */)
     {
-        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        _innerCache = innerCache ?? throw new ArgumentNullException(nameof(innerCache));
+        _asyncPolicy = asyncPolicy ?? throw new ArgumentNullException(nameof(asyncPolicy));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _syncPolicy = syncPolicy;
+        // _metrics = metrics;
+    }
+
+    public void Dispose()
+    {
+        // TODO release managed resources here
     }
 
     public byte[]? Get(string key)

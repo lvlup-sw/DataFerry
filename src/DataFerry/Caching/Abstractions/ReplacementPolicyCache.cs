@@ -209,6 +209,7 @@ public abstract class ReplacementPolicyCache<TKey, TValue> : IEnumerable<KeyValu
 
     #endregion
     #region Events
+    /*
 
     /// <summary>
     /// Reasons for cache item eviction.
@@ -217,13 +218,13 @@ public abstract class ReplacementPolicyCache<TKey, TValue> : IEnumerable<KeyValu
     {
         /// <summary> The item was explicitly removed via the Remove method. </summary>
         Removed,
-        
+
         /// <summary> The item was automatically removed because it expired. </summary>
         Expired,
-        
+
         /// <summary> The item was automatically removed to make space due to capacity limits. </summary>
         Capacity,
-        
+
         /// <summary> The item was overwritten by a new value with the same key. </summary>
         Replaced // Added for clarity
     }
@@ -247,5 +248,6 @@ public abstract class ReplacementPolicyCache<TKey, TValue> : IEnumerable<KeyValu
     protected virtual void OnItemEvicted(TKey key, ReplacementPolicyEvictionReason reason)
         => ItemEvicted?.Invoke(this, new CacheItemEvictedEventArgs<TKey>(key, reason));
 
+    */
     #endregion
 }
