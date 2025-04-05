@@ -1,6 +1,10 @@
 ﻿using System.Collections;
 using System.Diagnostics.CodeAnalysis;
 
+using lvlup.DataFerry.Caching.Events;
+
+using Microsoft.Extensions.Caching.Memory;
+
 namespace lvlup.DataFerry.Caching.Abstractions;
 
 /// <summary>
@@ -11,6 +15,8 @@ namespace lvlup.DataFerry.Caching.Abstractions;
 public abstract class ReplacementPolicyCache<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>>
     where TKey : notnull
 {
+    #region Fields
+
     /// <summary>
     /// Gets the name of the cache instance.
     /// </summary>
@@ -23,6 +29,9 @@ public abstract class ReplacementPolicyCache<TKey, TValue> : IEnumerable<KeyValu
     /// Gets the capacity of the cache, which represents the maximum number of items maintained by the cache at any one time.
     /// </summary>
     public abstract int Capacity { get; }
+
+    #endregion
+    #region Core Operations
 
     /// <summary>
     /// Tries to get a value from the cache.
@@ -197,4 +206,46 @@ public abstract class ReplacementPolicyCache<TKey, TValue> : IEnumerable<KeyValu
     /// made after <see cref="GetEnumerator"/> was called.
     /// </remarks>
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    #endregion
+    #region Events
+
+    /// <summary>
+    /// Reasons for cache item eviction.
+    /// </summary>
+    public enum ReplacementPolicyEvictionReason
+    {
+        /// <summary> The item was explicitly removed via the Remove method. </summary>
+        Removed,
+        
+        /// <summary> The item was automatically removed because it expired. </summary>
+        Expired,
+        
+        /// <summary> The item was automatically removed to make space due to capacity limits. </summary>
+        Capacity,
+        
+        /// <summary> The item was overwritten by a new value with the same key. </summary>
+        Replaced // Added for clarity
+    }
+
+    public event EventHandler<CacheHitEventArgs<TKey>>? CacheHit;
+
+    public event EventHandler<CacheMissEventArgs<TKey>>? CacheMiss;
+
+    public event EventHandler<CacheItemAddedEventArgs<TKey, TValue>>? ItemAdded;
+
+    public event EventHandler<CacheItemRemovedEventArgs<TKey>>? ItemRemoved;
+
+    public event EventHandler<CacheItemEvictedEventArgs<TKey>>? ItemEvicted;
+
+    public event EventHandler<CacheItemExpiredEventArgs<TKey>>? ItemExpired;
+
+    protected virtual void OnCacheHit(TKey key) => CacheHit?.Invoke(this, new CacheHitEventArgs<TKey>(key));
+    protected virtual void OnCacheMiss(TKey key) => CacheMiss?.Invoke(this, new CacheMissEventArgs<TKey>(key));
+    protected virtual void OnItemAdded(TKey key, TValue value) => ItemAdded?.Invoke(this, new CacheItemAddedEventArgs<TKey, TValue>(key, value));
+    protected virtual void OnItemRemoved(TKey key) => ItemRemoved?.Invoke(this, new CacheItemRemovedEventArgs<TKey>(key));
+    protected virtual void OnItemEvicted(TKey key, ReplacementPolicyEvictionReason reason)
+        => ItemEvicted?.Invoke(this, new CacheItemEvictedEventArgs<TKey>(key, reason));
+
+    #endregion
 }

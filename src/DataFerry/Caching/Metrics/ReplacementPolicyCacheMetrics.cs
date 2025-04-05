@@ -7,14 +7,28 @@ namespace lvlup.DataFerry.Caching.Metrics;
 /// </summary>
 public static class ReplacementPolicyCacheMetrics
 {
-    public const string CacheMeterName = "Dataferry.Cache.Memory";
+    // Use Meter name from Options?
+    public const string CacheMeterName = "Dataferry.Caching";
+
+    // Base Counters
     public const string Hits = "rpcache.hits";
     public const string Misses = "rpcache.misses";
-    public const string Expirations = "rpcache.expirations";
     public const string Adds = "rpcache.adds";
-    public const string Removals = "rpcache.removals";
-    public const string Evictions = "rpcache.evictions";
     public const string Updates = "rpcache.updates";
-    public const string Count = "rpcache.entries";
-    public const string Compacted = "rpcache.compacted_entries";
+    public const string Removals = "rpcache.removals";
+
+    // Eviction Counters
+    public const string Evictions = "rpcache.evictions";
+    public const string EvictionsExpired = "rpcache.evictions.expired";
+    public const string EvictionsCapacity = "rpcache.evictions.capacity";
+
+    // Latency Histograms
+    public const string GetLatency = "rpcache.get.latency";
+    public const string SetLatency = "rpcache.set.latency";
+    public const string RemoveLatency = "rpcache.remove.latency";
+
+    // Gauges
+    public const string Count = "rpcache.count";
+    public const string HitRatio = "rpcache.hit_ratio";
+    public const string EstimatedSize = "rpcache.estimated_size";
 }
