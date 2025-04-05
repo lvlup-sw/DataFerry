@@ -469,6 +469,133 @@ public class PooledBufferWriterTests
         Assert.IsTrue(capacityAfterGrow >= expectedCapacity, $"Expected capacity >= {expectedCapacity} (Power of 2), but got {capacityAfterGrow}");
     }
     
+    [TestMethod]
+    public void GrowBuffer_RequestedSizeExceedsArrayMaxLength_ThrowsArgumentOutOfRangeException()
+    {
+        // Arrange
+        var options = new PooledBufferWriterOptions { InitialCapacity = Array.MaxLength - 10, Strategy = GrowthStrategy.Linear };
+        var writer = new PooledBufferWriter<byte>(Pool, options);
+        writer.Advance(writer.Capacity);
+
+        // Act & Assert
+        var ex = Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => writer.GetSpan(11));
+        StringAssert.Contains(ex.Message, "Requested buffer size exceeds Array.MaxLength.");
+    }
+    
+    [TestMethod]
+    public void CalculateLinearGrowthSize_DoublingOverflows_UsesMinimumRequired()
+    {
+        // Arrange
+        int startSize = Array.MaxLength - 1000;
+        const int requestedSize = 500;
+        int minimumRequired = startSize + requestedSize;
+        Assert.IsTrue(minimumRequired <= Array.MaxLength, "Test setup error: minimumRequired exceeds Array.MaxLength.");
+        Assert.IsTrue(startSize > 0, "Test setup error: startSize must be positive.");
+        Assert.IsTrue(requestedSize > 0, "Test setup error: requestedSize must be positive.");
+        var writer = new PooledBufferWriter<byte>(Pool, new PooledBufferWriterOptions { Strategy = GrowthStrategy.Linear });
+        var bufferField = typeof(PooledBufferWriter<byte>).GetField("_buffer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var indexField = typeof(PooledBufferWriter<byte>).GetField("_index", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var initialBuffer = Pool.Rent(startSize);
+        if (initialBuffer.Length >= minimumRequired)
+        {
+            Pool.Return(initialBuffer);
+            initialBuffer = Pool.Rent(startSize);
+            if (initialBuffer.Length >= minimumRequired)
+            {
+                Assert.Inconclusive("Could not obtain a buffer from the pool smaller than minimumRequired to reliably test overflow scenario.");
+            }
+        }
+        bufferField!.SetValue(writer, initialBuffer);
+        indexField!.SetValue(writer, startSize);
+
+        // Act
+        writer.GetSpan(requestedSize);
+
+        // Assert
+        int poolRentedSizeForMinRequired = Pool.Rent(minimumRequired).Length;
+        Pool.Return(Pool.Rent(minimumRequired));
+        if (minimumRequired < Array.MaxLength && poolRentedSizeForMinRequired < Array.MaxLength)
+        {
+            Assert.IsTrue(writer.Capacity < Array.MaxLength, $"Capacity ({writer.Capacity}) should be based on minimumRequired ({minimumRequired}), not clamped unnecessarily to MaxLength ({Array.MaxLength}). Pool would have returned {poolRentedSizeForMinRequired}.");
+        }
+        Pool.Return(initialBuffer);
+    }
+
+    [TestMethod]
+    public void CalculatePowerOfTwoGrowthSize_CurrentLengthZero_UsesDefaultInitialSizeIfLarger()
+    {
+        // Arrange
+        var options = new PooledBufferWriterOptions { InitialCapacity = 0, Strategy = GrowthStrategy.PowerOfTwo };
+        using var writer = new PooledBufferWriter<byte>(Pool, options);
+        const int smallSizeHint = 16;
+
+        // Act
+        writer.GetSpan(smallSizeHint);
+
+        // Assert
+        Assert.IsTrue(writer.Capacity >= 256, $"Capacity should be at least DefaultInitialBufferSize (256), but was {writer.Capacity}");
+    }
+
+    [TestMethod]
+    public void CalculatePowerOfTwoGrowthSize_PowerOfTwoOverflows_UsesMinimumRequired()
+    {
+        // Arrange
+        const int minimumRequired = (int.MaxValue / 2) + 2;
+        const int startSize = minimumRequired - 10;
+        const int requestedSize = 10;
+        var writer = new PooledBufferWriter<byte>(Pool, new PooledBufferWriterOptions { Strategy = GrowthStrategy.PowerOfTwo });
+        var bufferField = typeof(PooledBufferWriter<byte>).GetField("_buffer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var indexField = typeof(PooledBufferWriter<byte>).GetField("_index", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var initialBuffer = Pool.Rent(startSize);
+        bufferField!.SetValue(writer, initialBuffer);
+        indexField!.SetValue(writer, startSize);
+        
+        // Act
+        var growMethod = typeof(PooledBufferWriter<byte>).GetMethod("GrowBuffer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        try
+        {
+             growMethod!.Invoke(writer, [requestedSize]);
+        }
+        catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is ArgumentOutOfRangeException innerEx)
+        {
+            if ((uint)minimumRequired <= Array.MaxLength)
+            {
+                throw;
+            }
+
+            StringAssert.Contains(innerEx.Message, "Requested buffer size exceeds Array.MaxLength.");
+            Pool.Return(initialBuffer); 
+            return;
+        }
+        
+        // Assert
+        int expectedCapacity = Math.Min(minimumRequired, Array.MaxLength);
+        Assert.IsTrue(writer.Capacity >= expectedCapacity, $"Capacity should be at least {expectedCapacity}, but was {writer.Capacity}");
+        Pool.Return(initialBuffer);
+    }
+
+    [TestMethod]
+    public void CalculatePowerOfTwoGrowthSize_FinalCheck_UsesMinimumRequiredIfCalculatedSizeIsLess()
+    {
+        // Arrange
+        const int startSize = 500;
+        const int minimumRequired = 600;
+        const int requestedSize = minimumRequired-startSize;
+        var options = new PooledBufferWriterOptions { InitialCapacity = startSize, Strategy = GrowthStrategy.PowerOfTwo };
+        using var writer = new PooledBufferWriter<byte>(Pool, options);
+        writer.Advance(startSize);
+        int capacityBeforeGrow = writer.Capacity;
+        Assert.IsTrue(capacityBeforeGrow >= startSize);
+
+        // Act
+        writer.GetSpan(requestedSize);
+        int capacityAfterGrow = writer.Capacity;
+
+        // Assert
+        Assert.IsTrue(capacityAfterGrow >= minimumRequired, $"Capacity should be at least {minimumRequired}, but got {capacityAfterGrow}");
+        Assert.IsTrue(capacityAfterGrow >= Math.Min(startSize*2, Array.MaxLength), "Capacity should have grown substantially or met minimum");
+    }    
+    
     #endregion
     #region ToString Tests
 
