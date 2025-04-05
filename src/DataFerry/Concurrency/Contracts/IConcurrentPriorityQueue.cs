@@ -74,7 +74,7 @@ public interface IConcurrentPriorityQueue<TPriority, TElement>
 
     /// <summary>
     /// Attempts to retrieve a sample of approximately <paramref name="sampleSize"/> distinct items
-    /// with priorities near the minimum using a parallel SprayList algorithm.
+    /// with priorities near the minimum using a parallelized SprayList algorithm.
     /// </summary>
     /// <param name="sampleSize">The desired number of distinct items (k) in the sample.</param>
     /// <param name="maxAttemptsMultiplier">Optional. Multiplier for <paramref name="sampleSize"/> to determine the maximum

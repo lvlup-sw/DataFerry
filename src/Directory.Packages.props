@@ -14,6 +14,7 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Analyzers" Version="9.0.3" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="9.0.3" />
     <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="9.0.3" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.3" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.3" />
     <PackageVersion Include="Microsoft.IO.RecyclableMemoryStream" Version="3.0.1" />

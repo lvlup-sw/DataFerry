@@ -4,31 +4,30 @@
   <PropertyGroup>
 	<PackageId>lvlup.DataFerry</PackageId>
     <Title>DataFerry</Title>
-	<Version>2.0.0-alpha</Version>
+	<Version>2.0.0-rc1</Version>
 	<RootNamespace>lvlup.DataFerry</RootNamespace>
 	<Authors>lvlup; rsalus</Authors>
-    <Description>Simplify data access and boost resiliency with DataFerry, a generic caching solution designed to tightly couple your cache and database.</Description>
+    <Description>Provides concurrent data structures and caching implementations for distributed systems programming.</Description>
     <PackageProjectUrl>https://github.com/lvlup-sw/DataFerry</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 	<PackageLicenseExpression>MIT</PackageLicenseExpression>
-	<PackageTags>Redis;StackExchange.Redis;Cache;Caching;Provider;ASP.NET;Polly;HybridCache</PackageTags>
+	<PackageTags>Concurrency;PriorityQueue;LinkedList;DataStructures;IBufferWriter;IMemoryCache;IDistributedCache;IBufferDistributedCache;HybridCache;Redis;StackExchange.Redis;Cache;Caching;CacheReplacementPolicy;DistributedSystems;Polly;Hashing;MurmurHash3</PackageTags>
 	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-
-  <!-- Packaging -->
+    
+  <!-- Dependencies -->
   <ItemGroup>
-    <PackageReference Include="NuGet.Build.Tasks.Pack">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
-    </PackageReference>
-  </ItemGroup>
-
-  <!-- Miscellaneous Files -->
-  <ItemGroup>
-    <None Include="..\..\README.md">
-      <Pack>True</Pack>
-      <PackagePath>\</PackagePath>
-    </None>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
+    <PackageReference Include="Polly" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="System.Reactive" />
+    <PackageReference Include="System.Reactive.Linq" />
   </ItemGroup>
 
   <!-- Roslyn Analyzers -->
@@ -51,18 +50,20 @@
     </PackageReference>
   </ItemGroup>
 
-  <!-- Dependencies -->
+  <!-- Packaging -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" />
-	<PackageReference Include="Microsoft.Extensions.Caching.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
-    <PackageReference Include="Microsoft.Extensions.Options" />
-    <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
-    <PackageReference Include="Polly" />
-    <PackageReference Include="StackExchange.Redis" />
-    <PackageReference Include="System.Reactive" />
-    <PackageReference Include="System.Reactive.Linq" />
+    <PackageReference Include="NuGet.Build.Tasks.Pack">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
-
+    
+  <!-- Miscellaneous Files -->
+  <ItemGroup>
+    <None Include="..\..\README.md">
+        <Pack>True</Pack>
+        <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>    
+    
 </Project>

@@ -956,7 +956,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             {
                 // We did not land exactly on the nodeToPosition.
                 // This means 'current' is the first node *greater* than nodeToPosition,
-                // so 'current' IS the correct successor.
+                // so 'current' IS the correct successor
                 successorArray[level] = current;
             }
         }
@@ -988,7 +988,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             {
                 int startingLevel = topLevel ?? node.TopLevel;
 
-                // Unlink top-to-bottom
+                // Unlink top-to-bottom to preserve invariants
                 for (int level = startingLevel; level >= BottomLevel; level--)
                 {
                     SkipListNode predecessor = _head;
@@ -1195,7 +1195,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             // Ensure jump length is non-negative
             int maxJumpLength = Math.Max(0, y);
 
-            return new SprayParameters(startHeight, maxJumpLength, d);
+            return new SprayParameters(startHeight, maxJumpLength, descentLength: d);
         }
     }
 
