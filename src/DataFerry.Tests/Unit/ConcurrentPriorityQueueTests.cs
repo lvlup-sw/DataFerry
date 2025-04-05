@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Collections.Concurrent;
+using System.Reflection;
 using lvlup.DataFerry.Concurrency;
 using lvlup.DataFerry.Orchestrators.Contracts;
 using Moq;
@@ -8,6 +9,7 @@ namespace lvlup.DataFerry.Tests.Unit;
 [TestClass]
 public class ConcurrentPriorityQueueTests
 {
+    // ReSharper disable AccessToModifiedClosure
     #pragma warning disable CS8618
     private Mock<ITaskOrchestrator> _mockTaskOrchestrator;
     private IComparer<int> _intComparer;
@@ -17,8 +19,9 @@ public class ConcurrentPriorityQueueTests
     public void TestInitialize()
     {
         _mockTaskOrchestrator = new Mock<ITaskOrchestrator>();
-        _mockTaskOrchestrator.Setup(o => o.Run(It.IsAny<Func<Task>>()))
-                             .Callback<Func<Task>>(action => action());
+        _mockTaskOrchestrator
+            .Setup(o => o.Run(It.IsAny<Func<Task>>()))
+            .Callback<Func<Task>>(action => action());
         _intComparer = Comparer<int>.Default;
     }
 
@@ -1020,7 +1023,7 @@ public class ConcurrentPriorityQueueTests
     }
 
     #endregion
-    #region Concurrency Tests (Basic)
+    #region Concurrency Tests
 
     [TestMethod]
     public void ConcurrentAdd_MultipleThreads_AddsAllElements()
@@ -1135,6 +1138,204 @@ public class ConcurrentPriorityQueueTests
                 queue.TryAdd(priority, $"Element{priority}");
             }
         }
+    }
+
+    [TestMethod]
+    [Timeout(15000)]
+    public void TryDeleteMin_HighContention_RemovesCorrectNumberOfElements()
+    {
+        // Arrange
+        const int maxSize = 500;
+        const int initialElements = 400;
+        const int numThreads = 10;
+        const int deletesPerThread = 30;
+        var queue = CreateDefaultQueue(maxSize: maxSize);
+        var deletedElements = new ConcurrentBag<string>();
+        var exceptions = new ConcurrentBag<Exception>();
+
+        for (int i = 0; i < initialElements; i++)
+        {
+            queue.TryAdd(i, $"Element{i}");
+        }
+        Assert.AreEqual(initialElements, queue.GetCount(), "Pre-condition: Initial count mismatch.");
+        var tasks = new List<Task>();
+
+        // Act
+        for (int i = 0; i < numThreads; i++)
+        {
+            tasks.Add(Task.Run(() => {
+                try
+                {
+                    for (int j = 0; j < deletesPerThread; j++)
+                    {
+                        if (queue.TryDeleteMin(out string element))
+                        {
+                            deletedElements.Add(element);
+                        }
+                        // Small delay to allow other threads to run, increase contention slightly
+                        // Remove or adjust this depending on desired contention level
+                        // Task.Delay(1).Wait();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            }));
+        }
+
+        Task.WaitAll(tasks.ToArray());
+
+        // Assert
+        Assert.IsEmpty(exceptions, $"Exceptions occurred during concurrent deletes: {string.Join("; ", exceptions.Select(e => e.Message))}");
+        int expectedFinalCount = initialElements - deletedElements.Count;
+        Assert.AreEqual(expectedFinalCount, queue.GetCount(), "Final count should reflect successful deletes.");
+        Assert.AreEqual(numThreads * deletesPerThread, deletedElements.Count + queue.GetCount() - (initialElements - numThreads*deletesPerThread) ,"Total elements accounted for mismatch");
+        // Verify background removals were scheduled
+        // We expect one background task per successful delete
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Exactly(deletedElements.Count),
+            "Incorrect number of background removal tasks scheduled.");
+        Console.WriteLine($"Deleted {deletedElements.Count} elements under high contention.");
+        foreach (var element in deletedElements.OrderBy(e => int.Parse(e.Replace("Element",""))).Take(10)) { Console.WriteLine($"Sample deleted: {element}"); }
+    }
+
+    [TestMethod]
+    [Timeout(15000)]
+    public void TryAdd_AtMaxSize_ConcurrentlyTriggersDeleteMin()
+    {
+        // Arrange
+        const int maxSize = 50;
+        const int numThreads = 20;
+        var queue = CreateDefaultQueue(maxSize: maxSize);
+        var addedElements = new ConcurrentDictionary<string, bool>();
+        var exceptions = new ConcurrentBag<Exception>();
+        int initialMinPriority = -1;
+        
+        for (int i = 0; i < maxSize; i++)
+        {
+            int priority = i + 1;
+            queue.TryAdd(priority, $"Initial{priority}");
+            if (i == 0) initialMinPriority = priority;
+        }
+        Assert.AreEqual(maxSize, queue.GetCount(), "Pre-condition: Queue not filled to max size.");
+        Assert.AreEqual(1, initialMinPriority, "Pre-condition: Initial min priority incorrect.");
+        var tasks = new List<Task>();
+
+        // Act
+        for (int i = 0; i < numThreads; i++)
+        {
+            int itemIndex = i;
+            tasks.Add(Task.Run(() => {
+                try
+                {
+                    int priority = maxSize + 10 + itemIndex;
+                    string element = $"Added{priority}";
+                    if (queue.TryAdd(priority, element))
+                    {
+                        addedElements.TryAdd(element, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            }));
+        }
+
+        Task.WaitAll(tasks.ToArray());
+
+        // Assert
+        Assert.IsEmpty(exceptions, $"Exceptions occurred during concurrent adds at max size: {string.Join("; ", exceptions.Select(e => e.Message))}");
+        Assert.AreEqual(maxSize, queue.GetCount(), "Queue count should remain at max size.");
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.AtMost(addedElements.Count),
+            "Incorrect number of background removal tasks scheduled for adds at max size.");
+        int addedCount = addedElements.Count;
+        Console.WriteLine($"Successfully added {addedCount} elements concurrently at max size, triggering deletes.");
+        bool originalMinStillPresent = queue.ContainsPriority(initialMinPriority);
+        Console.WriteLine($"Original min priority {initialMinPriority} still present? {originalMinStillPresent}");
+    }
+    
+    [TestMethod]
+    [Timeout(20000)]
+    public void TryAdd_TryDeleteMin_ConcurrentNearMaxSize()
+    {
+        // Arrange
+        const int maxSize = 100;
+        const int initialElements = 80;
+        const int numAddThreads = 10;
+        const int addsPerThread = 5;
+        const int numDeleteThreads = 8;
+        const int deletesPerThread = 5;
+        var queue = CreateDefaultQueue(maxSize: maxSize);
+        var exceptions = new ConcurrentBag<Exception>();
+        long itemsAddedSuccessfully = 0;
+        long itemsDeletedSuccessfully = 0;
+
+        for (int i = 0; i < initialElements; i++)
+        {
+            queue.TryAdd(i, $"Initial{i}");
+        }
+        Assert.AreEqual(initialElements, queue.GetCount(), "Pre-condition: Initial count mismatch.");
+        var tasks = new List<Task>();
+
+        // Add tasks
+        for (int i = 0; i < numAddThreads; i++)
+        {
+            int threadId = i;
+            tasks.Add(Task.Run(() => {
+                try
+                {
+                    for (int j = 0; j < addsPerThread; j++)
+                    {
+                        int priority = initialElements + (threadId * addsPerThread) + j;
+                        if (queue.TryAdd(priority, $"Added{priority}"))
+                        {
+                            Interlocked.Increment(ref itemsAddedSuccessfully);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            }));
+        }
+        
+        for (int i = 0; i < numDeleteThreads; i++)
+        {
+            tasks.Add(Task.Run(() => {
+                try
+                {
+                    for (int j = 0; j < deletesPerThread; j++)
+                    {
+                        if (queue.TryDeleteMin(out _))
+                        {
+                             Interlocked.Increment(ref itemsDeletedSuccessfully);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            }));
+        }
+
+        // Act
+        Task.WaitAll(tasks.ToArray());
+        int finalCount = queue.GetCount();
+
+        // Assert
+        Assert.IsEmpty(exceptions, $"Exceptions occurred during concurrent add/delete near max size: {string.Join("; ", exceptions.Select(e => e.Message))}");
+        Assert.IsTrue(finalCount <= maxSize, $"Final count {finalCount} exceeded max size {maxSize}.");
+        Assert.IsTrue(finalCount >= 0, $"Final count {finalCount} is negative.");
+        Console.WriteLine($"Concurrent Add/Delete near Max: Added={itemsAddedSuccessfully}, Deleted={itemsDeletedSuccessfully}, FinalCount={finalCount}");
+        Assert.IsTrue(finalCount <= initialElements + Interlocked.Read(ref itemsAddedSuccessfully), "Final count seems too high relative to adds.");
+        // Verify background tasks were scheduled. We can only be certain about the ones
+        // triggered by EXPLICIT successful deletes. Deletes triggered by Add are non-deterministic
+        int successfulExplicitDeletes = (int)Interlocked.Read(ref itemsDeletedSuccessfully);
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.AtLeast(successfulExplicitDeletes),
+            $"Expected at least {successfulExplicitDeletes} background removal tasks (from explicit deletes). Actual calls depend on concurrent interactions.");
     }
 
     #endregion
@@ -1525,10 +1726,10 @@ public class ConcurrentPriorityQueueTests
     }
 
     [TestMethod]
-    public void LogicallyDeleteNode_AlreadyDeletedNode_ReturnsFalse()
+    public void LogicallyDeleteNode_AlreadyDeletedNode_ReturnsFalseAndUnlocks()
     {
         // Arrange
-        var node = CreateNode(1, "Test", 2, isDeleted: true);
+        var node = CreateNode(1, "Test", 2, isDeleted: true); // Node starts deleted
 
         // Act
         bool result = ConcurrentPriorityQueue<int, string>.LogicallyDeleteNode(node);
@@ -1536,6 +1737,13 @@ public class ConcurrentPriorityQueueTests
         // Assert
         Assert.IsFalse(result, "Should return false if already deleted.");
         Assert.IsTrue(node.IsDeleted, "IsDeleted state should remain true.");
+        
+        bool canRelock = node.TryEnter();
+        if (canRelock)
+        {
+            node.Unlock();
+        }
+        Assert.IsTrue(canRelock, "Node lock should have been released by LogicallyDeleteNode when returning false after acquiring lock.");
     }
 
     [TestMethod]
@@ -1551,6 +1759,60 @@ public class ConcurrentPriorityQueueTests
         Assert.IsTrue(result, "Should return true for successful logical delete.");
         Assert.IsTrue(node.IsDeleted, "IsDeleted flag should be set to true.");
         node.Unlock();
+    }
+    
+    [TestMethod]
+    [Timeout(5000)]
+    public void LogicallyDeleteNode_Contention_ReturnsFalse()
+    {
+        // Arrange
+        var node = CreateNode(1, "Test", 2, isInserted: true, isDeleted: false);
+        var lockWasAcquiredEvent = new ManualResetEventSlim(false);
+        var releaseLockEvent = new ManualResetEventSlim(false);
+        Exception? taskException = null;
+
+        // Start a background task to acquire and hold the lock
+        var lockTask = Task.Run(() => {
+            try
+            {
+                node.Lock();
+                lockWasAcquiredEvent.Set();
+                releaseLockEvent.Wait();
+            }
+            catch(Exception ex)
+            {
+                taskException = ex;
+                lockWasAcquiredEvent.Set();
+            }
+            finally
+            {
+                node.Unlock();
+            }
+        });
+
+        try
+        {
+            // Wait for the background task to acquire the lock
+            if (!lockWasAcquiredEvent.Wait(TimeSpan.FromSeconds(2)))
+            {
+                Assert.Fail("Background task failed to acquire lock in time.");
+            }
+            Assert.IsNull(taskException, $"Background task threw an exception: {taskException}");
+
+            bool result = ConcurrentPriorityQueue<int, string>.LogicallyDeleteNode(node);
+
+            // Assert
+            Assert.IsFalse(result, "Should return false when lock cannot be acquired immediately due to contention from another thread.");
+            Assert.IsFalse(node.IsDeleted, "IsDeleted flag should not be changed if lock wasn't acquired.");
+        }
+        finally
+        {
+            releaseLockEvent.Set();
+            if (!lockTask.Wait(TimeSpan.FromSeconds(2)))
+            {
+                Console.WriteLine("Warning: Background lock task did not complete cleanly.");
+            }
+        }
     }
 
     [TestMethod]

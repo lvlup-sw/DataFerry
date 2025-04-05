@@ -286,7 +286,12 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                 if (Interlocked.Increment(ref _count) > _maxSize && _maxSize is not int.MaxValue)
                 {
                     // We use our SprayList algorithm to avoid contention
-                    TryDeleteMin(out _);
+                    if (!TryDeleteMin(out _))
+                    {
+                        // If the compensatory delete failed
+                        // we need to decrement the count
+                        Interlocked.Decrement(ref _count);
+                    }
                 }
 
                 return true;
@@ -367,7 +372,6 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
                     // Schedule removal and return
                     SchedulePhysicalNodeRemoval(curr);
                     element = curr.Element;
-
                     Interlocked.Decrement(ref _count);
                     return true;
                 }
@@ -579,18 +583,32 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// </remarks>
     internal static bool LogicallyDeleteNode(SkipListNode curr)
     {
-        if (curr.Type != SkipListNode.NodeType.Data) return false;
+        if (curr.Type is not SkipListNode.NodeType.Data) return false;
 
-        curr.Lock();
-        if (curr.IsDeleted)
+        // If we failed to acquire the lock immediately, there is likely contention
+        // We return false to signal retry is needed by caller
+        if (!curr.TryEnter()) return false;
+
+        // Lock was acquired successfully
+        bool markedDeleted = false;
+        try
         {
-            curr.Unlock();
-            return false;
-        }
+            if (curr.IsDeleted) return false;
 
-        // Linearization point: IsDeleted is volatile.
-        curr.IsDeleted = true;
-        return true;
+            // Linearization point: IsDeleted is volatile.
+            curr.IsDeleted = true;
+            markedDeleted = true;
+
+            // Return true; Lock remains held for the caller until finally block
+            return true;
+        }
+        finally
+        {
+            // If the lock was acquired (we passed the TryEnter check)
+            // AND we are exiting this scope *without* having successfully marked
+            // the node deleted, then we must release the lock
+            if (!markedDeleted) curr.Unlock();
+        }
     }
 
     #endregion
@@ -1304,6 +1322,16 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         /// <param name="height">The height (level) at which to set the next node.</param>
         /// <param name="next">The next node to set.</param>
         public void SetNextNode(int height, SkipListNode next) => _nextNodeArray[height] = next;
+
+        /// <summary>
+        /// Attempts to acquire the lock associated with the node without blocking.
+        /// </summary>
+        /// <returns>true if the lock was acquired; otherwise, false.</returns>
+        public bool TryEnter()
+        {
+            // Directly use the TryEnter method of System.Threading.Lock
+            return _nodeLock.TryEnter();
+        }
 
         /// <summary>
         /// Acquires the lock associated with the node.
