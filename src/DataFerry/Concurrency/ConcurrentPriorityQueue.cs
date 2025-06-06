@@ -7,9 +7,14 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
-using lvlup.DataFerry.Concurrency.Contracts;
-using lvlup.DataFerry.Orchestrators.Contracts;
+
 using Microsoft.Extensions.Logging;
+
+using lvlup.DataFerry.Concurrency.Algorithms;
+using lvlup.DataFerry.Concurrency.Contracts;
+using lvlup.DataFerry.Concurrency.Internal;
+using lvlup.DataFerry.Concurrency.Observability;
+using lvlup.DataFerry.Orchestrators.Contracts;
 
 namespace lvlup.DataFerry.Concurrency;
 
@@ -64,7 +69,7 @@ namespace lvlup.DataFerry.Concurrency;
 /// to help prevent deadlocks. Typically, the order of lock release is not critical.
 /// </para>
 /// </remarks>
-public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>
+public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQueue<TPriority, TElement>, IDisposable
 {
     #region Global Variables
 
@@ -142,12 +147,12 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// <summary>
     /// Head of the skip list.
     /// </summary>
-    private readonly SkipListNode _head;
+    private SkipListNode _head;
 
     /// <summary>
     /// Tail of the skip list.
     /// </summary>
-    private readonly SkipListNode _tail;
+    private SkipListNode _tail;
 
     /// <summary>
     /// Random number generator.
@@ -165,9 +170,64 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     private readonly ITaskOrchestrator _taskOrchestrator;
 
     /// <summary>
-    /// Observability helper class which handles instrumentation.
+    /// Observability interface for metrics, logging, and tracing.
     /// </summary>
-    private readonly ConcurrentPriorityQueueObservabilityHelper _observability;
+    private readonly IQueueObservability? _observability;
+
+    /// <summary>
+    /// Statistics interface for real-time queue metrics.
+    /// </summary>
+    private readonly IQueueStatistics? _statistics;
+
+    /// <summary>
+    /// Detailed statistics tracker for comprehensive analysis.
+    /// </summary>
+    private readonly QueueStatistics? _detailedStatistics;
+
+    /// <summary>
+    /// Metrics provider for performance counters and histograms.
+    /// </summary>
+    private readonly QueueMetrics? _metrics;
+
+    /// <summary>
+    /// Configuration options for the queue.
+    /// </summary>
+    private readonly ConcurrentPriorityQueueOptions _options;
+
+    /// <summary>
+    /// Fallback processor for handling node deletions that fail during primary operations.
+    /// </summary>
+    private readonly FallbackDeletionProcessor<TPriority, TElement>? _fallbackProcessor;
+
+    /// <summary>
+    /// Node pool for efficient memory reuse in high-throughput scenarios.
+    /// </summary>
+    private readonly INodePool<SkipListNode>? _nodePool;
+
+    /// <summary>
+    /// Memory manager for coordinating cleanup operations.
+    /// </summary>
+    private readonly MemoryManager<TPriority, TElement> _memoryManager;
+
+    /// <summary>
+    /// Version counter incremented on each clear operation to detect concurrent modifications.
+    /// </summary>
+    private volatile int _clearVersion = 0;
+
+    /// <summary>
+    /// Batch processor for optimized bulk operations.
+    /// </summary>
+    private readonly BatchProcessor<TPriority, TElement>? _batchProcessor;
+
+    /// <summary>
+    /// Adaptive tracker for spray operation parameter tuning.
+    /// </summary>
+    private readonly AdaptiveSprayTracker? _adaptiveTracker;
+
+    /// <summary>
+    /// Priority update strategy for atomic priority modifications.
+    /// </summary>
+    private readonly PriorityUpdateStrategy<TPriority, TElement>? _updateStrategy;
 
     #endregion
     #region Constructors
@@ -194,32 +254,88 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     public ConcurrentPriorityQueue(
         ITaskOrchestrator taskOrchestrator,
         IComparer<TPriority> comparer,
-        //ILoggerFactory loggerFactory,
-        //IMeterFactory meterFactory,
         int maxSize = DefaultMaxSize,
         int offsetK = DefaultSprayOffsetK,
         int offsetM = DefaultSprayOffsetM,
         double promotionProbability = DefaultPromotionProbability)
+        : this(taskOrchestrator, comparer, serviceProvider: null, new ConcurrentPriorityQueueOptions
+        {
+            MaxSize = maxSize,
+            SprayOffsetK = offsetK,
+            SprayOffsetM = offsetM,
+            PromotionProbability = promotionProbability
+        })
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ConcurrentPriorityQueue{TPriority, TElement}"/> class with dependency injection support.
+    /// </summary>
+    /// <param name="taskOrchestrator">The scheduler used to orchestrate background tasks processing the physical deletion of nodes.</param>
+    /// <param name="comparer">The comparer used to compare priorities.</param>
+    /// <param name="serviceProvider">Optional service provider for dependency injection of logging and metrics.</param>
+    /// <param name="options">Optional configuration options for the queue.</param>
+    /// <exception cref="ArgumentNullException">Thrown if required parameters are null.</exception>
+    /// <remarks>
+    /// When a service provider is supplied, the queue will attempt to resolve ILoggerFactory and IMeterFactory
+    /// to enable comprehensive observability features including metrics, logging, and distributed tracing.
+    /// </remarks>
+    public ConcurrentPriorityQueue(
+        ITaskOrchestrator taskOrchestrator,
+        IComparer<TPriority> comparer,
+        IServiceProvider? serviceProvider = null,
+        ConcurrentPriorityQueueOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(taskOrchestrator, nameof(taskOrchestrator));
         ArgumentNullException.ThrowIfNull(comparer, nameof(comparer));
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxSize, 1, nameof(maxSize));
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(offsetK, nameof(offsetK));
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(offsetM, nameof(offsetM));
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(promotionProbability, nameof(promotionProbability));
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(promotionProbability, 1, nameof(promotionProbability));
+
+        // Use provided options or create defaults
+        _options = options ?? new ConcurrentPriorityQueueOptions();
+        _options.Validate();
 
         _taskOrchestrator = taskOrchestrator;
         _comparer = comparer;
-        _maxSize = maxSize;
-        _offsetK = offsetK;
-        _offsetM = offsetM;
-        _promotionProbability = promotionProbability;
+        _maxSize = _options.MaxSize;
+        _offsetK = _options.SprayOffsetK;
+        _offsetM = _options.SprayOffsetM;
+        _promotionProbability = _options.PromotionProbability;
         _numberOfLevels = CalculateOptimalLevels(_maxSize, _promotionProbability);
         _topLevel = _numberOfLevels - 1;
         _count = 0;
 
-        //_observability = new ConcurrentPriorityQueueObservabilityHelper(loggerFactory, meterFactory, _maxSize);
+        // Initialize observability if services are provided
+        if (serviceProvider != null)
+        {
+            var loggerFactory = serviceProvider.GetService(typeof(ILoggerFactory)) as ILoggerFactory;
+            var meterFactory = serviceProvider.GetService(typeof(IMeterFactory)) as IMeterFactory;
+
+            if (loggerFactory != null && meterFactory != null)
+            {
+                // Create the main observability handler
+                var observability = new QueueObservability(
+                    loggerFactory,
+                    meterFactory,
+                    _options.QueueName,
+                    _options.MaxSize,
+                    () => GetCount());
+
+                _observability = observability;
+                _statistics = observability; // QueueObservability implements IQueueStatistics
+
+                // Create additional components if enabled
+                if (_options.EnableStatistics)
+                {
+                    _detailedStatistics = new QueueStatistics(_options.QueueName, _options.StatisticsWindow);
+                }
+
+                _metrics = new QueueMetrics(
+                    meterFactory,
+                    _options.QueueName,
+                    () => GetCount(),
+                    _options.MaxSize,
+                    loggerFactory.CreateLogger<QueueMetrics>());
+            }
+        }
 
         _head = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
         _tail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
@@ -233,7 +349,63 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         _head.IsInserted = true;
         _tail.IsInserted = true;
 
-        //_observability.LogQueueInitialized(_maxSize, _numberOfLevels, _promotionProbability, _offsetK, _offsetM);
+        // Initialize new components
+        if (_options.EnableFallbackDeletion)
+        {
+            _fallbackProcessor = new FallbackDeletionProcessor<TPriority, TElement>(
+                _observability,
+                node => RemoveNodePhysically(node, node.TopLevel));
+        }
+
+        // Initialize node pooling if enabled
+        if (_options.EnableNodePooling)
+        {
+            _nodePool = new NodePool<TPriority, TElement>(
+                _topLevel,
+                _comparer,
+                _options.MaxNodePoolSize);
+        }
+
+        // Initialize memory manager
+        _memoryManager = new MemoryManager<TPriority, TElement>(
+            _nodePool,
+            _fallbackProcessor,
+            _observability,
+            _taskOrchestrator);
+
+        // Initialize batch processing components if enabled
+        if (_options.EnableBatchOperations)
+        {
+            _batchProcessor = new BatchProcessor<TPriority, TElement>(
+                this,
+                _comparer,
+                _nodePool,
+                _observability);
+        }
+
+        // Initialize adaptive spray tracker if enabled
+        if (_options.EnableAdaptiveSpray)
+        {
+            _adaptiveTracker = new AdaptiveSprayTracker(
+                _offsetK,
+                _offsetM,
+                _options.AdaptiveWindowSize);
+        }
+
+        // Initialize priority update strategy if enabled
+        if (_options.EnablePriorityUpdates)
+        {
+            _updateStrategy = new PriorityUpdateStrategy<TPriority, TElement>(
+                this,
+                _comparer,
+                _observability);
+        }
+
+        // Log initialization
+        if (_observability is QueueObservability queueObs)
+        {
+            queueObs.LogQueueInitialized(_numberOfLevels, _promotionProbability, _offsetK, _offsetM);
+        }
         return;
 
         // Calculate optimal number of levels for the SkipList
@@ -272,65 +444,100 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         ArgumentNullException.ThrowIfNull(priority, nameof(priority));
         ArgumentNullException.ThrowIfNull(element, nameof(element));
 
-        /*  Example Observability usage
-        var (activity, stopwatch) = _observability.StartOperation(nameof(TryAdd), priority: priority);
-        using (activity)
+        var activity = _observability?.StartActivity(nameof(TryAdd));
+        var stopwatch = Stopwatch.StartNew();
+        var retryCount = 0;
+
+        try
         {
-            // _observability.LogMaxSizeExceeded(_count);
+            activity?.AddQueueTags(_options.QueueName, "Add", GetCount())
+                    ?.AddPriorityInfo(priority);
 
-            // activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            // Generate a new level and node
+            int insertLevel = GenerateLevel();
+            _metrics?.RecordNodeHeight(insertLevel + 1);
+            
+            // Create new node
+            var newNode = new SkipListNode(priority, element, insertLevel, _comparer);
 
-            // finally
-            // { stopwatch.Stop(); }
-        }
-        */
-
-        // Generate a new level and node
-        int insertLevel = GenerateLevel();
-        var newNode = new SkipListNode(priority, element, insertLevel, _comparer);
-
-        while (true)
-        {
-            // Identify the links the new level and node will have
-            var searchResult = StructuralSearch(newNode);
-            int highestLevelLocked = InvalidLevel;
-
-            try
+            while (true)
             {
-                // Ensure we can proceed with physical insertion
-                if (!ValidateInsertion(searchResult, insertLevel, ref highestLevelLocked))
+                retryCount++;
+                
+                // Identify the links the new level and node will have
+                var searchResult = StructuralSearch(newNode);
+                int highestLevelLocked = InvalidLevel;
+
+                try
                 {
-                    continue;
-                }
-
-                // Physically insert the new node
-                InsertNode(newNode, searchResult, insertLevel);
-
-                // Linearization point: MemoryBarrier not required since IsInserted is a volatile member
-                newNode.IsInserted = true;
-
-                // If we exceed the size bound, delete the minimal node
-                if (Interlocked.Increment(ref _count) > _maxSize && _maxSize is not int.MaxValue)
-                {
-                    // We use our SprayList algorithm to avoid contention
-                    if (!TryDeleteMin(out _))
+                    // Ensure we can proceed with physical insertion
+                    if (!ValidateInsertion(searchResult, insertLevel, ref highestLevelLocked))
                     {
-                        // If the compensatory delete failed
-                        // we need to decrement the count
-                        Interlocked.Decrement(ref _count);
+                        if (retryCount > 1)
+                        {
+                            _metrics?.RecordContention("Add", "validation_failed", stopwatch.ElapsedMilliseconds);
+                        }
+                        continue;
+                    }
+
+                    // Physically insert the new node
+                    InsertNode(newNode, searchResult, insertLevel);
+
+                    // Linearization point: MemoryBarrier not required since IsInserted is a volatile member
+                    newNode.IsInserted = true;
+
+                    var newCount = Interlocked.Increment(ref _count);
+                    
+                    // If we exceed the size bound, delete the minimal node
+                    if (newCount > _maxSize && _maxSize is not int.MaxValue)
+                    {
+                        _observability?.LogEvent(LogLevel.Information, 
+                            "MaxSize exceeded during Add. Attempting TryDeleteMin. Current Count: {Count}", newCount);
+                        
+                        // We use our SprayList algorithm to avoid contention
+                        if (!TryDeleteMin(out _))
+                        {
+                            // If the compensatory delete failed
+                            // we need to decrement the count
+                            Interlocked.Decrement(ref _count);
+                            _metrics?.CapacityExceeded.Add(1);
+                        }
+                    }
+
+                    // Record success
+                    var duration = stopwatch.ElapsedMilliseconds;
+                    _observability?.RecordOperation("TryAdd", true, duration, 
+                        new Dictionary<string, object> { ["InsertLevel"] = insertLevel });
+                    _metrics?.RecordSuccess("TryAdd", duration);
+                    _metrics?.RecordRetries("TryAdd", retryCount - 1);
+                    _detailedStatistics?.RecordOperation("TryAdd", true, duration);
+                    activity?.RecordSuccess($"Added at level {insertLevel}");
+                    
+                    return true;
+                }
+                finally
+                {
+                    // Unlock order is not important
+                    for (int level = highestLevelLocked; level >= 0; level--)
+                    {
+                        searchResult.GetPredecessor(level)?.Unlock();
                     }
                 }
-
-                return true;
             }
-            finally
-            {
-                // Unlock order is not important
-                for (int level = highestLevelLocked; level >= 0; level--)
-                {
-                    searchResult.GetPredecessor(level)?.Unlock();
-                }
-            }
+        }
+        catch (Exception ex)
+        {
+            var duration = stopwatch.ElapsedMilliseconds;
+            _observability?.RecordOperation("TryAdd", false, duration, 
+                new Dictionary<string, object> { ["Reason"] = "Exception", ["ExceptionType"] = ex.GetType().Name });
+            _metrics?.RecordFailure("TryAdd", duration, "Exception");
+            _detailedStatistics?.RecordOperation("TryAdd", false, duration);
+            activity?.RecordFailure("Exception", ex);
+            throw;
+        }
+        finally
+        {
+            activity?.Dispose();
         }
     }
 
@@ -423,12 +630,28 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
 
         element = default!;
 
+        // Track spray operation timing and result
+        var stopwatch = _adaptiveTracker != null ? Stopwatch.StartNew() : null;
+        var contentionLevel = 0;
+
         // Perform the spray operation
         var curr = SpraySearch(currCount);
 
         // Spray complete; attempt to logically delete candidate
         if (!LogicallyDeleteNode(curr))
         {
+            contentionLevel++;
+            
+            // Record failure if tracking
+            if (_adaptiveTracker != null && stopwatch != null)
+            {
+                _adaptiveTracker.RecordResult(
+                    success: false,
+                    jumpLength: 0, // We'll estimate this
+                    duration: stopwatch.Elapsed,
+                    contentionLevel: contentionLevel);
+            }
+            
             // Failure path; retry probabilistically
             return _randomGenerator.NextDouble() < retryProbability &&
                 TryDeleteMin(out element, retryProbability * 0.5);
@@ -440,6 +663,17 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             SchedulePhysicalNodeRemoval(curr);
             element = curr.Element;
             Interlocked.Decrement(ref _count);
+            
+            // Record success if tracking
+            if (_adaptiveTracker != null && stopwatch != null)
+            {
+                _adaptiveTracker.RecordResult(
+                    success: true,
+                    jumpLength: EstimateJumpLength(curr),
+                    duration: stopwatch.Elapsed,
+                    contentionLevel: contentionLevel);
+            }
+            
             return true;
         }
         finally
@@ -569,6 +803,337 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
             yield return curr.Priority;
         }
     }
+
+    /// <summary>
+    /// Gets a full enumerator that iterates through all priority-element pairs in the queue.
+    /// </summary>
+    /// <returns>An enumerator that yields priority-element pairs in ascending priority order.</returns>
+    /// <remarks>
+    /// <para>
+    /// This method returns an enumerator that provides both priority and element values
+    /// for each item in the queue. The enumeration is lock-free and provides "read committed"
+    /// semantics, showing only fully inserted and non-deleted nodes.
+    /// </para>
+    /// <para>
+    /// The enumerator will throw an <see cref="InvalidOperationException"/> if the queue
+    /// is cleared during enumeration to maintain consistency.
+    /// </para>
+    /// </remarks>
+    public IEnumerable<(TPriority Priority, TElement Element)> GetFullEnumerator()
+    {
+        var currentVersion = _clearVersion;
+        var enumerator = new Enumerators.FullEnumerator<TPriority, TElement>(
+            _head, 
+            currentVersion, 
+            () => _clearVersion);
+        
+        while (enumerator.MoveNext())
+        {
+            yield return enumerator.Current;
+        }
+    }
+
+    /// <summary>
+    /// Gets an async enumerator that iterates through all priority-element pairs in the queue.
+    /// </summary>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the enumeration.</param>
+    /// <returns>An async enumerator that yields priority-element pairs in ascending priority order.</returns>
+    /// <remarks>
+    /// <para>
+    /// This method returns an async enumerator that provides both priority and element values
+    /// for each item in the queue. The enumeration periodically yields control to allow other
+    /// async operations to proceed, making it suitable for use in async contexts.
+    /// </para>
+    /// <para>
+    /// The enumerator will throw an <see cref="InvalidOperationException"/> if the queue
+    /// is cleared during enumeration to maintain consistency.
+    /// </para>
+    /// </remarks>
+    public IAsyncEnumerator<(TPriority Priority, TElement Element)> GetAsyncEnumerator(
+        CancellationToken cancellationToken = default)
+    {
+        var currentVersion = _clearVersion;
+        return new Enumerators.FullEnumerator<TPriority, TElement>(
+            _head, 
+            currentVersion, 
+            () => _clearVersion);
+    }
+
+    /// <summary>
+    /// Clears all elements from the queue atomically.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This method provides an atomic clear operation that creates a new internal structure
+    /// while scheduling cleanup of the old structure asynchronously. The operation has
+    /// O(1) time complexity for the clear itself, with deferred O(n) cleanup.
+    /// </para>
+    /// <para>
+    /// The method is thread-safe and can be called concurrently with other operations.
+    /// Ongoing operations on the old structure will complete normally, but any new
+    /// operations will see an empty queue immediately after Clear returns.
+    /// </para>
+    /// </remarks>
+    public void Clear()
+    {
+        // Increment version to invalidate iterators
+        var newVersion = Interlocked.Increment(ref _clearVersion);
+        
+        // Get current count atomically and reset to 0
+        var oldCount = Interlocked.Exchange(ref _count, 0);
+        
+        // Create new sentinel nodes for the new structure
+        var newHead = new SkipListNode(SkipListNode.NodeType.Head, _topLevel);
+        var newTail = new SkipListNode(SkipListNode.NodeType.Tail, _topLevel);
+        
+        // Link new structure
+        for (int level = BottomLevel; level <= _topLevel; level++)
+        {
+            newHead.SetNextNode(level, newTail);
+        }
+        
+        newHead.IsInserted = true;
+        newTail.IsInserted = true;
+        
+        // Atomically swap the structure
+        var oldHead = Interlocked.Exchange(ref _head, newHead);
+        var oldTail = Interlocked.Exchange(ref _tail, newTail);
+        
+        // Clear node pool to prevent reuse of old nodes
+        _nodePool?.Clear();
+        
+        // Schedule cleanup of old structure if it contained elements
+        if (oldCount > 0)
+        {
+            _memoryManager.ScheduleStructureCleanup(oldHead, oldTail, newVersion, oldCount);
+        }
+        
+        // Log the clear operation
+        //_observability?.RecordOperation("Clear", true, 0, 
+        //    new Dictionary<string, object> { ["OldCount"] = oldCount });
+    }
+
+    /// <summary>
+    /// Attempts to peek at the element with the minimum priority without removing it from the queue.
+    /// </summary>
+    /// <param name="priority">When this method returns, contains the priority of the minimum element if found; otherwise, the default value for <typeparamref name="TPriority"/>.</param>
+    /// <param name="element">When this method returns, contains the element value of the minimum element if found; otherwise, the default value for <typeparamref name="TElement"/>.</param>
+    /// <returns><c>true</c> if the peek operation was successful and a minimum element was found; otherwise, <c>false</c>.</returns>
+    /// <remarks>
+    /// <para>
+    /// This method performs a lock-free read operation with O(1) expected time complexity.
+    /// It provides a consistent snapshot of the minimum element at the time of the read.
+    /// </para>
+    /// <para>
+    /// The operation is optimized for read performance and does not acquire any locks.
+    /// If the node is deleted between validation checks, the method continues searching
+    /// for the next valid minimum element.
+    /// </para>
+    /// </remarks>
+    public bool TryPeek([MaybeNullWhen(false)] out TPriority priority, [MaybeNullWhen(false)] out TElement element)
+    {
+        var activity = _observability?.StartActivity(nameof(TryPeek));
+        var stopwatch = Stopwatch.StartNew();
+        
+        try
+        {
+            var curr = Volatile.Read(ref _head).GetNextNode(BottomLevel);
+            
+            while (curr.Type is not SkipListNode.NodeType.Tail)
+            {
+                // Skip invalid nodes
+                if (NodeIsInvalidOrDeleted(curr))
+                {
+                    curr = curr.GetNextNode(BottomLevel);
+                    continue;
+                }
+                
+                // Found valid node - take snapshot of values
+                priority = curr.Priority;
+                element = curr.Element;
+                
+                // Double-check node is still valid after read
+                if (!curr.IsDeleted)
+                {
+                    _observability?.RecordOperation(nameof(TryPeek), true, 
+                        stopwatch.ElapsedMilliseconds);
+                    return true;
+                }
+                
+                // Node was deleted between checks, continue
+                curr = curr.GetNextNode(BottomLevel);
+            }
+            
+            priority = default!;
+            element = default!;
+            _observability?.RecordOperation(nameof(TryPeek), false, 
+                stopwatch.ElapsedMilliseconds, 
+                new Dictionary<string, object> { ["Reason"] = "Empty" });
+            return false;
+        }
+        finally
+        {
+            activity?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Attempts to peek at the priority of the element with the minimum priority without removing it from the queue.
+    /// </summary>
+    /// <param name="priority">When this method returns, contains the priority of the minimum element if found; otherwise, the default value for <typeparamref name="TPriority"/>.</param>
+    /// <returns><c>true</c> if the peek operation was successful and a minimum priority was found; otherwise, <c>false</c>.</returns>
+    /// <remarks>
+    /// This is a convenience method that calls <see cref="TryPeek(out TPriority, out TElement)"/>
+    /// and discards the element value. It has the same performance characteristics and thread-safety
+    /// guarantees as the full TryPeek method.
+    /// </remarks>
+    public bool TryPeekPriority([MaybeNullWhen(false)] out TPriority priority)
+    {
+        return TryPeek(out priority, out _);
+    }
+
+    /// <summary>
+    /// Attempts to peek at a range of elements from the queue starting from the minimum priority.
+    /// </summary>
+    /// <param name="count">The maximum number of elements to peek.</param>
+    /// <param name="items">When this method returns, contains a list of priority-element pairs found in the queue.</param>
+    /// <returns><c>true</c> if at least one element was found; otherwise, <c>false</c>.</returns>
+    /// <remarks>
+    /// <para>
+    /// This method performs a lock-free traversal of the queue to collect up to <paramref name="count"/>
+    /// elements in priority order. The operation has O(k) time complexity where k is the number of
+    /// elements requested.
+    /// </para>
+    /// <para>
+    /// The returned list provides a consistent snapshot of the queue state at the time of traversal.
+    /// Elements that are concurrently deleted may or may not appear in the results depending on
+    /// the timing of the deletion relative to the traversal.
+    /// </para>
+    /// </remarks>
+    public bool TryPeekRange(int count, out List<(TPriority Priority, TElement Element)> items)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count, nameof(count));
+        
+        items = new List<(TPriority, TElement)>(Math.Min(count, 100)); // Pre-allocate reasonable size
+        var curr = Volatile.Read(ref _head).GetNextNode(BottomLevel);
+        
+        while (curr.Type is not SkipListNode.NodeType.Tail && items.Count < count)
+        {
+            if (!NodeIsInvalidOrDeleted(curr))
+            {
+                // Take snapshot of node data
+                var priority = curr.Priority;
+                var element = curr.Element;
+                
+                // Verify node is still valid after reading data
+                if (!curr.IsDeleted)
+                {
+                    items.Add((priority, element));
+                }
+            }
+            curr = curr.GetNextNode(BottomLevel);
+        }
+        
+        return items.Count > 0;
+    }
+
+    /// <summary>
+    /// Disposes of the concurrent priority queue and releases all resources.
+    /// </summary>
+    /// <remarks>
+    /// This method cleans up all internal resources including the fallback deletion
+    /// processor and any pending background tasks. It should be called when the
+    /// queue is no longer needed to ensure proper resource cleanup.
+    /// </remarks>
+    public void Dispose()
+    {
+        // Clear the queue first
+        Clear();
+        
+        // Dispose the fallback processor
+        _fallbackProcessor?.Dispose();
+        
+        // Wait for any active cleanup tasks to complete
+        var timeout = TimeSpan.FromSeconds(5);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        
+        while (_memoryManager.ActiveCleanupTasks > 0 && stopwatch.Elapsed < timeout)
+        {
+            Thread.Sleep(100);
+        }
+        
+        if (_memoryManager.ActiveCleanupTasks > 0)
+        {
+            //_observability?.LogEvent(LogLevel.Warning, 
+            //    "Disposal completed with {ActiveTasks} cleanup tasks still running",
+            //    _memoryManager.ActiveCleanupTasks);
+        }
+        
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Attempts to add a range of items to the queue using optimized batch processing.
+    /// </summary>
+    /// <param name="items">An async enumerable sequence of priority-element pairs to add.</param>
+    /// <param name="options">Optional configuration for the batch operation.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>A result object containing statistics about the batch operation.</returns>
+    /// <remarks>
+    /// <para>
+    /// This method processes items in configurable batches, optionally sorting each batch
+    /// for better cache locality and using parallel processing for large batches.
+    /// </para>
+    /// <para>
+    /// Batch operations must be enabled via EnableBatchOperations in the queue options.
+    /// </para>
+    /// </remarks>
+    public Task<BatchOperationResult> TryAddRangeAsync(
+        IAsyncEnumerable<(TPriority Priority, TElement Element)> items,
+        BatchOperationOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_batchProcessor == null)
+        {
+            throw new InvalidOperationException(
+                "Batch operations are not enabled. Set EnableBatchOperations to true in queue options.");
+        }
+
+        return _batchProcessor.TryAddRangeAsync(items, options ?? new BatchOperationOptions(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Attempts to update the priority of an element in the queue.
+    /// </summary>
+    /// <param name="oldPriority">The current priority of the element.</param>
+    /// <param name="newPriority">The new priority to assign.</param>
+    /// <param name="element">The element value to update.</param>
+    /// <returns>True if the update was successful; otherwise, false.</returns>
+    /// <remarks>
+    /// <para>
+    /// This method performs an atomic update by removing the element with the old priority
+    /// and re-adding it with the new priority. If the priorities are equal, an in-place
+    /// update is performed instead.
+    /// </para>
+    /// <para>
+    /// Priority updates must be enabled via EnablePriorityUpdates in the queue options.
+    /// </para>
+    /// </remarks>
+    public bool TryUpdatePriority(TPriority oldPriority, TPriority newPriority, TElement element)
+    {
+        if (_updateStrategy == null)
+        {
+            throw new InvalidOperationException(
+                "Priority updates are not enabled. Set EnablePriorityUpdates to true in queue options.");
+        }
+
+        return _updateStrategy.TryUpdatePriority(oldPriority, newPriority, _ => element);
+    }
+
+    /// <summary>
+    /// Gets the comparer used for priority ordering.
+    /// </summary>
+    internal IComparer<TPriority> Comparer => _comparer;
 
     #endregion
     #region Shared Helper Methods
@@ -892,8 +1457,11 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
     /// </remarks>
     internal SkipListNode SpraySearch(int currCount)
     {
+        // Get adaptive parameters if enabled
+        var (offsetK, offsetM) = _adaptiveTracker?.GetCurrentOffsets() ?? (_offsetK, _offsetM);
+        
         // Init our parameters
-        var sprayParams = SprayParameters.CalculateParameters(currCount, _topLevel, _offsetK, _offsetM);
+        var sprayParams = SprayParameters.CalculateParameters(currCount, _topLevel, offsetK, offsetM);
 
         // Prepare spray operation
         int currHeight = sprayParams.StartHeight;
@@ -993,6 +1561,37 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         return new SearchResult(levelFound, predecessorArray, successorArray, nodeFound);
     }
 
+    /// <summary>
+    /// Estimates the jump length based on the position of the node in the skip list.
+    /// </summary>
+    /// <param name="node">The node to estimate jump length for.</param>
+    /// <returns>An estimated jump length value.</returns>
+    private int EstimateJumpLength(SkipListNode node)
+    {
+        // Simple estimation based on how far we are from head
+        var distance = 0;
+        var current = _head.GetNextNode(BottomLevel);
+        
+        while (current != node && current.Type != SkipListNode.NodeType.Tail && distance < 100)
+        {
+            distance++;
+            current = current.GetNextNode(BottomLevel);
+        }
+        
+        return distance;
+    }
+
+    /// <summary>
+    /// Estimates the current contention level in the queue.
+    /// </summary>
+    /// <returns>An estimated contention level (0-10 scale).</returns>
+    private int EstimateContentionLevel()
+    {
+        // This is a simplified estimation
+        // In a real implementation, you might track failed lock attempts, retries, etc.
+        return 0;
+    }
+
     #endregion
     #region Background Tasks
 
@@ -1071,13 +1670,84 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("queue full"))
         {
-            /* Uncomment after Observability update
-            _logger?.LogWarning(
-                ex,
-                "Physical node removal task dropped for node (Priority: {Priority}, Sequence: {SequenceNumber}) because the background task orchestrator queue is full. This may lead to increased memory usage over time if it occurs frequently.",
-                node.Priority,
-                node.SequenceNumber);
-            */
+            // Use fallback processor when primary task orchestrator is full
+            if (_fallbackProcessor != null && !_fallbackProcessor.TrySchedule(node))
+            {
+                /* Uncomment after Observability update
+                _logger?.LogWarning(
+                    ex,
+                    "Physical node removal task dropped for node (Priority: {Priority}, Sequence: {SequenceNumber}) because both primary and fallback processors are full. This may lead to increased memory usage over time.",
+                    node.Priority,
+                    node.SequenceNumber);
+                */
+            }
+        }
+    }
+
+    /// <summary>
+    /// Physically removes a node from the skip list structure.
+    /// </summary>
+    /// <param name="node">The node to remove.</param>
+    /// <param name="topLevel">The top level of the node to start removal from.</param>
+    /// <remarks>
+    /// This method performs the actual physical unlinking of the node from all levels
+    /// of the skip list. It's used by both the primary task orchestrator and the
+    /// fallback deletion processor.
+    /// </remarks>
+    internal void RemoveNodePhysically(SkipListNode node, int topLevel)
+    {
+        // We only remove logically deleted nodes
+        if (!node.IsDeleted) return;
+
+        // Unlink top-to-bottom to preserve invariants
+        for (int level = topLevel; level >= BottomLevel; level--)
+        {
+            SkipListNode predecessor = _head;
+
+            // Loop to find the correct predecessor at this level
+            while (true)
+            {
+                SkipListNode current = predecessor.GetNextNode(level);
+
+                // Check if we found the potential position, overshot, or hit the end; stop searching this level
+                if (ShouldStopSearch(current, node)) break;
+
+                predecessor = current;
+            }
+
+            // Check if the node immediately after predecessor is our target node
+            if (predecessor.GetNextNode(level) != node)
+            {
+                continue;
+            }
+
+            // Lock the predecessor before checking and updating its pointer
+            predecessor.Lock();
+            try
+            {
+                // Re-verify condition *after* acquiring lock
+                // Also check if predecessor itself was deleted concurrently
+                if (!predecessor.IsDeleted && predecessor.GetNextNode(level) == node)
+                {
+                    // Atomically (within lock) perform the pointer swing
+                    predecessor.SetNextNode(level, node.GetNextNode(level));
+                }
+            }
+            finally
+            {
+                predecessor.Unlock();
+            }
+        }
+
+        // Determine if we should stop searching based on the following criteria:
+        // 1. We found the node to remove
+        // 2. We reached the Tail node
+        // 3. We passed the node (current node's priority/sequence is greater)
+        static bool ShouldStopSearch(SkipListNode currentNode, SkipListNode nodeToRemove)
+        {
+            return currentNode == nodeToRemove ||
+                   currentNode.Type is SkipListNode.NodeType.Tail ||
+                   currentNode.CompareTo(nodeToRemove) > 0;
         }
     }
 
@@ -1235,7 +1905,7 @@ public class ConcurrentPriorityQueue<TPriority, TElement> : IConcurrentPriorityQ
         private readonly Lock _nodeLock = new();
         private readonly SkipListNode[] _nextNodeArray;
         private readonly IComparer<TPriority> _priorityComparer;
-        private static long s_sequenceGenerator;
+        internal static long s_sequenceGenerator;
 
         // Volatile fields have 'release' and 'acquire' semantics
         // which act as one-way memory barriers; combining these properties
