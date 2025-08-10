@@ -6,7 +6,7 @@
 
 using System.Data.Common;
 using System.Threading.Channels;
-using lvlup.DataFerry.Orchestrators.Contracts;
+using lvlup.DataFerry.Concurrency.Contracts;
 using lvlup.DataFerry.Properties;
 using lvlup.DataFerry.Utilities;
 

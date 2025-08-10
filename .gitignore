@@ -406,3 +406,6 @@ FodyWeavers.xsd
 # Ignore the .idea directory (IntelliJ IDEA / JetBrains IDE settings)
 .idea/
 src/.idea/
+
+# Ignore local Claude config
+.claude/

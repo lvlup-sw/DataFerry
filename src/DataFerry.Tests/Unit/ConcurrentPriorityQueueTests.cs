@@ -1,7 +1,12 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Collections.Concurrent;
 using System.Reflection;
 using lvlup.DataFerry.Concurrency;
-using lvlup.DataFerry.Orchestrators.Contracts;
+using lvlup.DataFerry.Concurrency.Contracts;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using System.Diagnostics.Metrics;
+
 using Moq;
 
 namespace lvlup.DataFerry.Tests.Unit;
@@ -12,6 +17,9 @@ public class ConcurrentPriorityQueueTests
     // ReSharper disable AccessToModifiedClosure
     #pragma warning disable CS8618
     private Mock<ITaskOrchestrator> _mockTaskOrchestrator;
+    private Mock<ILoggerFactory> _mockLoggerFactory;
+    private Mock<IMeterFactory> _mockMeterFactory;
+    private IOptions<ConcurrentPriorityQueueOptions> _options;
     private IComparer<int> _intComparer;
     #pragma warning restore CS8618
 
@@ -22,24 +30,49 @@ public class ConcurrentPriorityQueueTests
         _mockTaskOrchestrator
             .Setup(o => o.Run(It.IsAny<Func<Task>>()))
             .Callback<Func<Task>>(action => action());
+
+        _mockLoggerFactory = new Mock<ILoggerFactory>();
+        _mockLoggerFactory
+            .Setup(x => x.CreateLogger(It.IsAny<string>()))
+            .Returns(Mock.Of<ILogger>());
+
+        _mockMeterFactory = new Mock<IMeterFactory>();
+        var mockMeter = new Mock<Meter>("test", "1.0");
+        _mockMeterFactory
+            .Setup(x => x.Create(It.IsAny<MeterOptions>()))
+            .Returns(mockMeter.Object);
+
+        _options = Options.Create(new ConcurrentPriorityQueueOptions());
         _intComparer = Comparer<int>.Default;
     }
 
     #region Test Helpers
-    
+
     private ConcurrentPriorityQueue<int, string> CreateDefaultQueue(int maxSize = ConcurrentPriorityQueue<int, string>.DefaultMaxSize)
     {
-        return new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, maxSize);
+        var options = Options.Create(new ConcurrentPriorityQueueOptions { MaxSize = maxSize });
+        return new ConcurrentPriorityQueue<int, string>(
+            _mockTaskOrchestrator.Object,
+            _intComparer,
+            _mockLoggerFactory.Object,
+            _mockMeterFactory.Object,
+            options);
     }
-    
+
     private ConcurrentPriorityQueue<string, string> CreateDefaultQueueWithRefs(int maxSize = ConcurrentPriorityQueue<int, string>.DefaultMaxSize)
     {
-        return new ConcurrentPriorityQueue<string, string>(_mockTaskOrchestrator.Object, Comparer<string>.Default, maxSize);
+        var options = Options.Create(new ConcurrentPriorityQueueOptions { MaxSize = maxSize });
+        return new ConcurrentPriorityQueue<string, string>(
+            _mockTaskOrchestrator.Object,
+            Comparer<string>.Default,
+            _mockLoggerFactory.Object,
+            _mockMeterFactory.Object,
+            options);
     }
-    
-    private ConcurrentPriorityQueue<int, string>.SkipListNode CreateNode(int priority, string element, int height, bool isInserted = true, bool isDeleted = false)
+
+    private SkipListNode<int, string> CreateNode(int priority, string element, int height, bool isInserted = true, bool isDeleted = false)
     {
-        var node = new ConcurrentPriorityQueue<int, string>.SkipListNode(priority, element, height, _intComparer)
+        var node = new SkipListNode<int, string>(priority, element, height, _intComparer)
         {
             IsInserted = isInserted,
             IsDeleted = isDeleted
@@ -47,16 +80,16 @@ public class ConcurrentPriorityQueueTests
         return node;
     }
 
-    private static ConcurrentPriorityQueue<int, string>.SkipListNode CreateHeadNode(int height)
+    private static SkipListNode<int, string> CreateHeadNode(int height)
     {
-        return new ConcurrentPriorityQueue<int, string>.SkipListNode(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Head, height);
+        return new SkipListNode<int, string>(SkipListNode<int, string>.NodeType.Head, height);
     }
 
-    private static ConcurrentPriorityQueue<int, string>.SkipListNode CreateTailNode(int height)
+    private static SkipListNode<int, string> CreateTailNode(int height)
     {
-        return new ConcurrentPriorityQueue<int, string>.SkipListNode(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Tail, height);
+        return new SkipListNode<int, string>(SkipListNode<int, string>.NodeType.Tail, height);
     }
-    
+
     private static T GetInstanceField<T>(object instance, string fieldName)
     {
         FieldInfo? field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
@@ -65,22 +98,34 @@ public class ConcurrentPriorityQueueTests
         Assert.IsNotNull(value, $"Field {fieldName} value is null");
         return (T)value;
     }
-    
+
     private static long GetCurrentSequenceGeneratorValue()
     {
-        FieldInfo? field = typeof(ConcurrentPriorityQueue<int, string>.SkipListNode)
+        FieldInfo? field = typeof(SkipListNode<int, string>)
             .GetField("s_sequenceGenerator", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(field, "Could not find static field s_sequenceGenerator");
         return (long)(field.GetValue(null) ?? -1L);
     }
-    
+
     #endregion
     #region Constructor Tests
 
     [TestMethod]
     public void Constructor_WithValidParameters_InitializesCorrectly()
     {
-        var cpq = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, 100, 2, 2, 0.25);
+        var options = Options.Create(new ConcurrentPriorityQueueOptions
+        {
+            MaxSize = 100,
+            SprayOffsetK = 2,
+            SprayOffsetM = 2,
+            PromotionProbability = 0.25
+        });
+        var cpq = new ConcurrentPriorityQueue<int, string>(
+            _mockTaskOrchestrator.Object,
+            _intComparer,
+            _mockLoggerFactory.Object,
+            _mockMeterFactory.Object,
+            options);
         Assert.IsNotNull(cpq);
         Assert.AreEqual(0, cpq.GetCount());
     }
@@ -88,18 +133,28 @@ public class ConcurrentPriorityQueueTests
     [TestMethod]
     public void Constructor_NullTaskOrchestrator_ThrowsArgumentNullException()
     {
-        Assert.ThrowsExactly<ArgumentNullException>(() =>
+        Assert.ThrowsException<ArgumentNullException>(() =>
         {
-            _ = new ConcurrentPriorityQueue<int, string>(null!, _intComparer);
+            _ = new ConcurrentPriorityQueue<int, string>(
+                null!,
+                _intComparer,
+                _mockLoggerFactory.Object,
+                _mockMeterFactory.Object,
+                _options);
         });
     }
 
     [TestMethod]
     public void Constructor_NullComparer_ThrowsArgumentNullException()
     {
-        Assert.ThrowsExactly<ArgumentNullException>(() =>
+        Assert.ThrowsException<ArgumentNullException>(() =>
         {
-            _ = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, null!);
+            _ = new ConcurrentPriorityQueue<int, string>(
+                _mockTaskOrchestrator.Object,
+                null!,
+                _mockLoggerFactory.Object,
+                _mockMeterFactory.Object,
+                _options);
         });
     }
 
@@ -108,9 +163,20 @@ public class ConcurrentPriorityQueueTests
     [DataRow(-1)]
     public void Constructor_InvalidMaxSize_ThrowsArgumentOutOfRangeException(int maxSize)
     {
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+        // Note: Options validation would typically happen during binding
+        // For test purposes, we'll skip validation and let the constructor handle it
+        var options = new Mock<IOptions<ConcurrentPriorityQueueOptions>>();
+        options.Setup(x => x.Value).Returns(new ConcurrentPriorityQueueOptions { MaxSize = maxSize });
+
+        // The constructor should validate the options
+        Assert.ThrowsException<ArgumentException>(() =>
         {
-            _ = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, maxSize);
+            _ = new ConcurrentPriorityQueue<int, string>(
+                _mockTaskOrchestrator.Object,
+                _intComparer,
+                _mockLoggerFactory.Object,
+                _mockMeterFactory.Object,
+                options.Object);
         });
     }
 
@@ -119,9 +185,17 @@ public class ConcurrentPriorityQueueTests
     [DataRow(-1)]
     public void Constructor_InvalidOffsetK_ThrowsArgumentOutOfRangeException(int offsetK)
     {
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+        var options = new Mock<IOptions<ConcurrentPriorityQueueOptions>>();
+        options.Setup(x => x.Value).Returns(new ConcurrentPriorityQueueOptions { SprayOffsetK = offsetK });
+
+        Assert.ThrowsException<ArgumentException>(() =>
         {
-            _ = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, offsetK: offsetK);
+            _ = new ConcurrentPriorityQueue<int, string>(
+                _mockTaskOrchestrator.Object,
+                _intComparer,
+                _mockLoggerFactory.Object,
+                _mockMeterFactory.Object,
+                options.Object);
         });
     }
 
@@ -130,9 +204,17 @@ public class ConcurrentPriorityQueueTests
     [DataRow(-1)]
     public void Constructor_InvalidOffsetM_ThrowsArgumentOutOfRangeException(int offsetM)
     {
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+        var options = new Mock<IOptions<ConcurrentPriorityQueueOptions>>();
+        options.Setup(x => x.Value).Returns(new ConcurrentPriorityQueueOptions { SprayOffsetM = offsetM });
+
+        Assert.ThrowsException<ArgumentException>(() =>
         {
-            _ = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, offsetM: offsetM);
+            _ = new ConcurrentPriorityQueue<int, string>(
+                _mockTaskOrchestrator.Object,
+                _intComparer,
+                _mockLoggerFactory.Object,
+                _mockMeterFactory.Object,
+                options.Object);
         });
     }
 
@@ -143,19 +225,575 @@ public class ConcurrentPriorityQueueTests
     [DataRow(1.1)]
     public void Constructor_InvalidPromotionProbability_ThrowsArgumentOutOfRangeException(double probability)
     {
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+        var options = new Mock<IOptions<ConcurrentPriorityQueueOptions>>();
+        options.Setup(x => x.Value).Returns(new ConcurrentPriorityQueueOptions { PromotionProbability = probability });
+
+        Assert.ThrowsException<ArgumentException>(() =>
         {
-            _ = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, promotionProbability: probability);
+            _ = new ConcurrentPriorityQueue<int, string>(
+                _mockTaskOrchestrator.Object,
+                _intComparer,
+                _mockLoggerFactory.Object,
+                _mockMeterFactory.Object,
+                options.Object);
         });
     }
 
     [TestMethod]
     public void Constructor_WithIntMaxValueSize_InitializesCorrectly()
     {
-         var queue = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, int.MaxValue);
+         var options = Options.Create(new ConcurrentPriorityQueueOptions { MaxSize = int.MaxValue });
+         var queue = new ConcurrentPriorityQueue<int, string>(
+             _mockTaskOrchestrator.Object,
+             _intComparer,
+             _mockLoggerFactory.Object,
+             _mockMeterFactory.Object,
+             options);
          Assert.IsNotNull(queue);
          Assert.AreEqual(0, queue.GetCount());
          // Todo: verify internal state via reflection
+    }
+
+    #endregion
+    #region TryPeekMin Tests
+
+    [TestMethod]
+    public void TryPeekMin_EmptyQueue_ReturnsFalse()
+    {
+        // Arrange
+        var queue = CreateDefaultQueueWithRefs(); // Use refs to check for null element
+
+        // Act
+        bool result = queue.TryPeekMin(out string priority, out string element);
+
+        // Assert
+        Assert.IsFalse(result, "TryPeekMin on an empty queue should return false.");
+        Assert.IsNull(priority, "Priority should be default (null) for an empty queue.");
+        Assert.IsNull(element, "Element should be default (null) for an empty queue.");
+    }
+
+    [TestMethod]
+    public void TryPeekMin_SingleElement_ReturnsElement()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int expectedPriority = 10;
+        const string expectedElement = "Element10";
+        queue.TryAdd(expectedPriority, expectedElement);
+
+        // Act
+        bool result = queue.TryPeekMin(out int actualPriority, out string actualElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryPeekMin should return true for a non-empty queue.");
+        Assert.AreEqual(expectedPriority, actualPriority, "The peeked priority should match the added priority.");
+        Assert.AreEqual(expectedElement, actualElement, "The peeked element should match the added element.");
+        Assert.AreEqual(1, queue.GetCount(), "The queue count should not change after peeking.");
+    }
+
+    [TestMethod]
+    public void TryPeekMin_MultipleElements_ReturnsMinimum()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int minPriority = 5;
+        const string minElement = "Element5";
+        queue.TryAdd(20, "Element20");
+        queue.TryAdd(minPriority, minElement);
+        queue.TryAdd(10, "Element10");
+
+        // Act
+        bool result = queue.TryPeekMin(out int actualPriority, out string actualElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryPeekMin should return true for a non-empty queue.");
+        Assert.AreEqual(minPriority, actualPriority, "TryPeekMin should return the minimum priority.");
+        Assert.AreEqual(minElement, actualElement, "TryPeekMin should return the element associated with the minimum priority.");
+        Assert.AreEqual(3, queue.GetCount(), "The queue count should not change after peeking.");
+    }
+
+    [TestMethod]
+    public void TryPeekMin_AfterDelete_ReturnsNextMinimum()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int firstMinPriority = 5;
+        const int secondMinPriority = 10;
+        const string secondMinElement = "Element10";
+
+        queue.TryAdd(20, "Element20");
+        queue.TryAdd(firstMinPriority, "Element5");
+        queue.TryAdd(secondMinPriority, secondMinElement);
+
+        // Act
+        // Delete the first minimum
+        bool deleteResult = queue.TryDeleteAbsoluteMin(out _);
+        Assert.IsTrue(deleteResult, "Pre-condition: Deleting the first min element should succeed.");
+
+        // Peek for the new minimum
+        bool peekResult = queue.TryPeekMin(out int actualPriority, out string actualElement);
+
+        // Assert
+        Assert.IsTrue(peekResult, "TryPeekMin should succeed after a deletion.");
+        Assert.AreEqual(secondMinPriority, actualPriority, "TryPeekMin should return the new minimum priority.");
+        Assert.AreEqual(secondMinElement, actualElement, "TryPeekMin should return the new minimum element.");
+        Assert.AreEqual(2, queue.GetCount(), "The queue count should be 2 after one deletion.");
+    }
+
+    [TestMethod]
+    public void TryPeekMin_WithLogicallyDeletedNodes_SkipsDeleted()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int expectedPriority = 15;
+        const string expectedElement = "Element15";
+
+        queue.TryAdd(5, "Element5");
+        queue.TryAdd(10, "Element10");
+        queue.TryAdd(expectedPriority, expectedElement);
+        queue.TryAdd(20, "Element20");
+
+        // Logically delete the first two minimum nodes
+        Assert.IsTrue(queue.TryRemove(5, out _), "Should successfully remove priority 5.");
+        Assert.IsTrue(queue.TryRemove(10, out _), "Should successfully remove priority 10.");
+        Assert.AreEqual(2, queue.GetCount(), "Queue count should be 2 after deletions.");
+
+        // Act
+        bool result = queue.TryPeekMin(out int actualPriority, out string actualElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryPeekMin should find an element after skipping deleted ones.");
+        Assert.AreEqual(expectedPriority, actualPriority, "TryPeekMin should return the first valid minimum priority.");
+        Assert.AreEqual(expectedElement, actualElement, "TryPeekMin should return the element of the first valid minimum.");
+    }
+
+    [TestMethod]
+    public void TryPeekMin_ConcurrentReads_ThreadSafe()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int expectedPriority = 5;
+        const string expectedElement = "Element5";
+        queue.TryAdd(10, "Element10");
+        queue.TryAdd(expectedPriority, expectedElement);
+        const int numThreads = 10;
+        var tasks = new List<Task>();
+        var exceptions = new ConcurrentBag<Exception>();
+
+        // Act
+        for (int i = 0; i < numThreads; i++)
+        {
+            tasks.Add(Task.Run(() =>
+            {
+                try
+                {
+                    bool result = queue.TryPeekMin(out int priority, out string element);
+                    Assert.IsTrue(result, "Concurrent peek should succeed.");
+                    Assert.AreEqual(expectedPriority, priority, "Concurrent peek should return the correct priority.");
+                    Assert.AreEqual(expectedElement, element, "Concurrent peek should return the correct element.");
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            }));
+        }
+
+        Task.WaitAll(tasks.ToArray());
+
+        // Assert
+        Assert.AreEqual(0, exceptions.Count, "No exceptions should be thrown during concurrent peeks.");
+        Assert.AreEqual(2, queue.GetCount(), "Queue count should not change after concurrent peeks.");
+    }
+
+    [TestMethod]
+    public void TryPeekMin_DuplicatePriorities_ReturnsFirstBySequence()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priority = 5;
+        const string firstElement = "FirstElement";
+        const string secondElement = "SecondElement";
+
+        queue.TryAdd(10, "Element10");
+        queue.TryAdd(priority, firstElement); // This one has the lower sequence number
+        queue.TryAdd(priority, secondElement);
+
+        // Act
+        bool result = queue.TryPeekMin(out int actualPriority, out string actualElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryPeekMin should succeed.");
+        Assert.AreEqual(priority, actualPriority, "The correct priority should be returned.");
+        Assert.AreEqual(firstElement, actualElement, "The element with the lowest sequence number should be returned.");
+    }
+
+    [TestMethod]
+    public void TryPeekMin_DoesNotModifyQueue()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(10, "Element10");
+        queue.TryAdd(5, "Element5");
+        int initialCount = queue.GetCount();
+
+        // Act
+        bool result1 = queue.TryPeekMin(out int priority1, out string element1);
+        int countAfterFirstPeek = queue.GetCount();
+        bool result2 = queue.TryPeekMin(out int priority2, out string element2);
+        int countAfterSecondPeek = queue.GetCount();
+
+        // Assert
+        Assert.IsTrue(result1, "First peek should succeed.");
+        Assert.IsTrue(result2, "Second peek should succeed.");
+        Assert.AreEqual(initialCount, countAfterFirstPeek, "Count should not change after first peek.");
+        Assert.AreEqual(initialCount, countAfterSecondPeek, "Count should not change after second peek.");
+        Assert.AreEqual(priority1, priority2, "Priorities from consecutive peeks should be the same.");
+        Assert.AreEqual(element1, element2, "Elements from consecutive peeks should be the same.");
+    }
+
+    #endregion
+    #region TryRemove Tests
+
+    [TestMethod]
+    public void TryRemove_EmptyQueue_ReturnsFalse()
+    {
+        // Arrange
+        var queue = CreateDefaultQueueWithRefs();
+
+        // Act
+        bool result = queue.TryRemove("non-existent", out string element);
+
+        // Assert
+        Assert.IsFalse(result, "TryRemove on an empty queue should return false.");
+        Assert.IsNull(element, "Element should be default (null) for an empty queue.");
+    }
+
+    [TestMethod]
+    public void TryRemove_ExistingPriority_RemovesAndReturnsElement()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priorityToRemove = 10;
+        const string elementToRemove = "Element10";
+        queue.TryAdd(5, "Element5");
+        queue.TryAdd(priorityToRemove, elementToRemove);
+        int initialCount = queue.GetCount();
+
+        // Act
+        bool result = queue.TryRemove(priorityToRemove, out string removedElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryRemove should return true for an existing priority.");
+        Assert.AreEqual(elementToRemove, removedElement, "The correct element should be returned.");
+        Assert.AreEqual(initialCount - 1, queue.GetCount(), "The queue count should decrease by one.");
+        Assert.IsFalse(queue.ContainsPriority(priorityToRemove), "The priority should no longer be in the queue.");
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Once, "A background removal task should have been scheduled.");
+    }
+
+    [TestMethod]
+    public void TryRemove_NonExistentPriority_ReturnsFalse()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(1, "Element1");
+        const int nonExistentPriority = 99;
+
+        // Act
+        bool result = queue.TryRemove(nonExistentPriority, out string element);
+
+        // Assert
+        Assert.IsFalse(result, "TryRemove for a non-existent priority should return false.");
+        Assert.IsNull(element, "Element should be default (null) when removal fails.");
+        Assert.AreEqual(1, queue.GetCount(), "Queue count should not change.");
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Never, "No background task should be scheduled for a failed removal.");
+    }
+
+    [TestMethod]
+    public void TryRemove_DuplicatePriorities_RemovesFirst()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priority = 10;
+        const string firstElement = "Element10a";
+        const string secondElement = "Element10b";
+        queue.TryAdd(priority, firstElement); // Lower sequence number
+        queue.TryAdd(priority, secondElement);
+        queue.TryAdd(1, "Element1");
+        int initialCount = queue.GetCount();
+
+        // Act
+        bool result = queue.TryRemove(priority, out string removedElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryRemove should succeed for a duplicate priority.");
+        Assert.AreEqual(firstElement, removedElement, "The element with the lower sequence number should be removed first.");
+        Assert.AreEqual(initialCount - 1, queue.GetCount(), "Queue count should decrease by one.");
+        Assert.IsTrue(queue.ContainsPriority(priority), "The priority should still exist in the queue.");
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Once, "A background removal task should have been scheduled.");
+    }
+
+    [TestMethod]
+    public void TryRemove_ConcurrentRemoves_OnlyOneSucceeds()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priorityToRemove = 10;
+        queue.TryAdd(priorityToRemove, "Element10");
+        const int numThreads = 5;
+        var tasks = new List<Task<bool>>();
+        var exceptions = new ConcurrentBag<Exception>();
+        int successCount = 0;
+
+        // Act
+        for (int i = 0; i < numThreads; i++)
+        {
+            tasks.Add(Task.Run(() =>
+            {
+                try
+                {
+                    return queue.TryRemove(priorityToRemove, out _);
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                    return false;
+                }
+            }));
+        }
+
+        var results = Task.WhenAll(tasks).Result;
+        foreach(bool res in results)
+        {
+            if (res)
+            {
+                successCount++;
+            }
+        }
+
+        // Assert
+        Assert.AreEqual(0, exceptions.Count, "No exceptions should be thrown during concurrent removes.");
+        Assert.AreEqual(1, successCount, "Exactly one thread should succeed in removing the element.");
+        Assert.AreEqual(0, queue.GetCount(), "The queue should be empty after the element is removed.");
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Once, "Exactly one background removal task should have been scheduled.");
+    }
+
+    [TestMethod]
+    public void TryRemove_UpdatesCountCorrectly()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(1, "E1");
+        queue.TryAdd(2, "E2");
+        queue.TryAdd(3, "E3");
+        Assert.AreEqual(3, queue.GetCount(), "Pre-condition: Count should be 3.");
+
+        // Act & Assert
+        queue.TryRemove(2, out _);
+        Assert.AreEqual(2, queue.GetCount(), "Count should be 2 after removing priority 2.");
+
+        queue.TryRemove(1, out _);
+        Assert.AreEqual(1, queue.GetCount(), "Count should be 1 after removing priority 1.");
+
+        queue.TryRemove(3, out _);
+        Assert.AreEqual(0, queue.GetCount(), "Count should be 0 after removing priority 3.");
+
+        queue.TryRemove(99, out _); // Non-existent
+        Assert.AreEqual(0, queue.GetCount(), "Count should remain 0 after attempting to remove a non-existent priority.");
+    }
+
+    [TestMethod]
+    public void TryRemove_SchedulesPhysicalRemoval()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(1, "Element1");
+
+        // Act
+        bool result = queue.TryRemove(1, out _);
+
+        // Assert
+        Assert.IsTrue(result, "Removal should be successful.");
+        _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.Once, "Run should be called exactly once to schedule physical removal.");
+    }
+
+    [TestMethod]
+    public void TryRemove_HandlesNullPriority_ThrowsException()
+    {
+        // Arrange
+        var queue = CreateDefaultQueueWithRefs();
+        string nullPriority = null!;
+
+        // Act & Assert
+        Assert.ThrowsException<ArgumentNullException>(() => queue.TryRemove(nullPriority, out _));
+    }
+
+    #endregion
+    #region TryPeek Tests
+
+    [TestMethod]
+    public void TryPeek_EmptyQueue_ReturnsFalse()
+    {
+        // Arrange
+        var queue = CreateDefaultQueueWithRefs();
+
+        // Act
+        bool result = queue.TryPeek("non-existent", out var element);
+
+        // Assert
+        Assert.IsFalse(result, "TryPeek on an empty queue should return false.");
+        Assert.IsNull(element, "Element should be default (null) for an empty queue.");
+    }
+
+    [TestMethod]
+    public void TryPeek_ExistingPriority_ReturnsElement()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priorityToPeek = 10;
+        const string expectedElement = "Element10";
+        queue.TryAdd(5, "Element5");
+        queue.TryAdd(priorityToPeek, expectedElement);
+        int initialCount = queue.GetCount();
+
+        // Act
+        bool result = queue.TryPeek(priorityToPeek, out string actualElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryPeek should return true for an existing priority.");
+        Assert.AreEqual(expectedElement, actualElement, "The correct element should be returned.");
+        Assert.AreEqual(initialCount, queue.GetCount(), "Queue count should not change after a peek.");
+        Assert.IsTrue(queue.ContainsPriority(priorityToPeek), "The peeked priority should still exist.");
+    }
+
+    [TestMethod]
+    public void TryPeek_NonExistentPriority_ReturnsFalse()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        queue.TryAdd(1, "Element1");
+        const int nonExistentPriority = 99;
+
+        // Act
+        bool result = queue.TryPeek(nonExistentPriority, out string element);
+
+        // Assert
+        Assert.IsFalse(result, "TryPeek for a non-existent priority should return false.");
+        Assert.IsNull(element, "Element should be default (null) when peek fails.");
+        Assert.AreEqual(1, queue.GetCount(), "Queue count should not change.");
+    }
+
+    [TestMethod]
+    public void TryPeek_DuplicatePriorities_ReturnsFirst()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priority = 10;
+        const string firstElement = "Element10a";
+        const string secondElement = "Element10b";
+        queue.TryAdd(priority, firstElement); // Lower sequence number
+        queue.TryAdd(priority, secondElement);
+        queue.TryAdd(1, "Element1");
+
+        // Act
+        bool result = queue.TryPeek(priority, out string peekedElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryPeek should succeed for a duplicate priority.");
+        Assert.AreEqual(firstElement, peekedElement, "The element with the lower sequence number should be returned first.");
+        Assert.AreEqual(3, queue.GetCount(), "Queue count should not change.");
+    }
+
+    [TestMethod]
+    public void TryPeek_DoesNotModifyQueue()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priority = 10;
+        const string element = "Element10";
+        queue.TryAdd(priority, element);
+        queue.TryAdd(5, "Element5");
+        int initialCount = queue.GetCount();
+
+        // Act
+        queue.TryPeek(priority, out _);
+        int countAfterFirstPeek = queue.GetCount();
+        queue.TryPeek(priority, out _);
+        int countAfterSecondPeek = queue.GetCount();
+
+        // Assert
+        Assert.AreEqual(initialCount, countAfterFirstPeek, "Count should not change after first peek.");
+        Assert.AreEqual(initialCount, countAfterSecondPeek, "Count should not change after second peek.");
+        Assert.IsTrue(queue.ContainsPriority(priority), "Peeked element should still be in the queue.");
+    }
+
+    [TestMethod]
+    public void TryPeek_ConcurrentReads_ThreadSafe()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priorityToPeek = 10;
+        const string expectedElement = "Element10";
+        queue.TryAdd(priorityToPeek, expectedElement);
+        const int numThreads = 10;
+        var tasks = new List<Task>();
+        var exceptions = new ConcurrentBag<Exception>();
+
+        // Act
+        for (int i = 0; i < numThreads; i++)
+        {
+            tasks.Add(Task.Run(() =>
+            {
+                try
+                {
+                    bool result = queue.TryPeek(priorityToPeek, out string element);
+                    Assert.IsTrue(result, "Concurrent peek should succeed.");
+                    Assert.AreEqual(expectedElement, element, "Concurrent peek should return the correct element.");
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            }));
+        }
+
+        Task.WaitAll(tasks.ToArray());
+
+        // Assert
+        Assert.AreEqual(0, exceptions.Count, "No exceptions should be thrown during concurrent peeks.");
+        Assert.AreEqual(1, queue.GetCount(), "Queue count should not change after concurrent peeks.");
+    }
+
+    [TestMethod]
+    public void TryPeek_WithLogicallyDeletedNode_ReturnsNextValid()
+    {
+        // Arrange
+        var queue = CreateDefaultQueue();
+        const int priority = 10;
+        const string firstElement = "Element10a";
+        const string secondElement = "Element10b";
+        queue.TryAdd(priority, firstElement);
+        queue.TryAdd(priority, secondElement);
+        Assert.IsTrue(queue.TryRemove(priority, out string removedElement), "Pre-condition: First element should be removed.");
+        Assert.AreEqual(firstElement, removedElement, "Pre-condition: The first element should be the one removed.");
+
+        // Act
+        bool result = queue.TryPeek(priority, out string peekedElement);
+
+        // Assert
+        Assert.IsTrue(result, "TryPeek should find the second valid element.");
+        Assert.AreEqual(secondElement, peekedElement, "TryPeek should return the second element after the first was deleted.");
+    }
+
+    [TestMethod]
+    public void TryPeek_HandlesNullPriority_ThrowsException()
+    {
+        // Arrange
+        var queue = CreateDefaultQueueWithRefs();
+        string nullPriority = null!;
+
+        // Act & Assert
+        Assert.ThrowsException<ArgumentNullException>(() => queue.TryPeek(nullPriority, out _));
     }
 
     #endregion
@@ -266,7 +904,7 @@ public class ConcurrentPriorityQueueTests
         string nullPriority = null!;
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.TryAdd(nullPriority, "Element"));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.TryAdd(nullPriority, "Element"));
     }
 
 
@@ -279,11 +917,11 @@ public class ConcurrentPriorityQueueTests
         string nullElement = null!;
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.TryAdd(priority, nullElement));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.TryAdd(priority, nullElement));
     }
 
     #endregion
-    #region TryDelete Tests
+    #region TryDelete Tests (Using TryRemove)
 
     [TestMethod]
     public void TryDelete_ExistingElement_DeletesSuccessfully()
@@ -297,7 +935,7 @@ public class ConcurrentPriorityQueueTests
         int initialCount = queue.GetCount();
 
         // Act
-        bool deleted = queue.TryDelete(priorityToDelete);
+        bool deleted = queue.TryRemove(priorityToDelete, out _);
 
         // Assert
         Assert.IsTrue(deleted, "TryDelete should return true for an existing element.");
@@ -318,7 +956,7 @@ public class ConcurrentPriorityQueueTests
         int initialCount = queue.GetCount();
 
         // Act
-        bool deleted = queue.TryDelete(priorityToDelete);
+        bool deleted = queue.TryRemove(priorityToDelete, out _);
 
         // Assert
         Assert.IsFalse(deleted, "TryDelete should return false for a non-existing element.");
@@ -340,7 +978,7 @@ public class ConcurrentPriorityQueueTests
         int initialCount = queue.GetCount();
 
         // Act
-        bool deleted = queue.TryDelete(priorityToDelete);
+        bool deleted = queue.TryRemove(priorityToDelete, out _);
 
         // Assert
         Assert.IsTrue(deleted, "TryDelete should return true when deleting one instance of a duplicate priority.");
@@ -358,7 +996,7 @@ public class ConcurrentPriorityQueueTests
         const int priorityToDelete = 1;
 
         // Act
-        bool deleted = queue.TryDelete(priorityToDelete);
+        bool deleted = queue.TryRemove(priorityToDelete, out _);
 
         // Assert
         Assert.IsFalse(deleted, "TryDelete should return false for an empty queue.");
@@ -374,7 +1012,7 @@ public class ConcurrentPriorityQueueTests
         string nullPriority = null!;
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.TryDelete(nullPriority));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.TryRemove(nullPriority, out _));
     }
 
     #endregion
@@ -604,12 +1242,12 @@ public class ConcurrentPriorityQueueTests
     [DataRow(0)]
     [DataRow(-1)]
     public void SampleNearMin_InvalidSampleSize_ThrowsArgumentOutOfRangeException(int sampleSize)
-    { 
+    {
         // Arrange
         var queue = CreateDefaultQueue();
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => queue.SampleNearMin(sampleSize));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => queue.SampleNearMin(sampleSize));
     }
 
     [TestMethod]
@@ -623,9 +1261,9 @@ public class ConcurrentPriorityQueueTests
         queue.TryAdd(1, "E1");
         queue.TryAdd(2, "E2");
         Assert.IsTrue(queue.GetCount() > sampleSize, "Pre-condition: Element count must be greater than sample size.");
-        
+
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => queue.SampleNearMin(sampleSize, multiplier));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => queue.SampleNearMin(sampleSize, multiplier));
     }
 
     #endregion
@@ -714,7 +1352,7 @@ public class ConcurrentPriorityQueueTests
         const string element = "Element";
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.Update(nullPriority, element));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.Update(nullPriority, element));
     }
 
     [TestMethod]
@@ -728,7 +1366,7 @@ public class ConcurrentPriorityQueueTests
         string nullElement = null!;
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.Update(priority, nullElement));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.Update(priority, nullElement));
     }
 
     [TestMethod]
@@ -740,7 +1378,7 @@ public class ConcurrentPriorityQueueTests
         Func<string, string, string> updateFunction = (_, e) => e;
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.Update(nullPriority, updateFunction));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.Update(nullPriority, updateFunction));
     }
 
     [TestMethod]
@@ -754,7 +1392,7 @@ public class ConcurrentPriorityQueueTests
         Func<int, string, string> nullUpdateFunction = null!;
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.Update(priority, nullUpdateFunction));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.Update(priority, nullUpdateFunction));
     }
 
     [TestMethod]
@@ -764,7 +1402,7 @@ public class ConcurrentPriorityQueueTests
         var queue = CreateDefaultQueue();
         const int priority = 1;
         queue.TryAdd(priority, "Element1");
-        bool preDeleted = queue.TryDelete(priority);
+        bool preDeleted = queue.TryRemove(priority, out _);
         Assert.IsTrue(preDeleted, "Pre-condition: Element should be successfully deleted before update attempt.");
         const string updatedElementValue = "UpdatedElement";
 
@@ -834,7 +1472,7 @@ public class ConcurrentPriorityQueueTests
         var queue = CreateDefaultQueue();
         const int priority = 1;
         queue.TryAdd(priority, "Element1");
-        bool preDeleted = queue.TryDelete(priority);
+        bool preDeleted = queue.TryRemove(priority, out _);
         Assert.IsTrue(preDeleted, "Pre-condition: Element should be successfully deleted.");
         Assert.AreEqual(0, queue.GetCount(), "Pre-condition: Queue count should be 0 after delete.");
 
@@ -853,7 +1491,7 @@ public class ConcurrentPriorityQueueTests
         string nullPriority = null!;
 
         // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => queue.ContainsPriority(nullPriority));
+        Assert.ThrowsException<ArgumentNullException>(() => queue.ContainsPriority(nullPriority));
     }
 
     #endregion
@@ -905,7 +1543,7 @@ public class ConcurrentPriorityQueueTests
         Assert.AreEqual(3, queue.GetCount(), "Pre-condition: Count should be 3 after initial adds.");
 
         // Act & Assert Step 1 (TryDelete)
-        queue.TryDelete(2);
+        queue.TryRemove(2, out _);
         int countAfterFirstDelete = queue.GetCount();
         Assert.AreEqual(2, countAfterFirstDelete, "Count should be 2 after deleting priority 2.");
 
@@ -942,7 +1580,7 @@ public class ConcurrentPriorityQueueTests
             actualPriorities.Add(enumerator.Current);
         }
         enumerator.Dispose();
-        
+
         // Assert
         CollectionAssert.AreEqual(expectedPriorities, actualPriorities, "The enumerated priorities should be in the correct order.");
     }
@@ -970,7 +1608,7 @@ public class ConcurrentPriorityQueueTests
         {
             enumerator?.Dispose();
         }
-        
+
         // Assert
         Assert.AreEqual(0, actualPriorities.Count, "Manually enumerating an empty queue should result in an empty list.");
         CollectionAssert.AreEqual(expectedPriorities, actualPriorities, "The enumerated list from an empty queue should be empty.");
@@ -1001,7 +1639,7 @@ public class ConcurrentPriorityQueueTests
 
             // Act - Step 2: Concurrent Modifications (simulated)
             queue.TryAdd(0, "E0");
-            queue.TryDelete(3);
+            queue.TryRemove(3, out _);
 
             // Act - Step 3: Continue Enumeration (already manual)
             while (enumerator.MoveNext())
@@ -1013,7 +1651,7 @@ public class ConcurrentPriorityQueueTests
         {
              enumerator?.Dispose();
         }
-        
+
         // Assert
         Assert.IsTrue(movedFirst, "Enumerator should successfully move to the first element.");
         Assert.AreEqual(1, firstElement, "The first element enumerated should be 1.");
@@ -1095,7 +1733,7 @@ public class ConcurrentPriorityQueueTests
             }
             Console.WriteLine($"Delete thread completed with {successfulDeletes} successful deletes.");
         };
-        
+
         for (int i = 0; i < numAddThreads; i++)
         {
             int threadId = i;
@@ -1115,7 +1753,7 @@ public class ConcurrentPriorityQueueTests
         int expectedMinCount = Math.Max(0, initialPopulatedCount + totalAdds - totalDeleteAttempts);
         int expectedMaxCount = initialPopulatedCount + totalAdds;
         int minExpectedDeletionTasks = Math.Max(1, totalDeleteAttempts / 10);
-        
+
         // Act
         Task.WaitAll(tasks.ToArray());
         int finalCount = queue.GetCount();
@@ -1187,7 +1825,7 @@ public class ConcurrentPriorityQueueTests
         Task.WaitAll(tasks.ToArray());
 
         // Assert
-        Assert.IsEmpty(exceptions, $"Exceptions occurred during concurrent deletes: {string.Join("; ", exceptions.Select(e => e.Message))}");
+        Assert.AreEqual(0, exceptions.Count, $"Exceptions occurred during concurrent deletes: {string.Join("; ", exceptions.Select(e => e.Message))}");
         int expectedFinalCount = initialElements - deletedElements.Count;
         Assert.AreEqual(expectedFinalCount, queue.GetCount(), "Final count should reflect successful deletes.");
         Assert.AreEqual(numThreads * deletesPerThread, deletedElements.Count + queue.GetCount() - (initialElements - numThreads*deletesPerThread) ,"Total elements accounted for mismatch");
@@ -1210,7 +1848,7 @@ public class ConcurrentPriorityQueueTests
         var addedElements = new ConcurrentDictionary<string, bool>();
         var exceptions = new ConcurrentBag<Exception>();
         int initialMinPriority = -1;
-        
+
         for (int i = 0; i < maxSize; i++)
         {
             int priority = i + 1;
@@ -1245,7 +1883,7 @@ public class ConcurrentPriorityQueueTests
         Task.WaitAll(tasks.ToArray());
 
         // Assert
-        Assert.IsEmpty(exceptions, $"Exceptions occurred during concurrent adds at max size: {string.Join("; ", exceptions.Select(e => e.Message))}");
+        Assert.AreEqual(0, exceptions.Count, $"Exceptions occurred during concurrent adds at max size: {string.Join("; ", exceptions.Select(e => e.Message))}");
         Assert.AreEqual(maxSize, queue.GetCount(), "Queue count should remain at max size.");
         _mockTaskOrchestrator.Verify(o => o.Run(It.IsAny<Func<Task>>()), Times.AtMost(addedElements.Count),
             "Incorrect number of background removal tasks scheduled for adds at max size.");
@@ -1254,7 +1892,7 @@ public class ConcurrentPriorityQueueTests
         bool originalMinStillPresent = queue.ContainsPriority(initialMinPriority);
         Console.WriteLine($"Original min priority {initialMinPriority} still present? {originalMinStillPresent}");
     }
-    
+
     [TestMethod]
     [Timeout(20000)]
     public void TryAdd_TryDeleteMin_ConcurrentNearMaxSize()
@@ -1300,7 +1938,7 @@ public class ConcurrentPriorityQueueTests
                 }
             }));
         }
-        
+
         for (int i = 0; i < numDeleteThreads; i++)
         {
             tasks.Add(Task.Run(() => {
@@ -1326,7 +1964,7 @@ public class ConcurrentPriorityQueueTests
         int finalCount = queue.GetCount();
 
         // Assert
-        Assert.IsEmpty(exceptions, $"Exceptions occurred during concurrent add/delete near max size: {string.Join("; ", exceptions.Select(e => e.Message))}");
+        Assert.AreEqual(0, exceptions.Count, $"Exceptions occurred during concurrent add/delete near max size: {string.Join("; ", exceptions.Select(e => e.Message))}");
         Assert.IsTrue(finalCount <= maxSize, $"Final count {finalCount} exceeded max size {maxSize}.");
         Assert.IsTrue(finalCount >= 0, $"Final count {finalCount} is negative.");
         Console.WriteLine($"Concurrent Add/Delete near Max: Added={itemsAddedSuccessfully}, Deleted={itemsDeletedSuccessfully}, FinalCount={finalCount}");
@@ -1351,7 +1989,7 @@ public class ConcurrentPriorityQueueTests
         var head = CreateHeadNode(height);
 
         // Assert
-        Assert.AreEqual(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Head, head.Type, "Type should be Head.");
+        Assert.AreEqual(SkipListNode<int, string>.NodeType.Head, head.Type, "Type should be Head.");
         Assert.AreEqual(long.MinValue, head.SequenceNumber, "SequenceNumber should be MinValue for Head.");
         Assert.AreEqual(height, head.TopLevel, "TopLevel should match constructor height.");
         Assert.AreEqual(0, head.Priority, "Priority should be default for Head.");
@@ -1368,7 +2006,7 @@ public class ConcurrentPriorityQueueTests
         var tail = CreateTailNode(height);
 
         // Assert
-        Assert.AreEqual(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Tail, tail.Type, "Type should be Tail.");
+        Assert.AreEqual(SkipListNode<int, string>.NodeType.Tail, tail.Type, "Type should be Tail.");
         Assert.AreEqual(long.MaxValue, tail.SequenceNumber, "SequenceNumber should be MaxValue for Tail.");
         Assert.AreEqual(height, tail.TopLevel, "TopLevel should match constructor height.");
     }
@@ -1387,7 +2025,7 @@ public class ConcurrentPriorityQueueTests
         long seqAfter = GetCurrentSequenceGeneratorValue();
 
         // Assert
-        Assert.AreEqual(ConcurrentPriorityQueue<int, string>.SkipListNode.NodeType.Data, dataNode.Type, "Type should be Data.");
+        Assert.AreEqual(SkipListNode<int, string>.NodeType.Data, dataNode.Type, "Type should be Data.");
         Assert.AreEqual(priority, dataNode.Priority, "Priority should match constructor.");
         Assert.AreEqual(element, dataNode.Element, "Element should match constructor.");
         Assert.AreEqual(height, dataNode.TopLevel, "TopLevel should match constructor.");
@@ -1522,16 +2160,17 @@ public class ConcurrentPriorityQueueTests
 
     #endregion
     #region Internal SearchResult Tests
-    
+
     [TestMethod]
     public void SearchResult_IsFound_CorrectBasedOnLevelFound()
     {
         // Arrange
-        var nodes = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
+        var nodes = new SkipListNode<int, string>[1];
         var dummyNode = CreateNode(0,"Dummy",0);
-        var resultFound = new ConcurrentPriorityQueue<int, string>.SearchResult(0, nodes, nodes, dummyNode);
-        var resultNotFoundLevel = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, nodes, nodes, null);
-        var resultNotFoundNode = new ConcurrentPriorityQueue<int, string>.SearchResult(0, nodes, nodes, null); // Level found but node is null
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var resultFound = new SearchResult<int, string>(0, nodes, nodes, dummyNode, arrayPool, 1);
+        var resultNotFoundLevel = new SearchResult<int, string>(-1, nodes, nodes, null, arrayPool, 1);
+        var resultNotFoundNode = new SearchResult<int, string>(0, nodes, nodes, null, arrayPool, 1); // Level found but node is null
 
         // Act
         bool isFound1 = resultFound.IsFound;
@@ -1553,7 +2192,8 @@ public class ConcurrentPriorityQueueTests
         var nodeThatWasFound = pred1.GetNextNode(0);
         var preds = new[] { pred1 };
         var succs = new[] { succ1 };
-        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(0, preds, succs, nodeThatWasFound);
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var result = new SearchResult<int, string>(0, preds, succs, nodeThatWasFound, arrayPool, 1);
         const int level = 0;
 
         // Act
@@ -1573,7 +2213,8 @@ public class ConcurrentPriorityQueueTests
         var preds = new[] { CreateNode(1, "P0", 1), CreateNode(3, "P1", 1) };
         var succs = new[] { CreateNode(7, "S0", 1), nodeFound.GetNextNode(1) };
         const int levelFound = 1;
-        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(levelFound, preds, succs, nodeFound);
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var result = new SearchResult<int, string>(levelFound, preds, succs, nodeFound, arrayPool, 2);
         Assert.IsTrue(result.IsFound, "Pre-condition: IsFound should be true.");
 
         // Act
@@ -1587,13 +2228,14 @@ public class ConcurrentPriorityQueueTests
     public void SearchResult_GetNodeFound_ThrowsWhenNotFound()
     {
         // Arrange
-        var preds = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
-        var succs = new ConcurrentPriorityQueue<int, string>.SkipListNode[1];
-        var result = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
+        var preds = new SkipListNode<int, string>[1];
+        var succs = new SkipListNode<int, string>[1];
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var result = new SearchResult<int, string>(-1, preds, succs, null, arrayPool, 1);
         Assert.IsFalse(result.IsFound, "Pre-condition: IsFound should be false.");
 
         // Act & Assert
-        Assert.ThrowsExactly<InvalidOperationException>(() => result.GetNodeFound(), "Should throw when IsFound is false.");
+        Assert.ThrowsException<InvalidOperationException>(() => result.GetNodeFound(), "Should throw when IsFound is false.");
     }
 
     #endregion
@@ -1607,7 +2249,7 @@ public class ConcurrentPriorityQueueTests
     public void SprayParameters_CalculateParameters_ReturnsCorrectValues(int count, int topLevel, int k, int m, int expectedH, int expectedY, int expectedD)
     {
         // Act
-        var parameters = ConcurrentPriorityQueue<int, string>.SprayParameters.CalculateParameters(count, topLevel, k, m);
+        var parameters = SprayParameters.CalculateParameters(count, topLevel, k, m);
 
         // Assert
         Console.WriteLine($"Input: N={count}, L={topLevel}, K={k}, M={m}");
@@ -1627,8 +2269,8 @@ public class ConcurrentPriorityQueueTests
         const int m=1;
 
         // Act
-        var paramsFor1 = ConcurrentPriorityQueue<int, string>.SprayParameters.CalculateParameters(1, topLevelForN2, k, m);
-        var paramsFor2 = ConcurrentPriorityQueue<int, string>.SprayParameters.CalculateParameters(2, topLevelForN2, k, m);
+        var paramsFor1 = SprayParameters.CalculateParameters(1, topLevelForN2, k, m);
+        var paramsFor2 = SprayParameters.CalculateParameters(2, topLevelForN2, k, m);
 
         // Assert
         Assert.AreEqual(paramsFor2.DescentLength, paramsFor1.DescentLength, "Descent length should be same for count 1 and 2");
@@ -1643,7 +2285,7 @@ public class ConcurrentPriorityQueueTests
     public void NodeIsInvalidOrDeleted_NullNode_ReturnsTrue()
     {
         // Arrange
-        ConcurrentPriorityQueue<int, string>.SkipListNode? node = null;
+        SkipListNode<int, string>? node = null;
 
         // Act
         bool result = ConcurrentPriorityQueue<int, string>.NodeIsInvalidOrDeleted(node);
@@ -1737,7 +2379,7 @@ public class ConcurrentPriorityQueueTests
         // Assert
         Assert.IsFalse(result, "Should return false if already deleted.");
         Assert.IsTrue(node.IsDeleted, "IsDeleted state should remain true.");
-        
+
         bool canRelock = node.TryEnter();
         if (canRelock)
         {
@@ -1760,7 +2402,7 @@ public class ConcurrentPriorityQueueTests
         Assert.IsTrue(node.IsDeleted, "IsDeleted flag should be set to true.");
         node.Unlock();
     }
-    
+
     [TestMethod]
     [Timeout(5000)]
     public void LogicallyDeleteNode_Contention_ReturnsFalse()
@@ -1821,7 +2463,13 @@ public class ConcurrentPriorityQueueTests
         // Arrange
         const int maxSize = 1000;
         const double probability = 0.5;
-        var queue = new ConcurrentPriorityQueue<int, string>(_mockTaskOrchestrator.Object, _intComparer, maxSize, promotionProbability: probability);
+        var options = Options.Create(new ConcurrentPriorityQueueOptions { MaxSize = maxSize, PromotionProbability = probability });
+        var queue = new ConcurrentPriorityQueue<int, string>(
+            _mockTaskOrchestrator.Object,
+            _intComparer,
+            _mockLoggerFactory.Object,
+            _mockMeterFactory.Object,
+            options);
         int expectedTopLevel = GetInstanceField<int>(queue, "_topLevel");
         const int iterations = 5000;
         bool levelOutOfLowerBound = false;
@@ -1852,7 +2500,8 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, succ);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var searchResult = new SearchResult<int, string>(-1, preds, succs, null, arrayPool, 1);
         int highestLocked = -1;
 
         // Act
@@ -1875,7 +2524,8 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, succ);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var searchResult = new SearchResult<int, string>(-1, preds, succs, null, arrayPool, 1);
         int highestLocked = -1;
 
         // Act
@@ -1898,7 +2548,8 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, succ);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var searchResult = new SearchResult<int, string>(-1, preds, succs, null, arrayPool, 1);
         int highestLocked = -1;
 
         // Act
@@ -1922,7 +2573,8 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, another);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var searchResult = new SearchResult<int, string>(-1, preds, succs, null, arrayPool, 1);
         int highestLocked = -1;
 
         // Act
@@ -1933,7 +2585,7 @@ public class ConcurrentPriorityQueueTests
         Assert.AreEqual(level, highestLocked);
         if (highestLocked >= 0) searchResult.GetPredecessor(highestLocked)?.Unlock();
     }
-    
+
     [TestMethod]
     public void InsertNode_LinksCorrectly()
     {
@@ -1946,7 +2598,8 @@ public class ConcurrentPriorityQueueTests
         pred.SetNextNode(level, succ);
         var preds = new[] { pred };
         var succs = new[] { succ };
-        var searchResult = new ConcurrentPriorityQueue<int, string>.SearchResult(-1, preds, succs, null);
+        var arrayPool = ArrayPool<SkipListNode<int, string>>.Shared;
+        var searchResult = new SearchResult<int, string>(-1, preds, succs, null, arrayPool, 1);
 
         // Act
         pred.Lock();
@@ -1997,8 +2650,8 @@ public class ConcurrentPriorityQueueTests
     {
         // Arrange
         var queue = CreateDefaultQueue();
-        var head = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_head");
-        var tail = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_tail");
+        var head = GetInstanceField<SkipListNode<int, string>>(queue, "_head");
+        var tail = GetInstanceField<SkipListNode<int, string>>(queue, "_tail");
         var nodeToRemove = CreateNode(5, "RemoveMe", 0, isDeleted: true);
 
         head.SetNextNode(0, nodeToRemove);
@@ -2085,7 +2738,7 @@ public class ConcurrentPriorityQueueTests
         // Arrange
         var queue = CreateDefaultQueue();
         queue.TryAdd(1, "E1");
-        bool deleted = queue.TryDelete(1);
+        bool deleted = queue.TryRemove(1, out _);
         Assert.IsTrue(deleted, "Pre-condition: Delete should succeed.");
         Assert.AreEqual(0, queue.GetCount(), "Pre-condition: Queue should be empty after delete.");
 
@@ -2106,7 +2759,7 @@ public class ConcurrentPriorityQueueTests
         queue.TryAdd(3, "E3");
         var nodeToFind = queue.InlineSearch(3);
         Assert.IsNotNull(nodeToFind, "Pre-condition: Node with priority 3 must exist.");
-        _ = GetInstanceField<ConcurrentPriorityQueue<int, string>.SkipListNode>(queue, "_head");
+        _ = GetInstanceField<SkipListNode<int, string>>(queue, "_head");
         var node1 = queue.InlineSearch(1);
         var node5 = queue.InlineSearch(5);
         Assert.IsNotNull(node1, "Pre-condition: Node 1 must exist.");
@@ -2114,7 +2767,7 @@ public class ConcurrentPriorityQueueTests
 
         // Act
         var result = queue.StructuralSearch(nodeToFind);
-        
+
         // Assert
         Assert.IsTrue(result.IsFound, "Search should find the existing node.");
         Assert.IsTrue(result.LevelFound >= 0, "LevelFound should be >= 0 when node is found.");

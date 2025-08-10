@@ -29,8 +29,8 @@ public class PollyPolicyGeneratorTests
             RetryCount = 3,
             RetryIntervalSeconds = 1,
             UseExponentialBackoff = true,
-            CircuitBreakerCount = 2,
-            CircuitBreakerIntervalMinutes = 1,
+            CircuitBreakerExceptionCount = 2,
+            CircuitBreakerDurationSeconds = 60,
             BulkheadMaxParallelization = 10,
             BulkheadMaxQueuingActions = 5
         };
@@ -377,8 +377,8 @@ public class PollyPolicyGeneratorTests
                 TimeoutIntervalSeconds = 1, // Short timeout
                 RetryCount = 1, // Few retries
                 RetryIntervalSeconds = 1,
-                CircuitBreakerCount = 2, // Open after 2 handled exceptions
-                CircuitBreakerIntervalMinutes = 1,
+                CircuitBreakerExceptionCount = 2, // Open after 2 handled exceptions
+                CircuitBreakerDurationSeconds = 60,
                 BulkheadMaxParallelization = 10,
                 BulkheadMaxQueuingActions = 5
             };
@@ -439,8 +439,8 @@ public class PollyPolicyGeneratorTests
                 TimeoutIntervalSeconds = 1,
                 RetryCount = 1,
                 RetryIntervalSeconds = 1,
-                CircuitBreakerCount = 2, // Open after 2 handled exceptions
-                CircuitBreakerIntervalMinutes = 1,
+                CircuitBreakerExceptionCount = 2, // Open after 2 handled exceptions
+                CircuitBreakerDurationSeconds = 60,
                 BulkheadMaxParallelization = 10,
                 BulkheadMaxQueuingActions = 5
             };

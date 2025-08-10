@@ -14,45 +14,45 @@ public class ResiliencySettings
     /// <summary>
     /// The resiliency pattern to follow. Determines the Polly policy generated.
     /// </summary>
-    public ResiliencyPatterns DesiredPolicy { get; init; } = ResiliencyPatterns.Basic;
+        public ResiliencyPatterns DesiredPolicy { get; init; } = ResiliencyPatterns.Basic;
 
     /// <summary>
-    /// Retrieves or sets the number of times to retry an operation.
+    /// Gets or sets the number of retries to attempt.
     /// </summary>
     public int RetryCount { get; init; } = 3;
 
     /// <summary>
-    /// Retrieves or sets the interval in seconds between operation retries.
+    /// Gets or sets the interval between retries in seconds.
     /// </summary>
     public int RetryIntervalSeconds { get; init; } = 2;
 
     /// <summary>
-    /// Set to true to use exponential backoff for operation retries.
+    /// Gets or sets a value indicating whether to use exponential backoff for retries.
     /// </summary>
     public bool UseExponentialBackoff { get; init; } = true;
 
     /// <summary>
-    /// Value used for timeout policy in seconds.
+    /// Gets or sets the timeout interval in seconds.
     /// </summary>
-    public int TimeoutIntervalSeconds { get; init; } = 5;
+    public int TimeoutIntervalSeconds { get; init; } = 60;
 
     /// <summary>
-    /// Maximum number of concurrent transactions.
+    /// Gets or sets the duration of the break in the circuit breaker pattern in seconds.
+    /// </summary>
+    public int CircuitBreakerDurationSeconds { get; init; } = 30;
+
+    /// <summary>
+    /// Gets or sets the number of consecutive exceptions before the circuit breaks.
+    /// </summary>
+    public int CircuitBreakerExceptionCount { get; init; } = 5;
+
+    /// <summary>
+    /// Gets or sets the maximum number of parallel executions in the bulkhead pattern.
     /// </summary>
     public int BulkheadMaxParallelization { get; init; } = 10;
 
     /// <summary>
-    /// Maximum number of enqueued transactions allowed.
+    /// Gets or sets the maximum number of items that can be queued in the bulkhead pattern.
     /// </summary>
-    public int BulkheadMaxQueuingActions { get; init; } = 20;
-
-    /// <summary>
-    /// How many exceptions are tolerated before restricting executions.
-    /// </summary>
-    public int CircuitBreakerCount { get; init; } = 3;
-
-    /// <summary>
-    /// Amount of time in minutes before retrying the execution after being restricted.
-    /// </summary>
-    public int CircuitBreakerIntervalMinutes { get; init; } = 1;
+    public int BulkheadMaxQueuingActions { get; init; } = 5;
 }

@@ -158,8 +158,8 @@ public static class PollyPolicyGenerator
         var circuitBreakerPolicy = Policy
             .Handle(exceptionPredicate)
             .CircuitBreakerAsync(
-                exceptionsAllowedBeforeBreaking: settings.CircuitBreakerCount,
-                durationOfBreak: TimeSpan.FromMinutes(settings.CircuitBreakerIntervalMinutes),
+                exceptionsAllowedBeforeBreaking: settings.CircuitBreakerExceptionCount,
+                durationOfBreak: TimeSpan.FromSeconds(settings.CircuitBreakerDurationSeconds),
                 onBreak: (ex, breakDelay, context) =>
                     logger.LogError(ex, "Circuit breaker opened for {BreakDelay}. OperationKey: {OperationKey}", breakDelay, context.OperationKey),
                 onReset: context => logger.LogDebug("Circuit breaker reset. OperationKey: {OperationKey}", context.OperationKey),
@@ -402,8 +402,8 @@ public static class PollyPolicyGenerator
         var circuitBreakerPolicy = Policy
             .Handle(exceptionPredicate)
             .CircuitBreaker(
-                exceptionsAllowedBeforeBreaking: settings.CircuitBreakerCount,
-                durationOfBreak: TimeSpan.FromMinutes(settings.CircuitBreakerIntervalMinutes),
+                exceptionsAllowedBeforeBreaking: settings.CircuitBreakerExceptionCount,
+                durationOfBreak: TimeSpan.FromSeconds(settings.CircuitBreakerDurationSeconds),
                 onBreak: (ex, breakDelay, context) =>
                     logger.LogError(ex, "Circuit breaker opened for {BreakDelay}. OperationKey: {OperationKey}", breakDelay, context.OperationKey),
                 onReset: context => logger.LogDebug("Circuit breaker reset. OperationKey: {OperationKey}", context.OperationKey),

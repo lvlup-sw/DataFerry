@@ -4,7 +4,7 @@
 // </copyright>
 // ===================================================================
 
-namespace lvlup.DataFerry.Utilities;
+namespace lvlup.DataFerry.Extensions;
 
 /// <summary>
 /// A collection of extension methods for <see cref="IList{T}"/>.

@@ -76,7 +76,7 @@ public static class HashGenerator
             long l => BitConverter.GetBytes(l),
             float f => BitConverter.GetBytes(f),
             double d => BitConverter.GetBytes(d),
-            decimal d => decimal.GetBits(d).SelectMany(BitConverter.GetBytes).ToArray(),
+            decimal dec => decimal.GetBits(dec).SelectMany(BitConverter.GetBytes).ToArray(),
             _ => JsonSerializer.SerializeToUtf8Bytes(obj)
         };
     }

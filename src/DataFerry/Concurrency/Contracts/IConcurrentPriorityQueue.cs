@@ -38,12 +38,27 @@ public interface IConcurrentPriorityQueue<TPriority, TElement>
     bool TryAdd(TPriority priority, TElement element);
 
     /// <summary>
-    /// Attempts to remove the first valid node found with the specified priority from the queue.
+    /// Attempts to peek at the element with the minimum priority without removing it from the queue.
+    /// </summary>
+    /// <param name="priority">When this method returns, contains the priority of the minimum element
+    /// if the operation was successful; otherwise, the default value for <typeparamref name="TPriority"/>.
+    /// This parameter is passed uninitialized.</param>
+    /// <param name="element">When this method returns, contains the element value of the minimum item
+    /// if the operation was successful; otherwise, the default value for <typeparamref name="TElement"/>.
+    /// This parameter is passed uninitialized.</param>
+    /// <returns><c>true</c> if an element was successfully found; otherwise, <c>false</c> (e.g., if the queue was empty).</returns>
+    bool TryPeekMin([MaybeNullWhen(false)] out TPriority priority, [MaybeNullWhen(false)] out TElement element);
+
+    /// <summary>
+    /// Attempts to remove the first valid node found with the specified priority from the queue and return its element.
     /// </summary>
     /// <param name="priority">The priority to remove.</param>
+    /// <param name="element">When this method returns, contains the element value of the removed item
+    /// if the operation was successful; otherwise, the default value for <typeparamref name="TElement"/>.
+    /// This parameter is passed uninitialized.</param>
     /// <returns><c>true</c> if a node with the specified priority was found and successfully removed; otherwise, <c>false</c>.</returns>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
-    bool TryDelete(TPriority priority);
+    bool TryRemove(TPriority priority, [MaybeNullWhen(false)] out TElement element);
 
     /// <summary>
     /// Attempts to remove the element with the minimum priority (and lowest sequence number in case of ties)
@@ -119,6 +134,17 @@ public interface IConcurrentPriorityQueue<TPriority, TElement>
     /// <returns><c>true</c> if a node with the specified priority was found and successfully updated; <c>false</c> if the node was not found or was deleted concurrently before the update could complete.</returns>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> or <paramref name="updateFunction"/> is null.</exception>
     bool Update(TPriority priority, Func<TPriority, TElement, TElement> updateFunction);
+
+    /// <summary>
+    /// Attempts to peek at the element with the specified priority without removing it from the queue.
+    /// </summary>
+    /// <param name="priority">The priority to search for.</param>
+    /// <param name="element">When this method returns, contains the element value of the item
+    /// if the operation was successful; otherwise, the default value for <typeparamref name="TElement"/>.
+    /// This parameter is passed uninitialized.</param>
+    /// <returns><c>true</c> if a node with the specified priority was found; otherwise, <c>false</c>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="priority"/> is null.</exception>
+    bool TryPeek(TPriority priority, [MaybeNullWhen(false)] out TElement element);
 
     /// <summary>
     /// Determines whether the queue contains a valid (inserted and not deleted) node with the specified priority.

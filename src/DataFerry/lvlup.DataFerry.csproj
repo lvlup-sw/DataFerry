@@ -10,7 +10,7 @@
     <Description>Provides concurrent data structures and caching implementations for distributed systems programming.</Description>
     <PackageProjectUrl>https://github.com/lvlup-sw/DataFerry</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<PackageLicenseExpression>Apache</PackageLicenseExpression>
 	<PackageTags>Concurrency;PriorityQueue;LinkedList;DataStructures;IBufferWriter;IMemoryCache;IDistributedCache;IBufferDistributedCache;HybridCache;Redis;StackExchange.Redis;Cache;Caching;CacheReplacementPolicy;DistributedSystems;Polly;Hashing;MurmurHash3</PackageTags>
 	<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
@@ -22,6 +22,7 @@
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.ObjectPool" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" />
     <PackageReference Include="Polly" />

@@ -4,7 +4,7 @@
 // </copyright>
 // ===========================================================================
 
-namespace lvlup.DataFerry.Orchestrators.Contracts;
+namespace lvlup.DataFerry.Concurrency.Contracts;
 
 /// <summary>
 /// Represents a contract for a background task scheduler that handles queuing and executing asynchronous actions.
