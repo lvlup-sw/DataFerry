@@ -1,7 +1,7 @@
 ﻿using System.Security.Cryptography;
-using DataFerry.Tests.TestModels;
+using lvlup.DataFerry.Tests.TestModels;
 
-namespace DataFerry.Tests
+namespace lvlup.DataFerry.Tests
 {
     internal static class TestUtils
     {
@@ -22,13 +22,52 @@ namespace DataFerry.Tests
         {
             Payload payload = new()
             {
-                Identifier = GenerateRandomString(10),
+                Identifier = Guid.NewGuid().ToString(),
                 Data = GenerateRandomString(100),
                 Property = true,
                 Version = 1
             };
 
             return payload;
+        }
+
+        public static Payload CreatePayloadIdentical()
+        {
+            Payload payload = new()
+            {
+                Identifier = "1",
+                Data = "123456789123456789123456789123456789123456789123456789123456789",
+                Property = true,
+                Version = 1
+            };
+
+            return payload;
+        }
+
+        public static Payload CreateLargePayload()
+        {
+            Payload largePayload = new()
+            {
+                Identifier = Guid.NewGuid().ToString(),
+                Data = GenerateRandomString(10000),
+                Property = true,
+                Version = 1.0m
+            };
+
+            return largePayload;
+        }
+
+        public static Payload CreateLargePayload(int size)
+        {
+            Payload largePayload = new()
+            {
+                Identifier = Guid.NewGuid().ToString(),
+                Data = GenerateRandomString(size),
+                Property = true,
+                Version = 1.0m
+            };
+
+            return largePayload;
         }
 
         public static string GenerateRandomString(int length)

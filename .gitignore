@@ -82,6 +82,8 @@ StyleCopReport.xml
 *.pgc
 *.pgd
 *.rsp
+# but not Directory.Build.rsp, as it configures directory-level build defaults
+!Directory.Build.rsp
 *.sbr
 *.tlb
 *.tli
@@ -396,3 +398,14 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Ignore .DS_Store files (macOS metadata)
+.DS_Store
+**/ .DS_Store
+
+# Ignore the .idea directory (IntelliJ IDEA / JetBrains IDE settings)
+.idea/
+src/.idea/
+
+# Ignore local Claude config
+.claude/
